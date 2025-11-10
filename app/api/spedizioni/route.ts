@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 
 // GET /api/spedizioni
 export async function GET() {
-  // In futuro qui potremo leggere le spedizioni da Supabase.
   return NextResponse.json(
     {
       ok: true,
-      message: "Endpoint spedizioni non ancora migrato (no Firebase).",
+      message: "Endpoint spedizioni in fase di migrazione. Dati non ancora letti dal DB.",
       data: [],
     },
     { status: 200 }
@@ -17,12 +16,15 @@ export async function GET() {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  // In futuro: creazione spedizione in Supabase.
+  // TODO: qui collegheremo Supabase (spst.shipments + spst.packages).
+  console.log("[SPEDIZIONE/NUOVA] payload ricevuto", body);
+
+  const id = `SPST-${Date.now().toString(36)}`;
+
   return NextResponse.json(
     {
       ok: true,
-      message: "Creazione spedizione non ancora implementata (no Firebase).",
-      received: body,
+      id,
     },
     { status: 200 }
   );
