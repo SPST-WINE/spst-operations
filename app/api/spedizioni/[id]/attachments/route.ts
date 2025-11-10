@@ -1,34 +1,30 @@
-// app/api/spedizioni/[id]/attachments/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { buildCorsHeaders } from '@/lib/cors';
-import { auth } from '@/lib/firebase-admin';
-import { attachFilesToSpedizione } from '@/lib/airtable';
+import { NextResponse } from "next/server";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+type Params = { params: { id: string } };
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // Auth
-    const authz = req.headers.get('authorization') || '';
-    const token = authz.startsWith('Bearer ') ? authz.slice(7) : '';
-    if (!token) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: buildCorsHeaders() });
-    }
-    await auth.verifyIdToken(token);
+// GET /api/spedizioni/[id]/attachments
+export async function GET(_req: Request, { params }: Params) {
+  const { id } = params;
 
-    // Body: { fattura?: {url, filename?}[], packing?: {url, filename?}[] }
-    const body = await req.json();
-    const { fattura, packing } = body ?? {};
+  return NextResponse.json(
+    {
+      ok: true,
+      message: `Lista allegati per spedizione ${id} non ancora migrata.`,
+      attachments: [],
+    },
+    { status: 200 }
+  );
+}
 
-    await attachFilesToSpedizione(params.id, { fattura, packing });
+// POST /api/spedizioni/[id]/attachments
+export async function POST(_req: Request, { params }: Params) {
+  const { id } = params;
 
-    return NextResponse.json({ ok: true }, { headers: buildCorsHeaders() });
-  } catch (e) {
-    console.error('attachments error', e);
-    return NextResponse.json({ error: 'internal' }, { status: 500, headers: buildCorsHeaders() });
-  }
+  return NextResponse.json(
+    {
+      ok: true,
+      message: `Upload allegato per spedizione ${id} non ancora implementato.`,
+    },
+    { status: 200 }
+  );
 }
