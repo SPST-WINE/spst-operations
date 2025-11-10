@@ -1,19 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-// client server-side sullo schema "spst"
-const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-  db: {
-    schema: "spst",
-  },
-});
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // Helper per ID tipo SP-YYYY-MM-DD-XXXXX
 function makeHumanId(date = new Date()): string {
@@ -50,6 +36,30 @@ function computePackageMetrics(collo: any) {
   };
 }
 
+// Lazy client: lo creiamo solo quando serve, e solo se le env ci sono
+function getSupabaseAdmin(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    console.warn(
+      "[API/spedizioni] Supabase env mancanti, skip scrittura DB:",
+      { url: !!url, key: !!key }
+    );
+    return null;
+  }
+
+  return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    db: {
+      schema: "spst",
+    },
+  });
+}
+
 // GET /api/spedizioni
 export async function GET() {
   // TODO: in futuro leggeremo le spedizioni vere da Supabase (vista v_shipments_basic)
@@ -66,17 +76,18 @@ export async function GET() {
 // POST /api/spedizioni
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-
   const id_human = makeHumanId();
 
+  const supabaseAdmin = getSupabaseAdmin();
+
   // Se non abbiamo la service key, non proviamo nemmeno a scrivere sul DB
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  if (!supabaseAdmin) {
     return NextResponse.json(
       {
         ok: true,
         id: id_human,
         recId: id_human,
-        db: "skipped (missing service role key)",
+        db: "skipped (no SUPABASE_SERVICE_ROLE_KEY or URL)",
       },
       { status: 201 }
     );
@@ -86,25 +97,22 @@ export async function POST(req: Request) {
     // ------------------------------------------------------------
     // 1) Inserisci spedizione su spst.shipments
     //    Per ora salviamo campo human_id + un JSON "payload_raw"
-    //    Se i nomi colonna sono diversi, li aggiustiamo dopo.
     // ------------------------------------------------------------
     const { data: shipmentRow, error: shipErr } = await supabaseAdmin
       .from("shipments")
       .insert({
-        human_id: id_human,           // <— deve esistere in spst.shipments (text)
-        source: body?.sorgente ?? "vino",
-        shipment_type: body?.tipoSped ?? null,
-        incoterm: body?.incoterm ?? null,
-        currency: body?.valuta ?? null,
-        // raw payload per debug/migrazione: jsonb
-        payload_raw: body,
+        human_id: id_human, // <— deve esistere in spst.shipments (text)
+        source: (body as any)?.sorgente ?? "vino",
+        shipment_type: (body as any)?.tipoSped ?? null,
+        incoterm: (body as any)?.incoterm ?? null,
+        currency: (body as any)?.valuta ?? null,
+        payload_raw: body, // jsonb per debug/migrazione
       })
       .select("*")
       .single();
 
     if (shipErr) {
       console.error("[API/spedizioni] insert shipments error:", shipErr);
-      // Non blocchiamo il frontend: restituiamo comunque l'ID, ma segnaliamo l'errore
       return NextResponse.json(
         {
           ok: false,
@@ -117,30 +125,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const shipmentId = shipmentRow.id;
+    const shipmentId = (shipmentRow as any).id;
 
     // ------------------------------------------------------------
     // 2) Inserisci colli su spst.packages
     // ------------------------------------------------------------
-    const colli = Array.isArray(body?.colli) ? body.colli : [];
+    const colli = Array.isArray((body as any)?.colli)
+      ? ((body as any).colli as any[])
+      : [];
 
     if (colli.length > 0) {
       const rows = colli.map((c: any, idx: number) => {
         const metrics = computePackageMetrics(c);
         return {
           shipment_id: shipmentId,
-          index: idx + 1, // se esiste una colonna index / sequence; altrimenti la togliamo
+          index: idx + 1, // se non hai questa colonna, rimuoviamola
           ...metrics,
         };
       });
 
-      const { error: pkgErr } = await supabaseAdmin
-        .from("packages")
-        .insert(rows);
+      const { error: pkgErr } = await supabaseAdmin.from("packages").insert(rows);
 
       if (pkgErr) {
         console.error("[API/spedizioni] insert packages error:", pkgErr);
-        // Non blocchiamo il flusso utente: avvisiamo ma teniamo la spedizione
         return NextResponse.json(
           {
             ok: false,
