@@ -1,152 +1,101 @@
-'use client';
+"use client";
 
-import Image from 'next/image';
-import { Suspense, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { authClient } from '@/lib/firebase-client';
+import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-const LOGO =
-  'https://cdn.prod.website-files.com/6800cc3b5f399f3e2b7f2ffa/68079e968300482f70a36a4a_output-onlinepngtools%20(1).png';
-
-export default function Page() {
-  return (
-    <Suspense fallback={<Skeleton />}>
-      <LoginForm />
-    </Suspense>
-  );
-}
-
-function LoginForm() {
+export default function LoginPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const next = params.get('next') || '/dashboard';
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("next") || "/dashboard";
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [err, setErr] = useState<string | null>(null);
+  const [email, setEmail] = useState("info@spst.it");
+  const [password, setPassword] = useState("spst2025");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setErr(null);
     setLoading(true);
+    setError(null);
 
     try {
-      // 1) check su Airtable (abilitazione)
-      const check = await fetch('/api/check-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+      const { error: signError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      if (check.status === 404) {
-        setErr('Email non trovata. Contatta il supporto SPST.');
-        setLoading(false);
-        return;
-      }
-      if (!check.ok) {
-        const data = await check.json().catch(() => ({}));
-        setErr(data?.detail || 'SERVER_ERROR');
+      if (signError) {
+        // errore direttamente da Supabase (tipo "Invalid login credentials")
+        setError(signError.message);
         setLoading(false);
         return;
       }
 
-      const data = await check.json();
-      const enabled = typeof data?.enabled === 'boolean' ? data.enabled : true;
-      if (!enabled) {
-        setErr('Account non abilitato. Contatta il supporto SPST per l’accesso.');
-        setLoading(false);
-        return;
-      }
-
-      // 2) login Firebase (client)
-      const auth = authClient();
-      await signInWithEmailAndPassword(auth, email, password);
-
-      // 3) crea cookie di sessione (server) per la middleware
-      const idToken = await auth.currentUser?.getIdToken(true);
-      if (!idToken) {
-        setErr('Impossibile creare la sessione.');
-        setLoading(false);
-        return;
-      }
-      const sessionRes = await fetch('/api/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ idToken }),
-      });
-      if (!sessionRes.ok) {
-        const d = await sessionRes.json().catch(() => ({}));
-        setErr(d?.error || 'Errore di sessione.');
-        setLoading(false);
-        return;
-      }
-
-      // 4) redirect alla pagina desiderata (ora la middleware ti lascia passare)
-      router.replace(next);
-    } catch (e: any) {
-      setErr(e?.code || e?.message || 'Errore imprevisto');
+      router.push(redirectTo);
+    } catch (err: any) {
+      setError(err?.message || "Errore sconosciuto");
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-slate-50 px-4 py-10">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="flex flex-col items-center gap-1">
-          <Image src={LOGO} alt="SPST" width={44} height={44} priority />
-          <h1 className="text-lg font-semibold mt-2">Benvenuto in SPST</h1>
-          <p className="text-xs text-slate-500">Accedi con le tue credenziali</p>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <form
+        onSubmit={handleSubmit}
+        className="w-[420px] rounded-xl bg-white shadow p-8 space-y-4 border border-slate-100"
+      >
+        <div className="flex flex-col items-center gap-2 mb-2">
+          <div className="h-10 w-10 rounded-xl bg-amber-500 flex items-center justify-center text-white text-xl font-bold">
+            S
+          </div>
+          <div className="text-lg font-semibold">Benvenuto in SPST</div>
+          <div className="text-xs text-slate-500">
+            Accedi con le tue credenziali
+          </div>
         </div>
 
         <div className="space-y-2">
+          <label className="block text-xs font-medium text-slate-700">
+            Email
+          </label>
           <input
-            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
-            placeholder="Email"
-            autoComplete="email"
+            type="email"
+            className="w-full rounded border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/50"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
-            placeholder="Password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="email"
           />
         </div>
 
-        {err && <div className="text-xs text-red-600">{err}</div>}
+        <div className="space-y-2">
+          <label className="block text-xs font-medium text-slate-700">
+            Password
+          </label>
+          <input
+            type="password"
+            className="w-full rounded border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/50"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+
+        {error && (
+          <div className="text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-[#1c3e5e] px-3 py-2 text-sm font-medium text-white hover:opacity-95 disabled:opacity-60"
+          className="w-full rounded bg-slate-900 text-white py-2 text-sm font-semibold hover:bg-slate-800 disabled:opacity-60"
         >
-          {loading ? 'Accesso…' : 'Entra'}
+          {loading ? "Accesso in corso..." : "Entra"}
         </button>
       </form>
-    </div>
-  );
-}
-
-function Skeleton() {
-  return (
-    <div className="min-h-screen grid place-items-center bg-slate-50 px-4 py-10">
-      <div className="w-full max-w-sm rounded-2xl border bg-white p-6 shadow-sm">
-        <div className="animate-pulse space-y-3">
-          <div className="mx-auto h-11 w-11 rounded-full bg-slate-200" />
-          <div className="h-4 w-2/3 mx-auto bg-slate-200 rounded" />
-          <div className="h-3 w-1/2 mx-auto bg-slate-200 rounded" />
-          <div className="h-9 w-full bg-slate-200 rounded mt-4" />
-          <div className="h-9 w-full bg-slate-200 rounded" />
-          <div className="h-9 w-full bg-slate-200 rounded" />
-        </div>
-      </div>
     </div>
   );
 }
