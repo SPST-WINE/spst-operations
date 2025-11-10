@@ -16,8 +16,7 @@ import {
   ApiError,
   getUserProfile,
 } from '@/lib/api';
-import { getIdToken } from '@/lib/firebase-client-auth';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
 
 // ------------------------------------------------------------
 // Types & helpers
