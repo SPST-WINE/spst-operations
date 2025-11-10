@@ -10,6 +10,7 @@
     "node": "20.x"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.80.0",
     "airtable": "^0.12.2",
     "date-fns": "^3.6.0",
     "firebase": "^10.12.0",
