@@ -1,18 +1,58 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-// Helper per ID tipo SP-DD-MM-XXXXX
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// client server-side sullo schema "spst"
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+  db: {
+    schema: "spst",
+  },
+});
+
+// Helper per ID tipo SP-YYYY-MM-DD-XXXXX
 function makeHumanId(date = new Date()): string {
-  const dd = String(date.getDate()).padStart(2, "0");
+  const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
   const suffix = Math.floor(Math.random() * 100000)
     .toString()
     .padStart(5, "0"); // sempre 5 cifre
-  return `SP-${dd}-${mm}-${suffix}`;
+  return `SP-${yyyy}-${mm}-${dd}-${suffix}`;
+}
+
+// calcolo volume e peso volumetrico (L*W*H in cm, divisore 5000)
+function computePackageMetrics(collo: any) {
+  const L = Number(collo?.lunghezza_cm ?? 0);
+  const W = Number(collo?.larghezza_cm ?? 0);
+  const H = Number(collo?.altezza_cm ?? 0);
+  const weight = Number(collo?.peso_kg ?? 0);
+
+  const validDims = L > 0 && W > 0 && H > 0;
+  const volume_cm3 = validDims ? L * W * H : null;
+  const weight_vol_kg = volume_cm3 ? volume_cm3 / 5000 : null; // classica formula courier
+  const weight_tariff_kg =
+    weight_vol_kg != null ? Math.max(weight, weight_vol_kg) : weight || null;
+
+  return {
+    length_cm: validDims ? L : null,
+    width_cm: validDims ? W : null,
+    height_cm: validDims ? H : null,
+    weight_kg: weight || null,
+    volume_cm3,
+    weight_volumetric_kg: weight_vol_kg,
+    weight_tariff_kg,
+  };
 }
 
 // GET /api/spedizioni
 export async function GET() {
-  // TODO: in futuro leggeremo le spedizioni vere da Supabase
+  // TODO: in futuro leggeremo le spedizioni vere da Supabase (vista v_shipments_basic)
   return NextResponse.json(
     {
       ok: true,
@@ -27,16 +67,113 @@ export async function GET() {
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  // Qui in futuro: insert su Supabase (spst.shipments + spst.packages)
-  const id = makeHumanId();
+  const id_human = makeHumanId();
 
-  return NextResponse.json(
-    {
-      ok: true,
-      id,        // usato dalla pagina nuova/vino come idSped
-      recId: id, // alias, così non rompiamo niente se in futuro cambiamo
-      received: body,
-    },
-    { status: 201 }
-  );
+  // Se non abbiamo la service key, non proviamo nemmeno a scrivere sul DB
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json(
+      {
+        ok: true,
+        id: id_human,
+        recId: id_human,
+        db: "skipped (missing service role key)",
+      },
+      { status: 201 }
+    );
+  }
+
+  try {
+    // ------------------------------------------------------------
+    // 1) Inserisci spedizione su spst.shipments
+    //    Per ora salviamo campo human_id + un JSON "payload_raw"
+    //    Se i nomi colonna sono diversi, li aggiustiamo dopo.
+    // ------------------------------------------------------------
+    const { data: shipmentRow, error: shipErr } = await supabaseAdmin
+      .from("shipments")
+      .insert({
+        human_id: id_human,           // <— deve esistere in spst.shipments (text)
+        source: body?.sorgente ?? "vino",
+        shipment_type: body?.tipoSped ?? null,
+        incoterm: body?.incoterm ?? null,
+        currency: body?.valuta ?? null,
+        // raw payload per debug/migrazione: jsonb
+        payload_raw: body,
+      })
+      .select("*")
+      .single();
+
+    if (shipErr) {
+      console.error("[API/spedizioni] insert shipments error:", shipErr);
+      // Non blocchiamo il frontend: restituiamo comunque l'ID, ma segnaliamo l'errore
+      return NextResponse.json(
+        {
+          ok: false,
+          id: id_human,
+          recId: id_human,
+          error: "DB_INSERT_SHIPMENT_FAILED",
+          details: shipErr.message ?? shipErr,
+        },
+        { status: 500 }
+      );
+    }
+
+    const shipmentId = shipmentRow.id;
+
+    // ------------------------------------------------------------
+    // 2) Inserisci colli su spst.packages
+    // ------------------------------------------------------------
+    const colli = Array.isArray(body?.colli) ? body.colli : [];
+
+    if (colli.length > 0) {
+      const rows = colli.map((c: any, idx: number) => {
+        const metrics = computePackageMetrics(c);
+        return {
+          shipment_id: shipmentId,
+          index: idx + 1, // se esiste una colonna index / sequence; altrimenti la togliamo
+          ...metrics,
+        };
+      });
+
+      const { error: pkgErr } = await supabaseAdmin
+        .from("packages")
+        .insert(rows);
+
+      if (pkgErr) {
+        console.error("[API/spedizioni] insert packages error:", pkgErr);
+        // Non blocchiamo il flusso utente: avvisiamo ma teniamo la spedizione
+        return NextResponse.json(
+          {
+            ok: false,
+            id: id_human,
+            recId: id_human,
+            error: "DB_INSERT_PACKAGES_FAILED",
+            details: pkgErr.message ?? pkgErr,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        id: id_human,
+        recId: id_human,
+        shipment_id: shipmentId,
+      },
+      { status: 201 }
+    );
+  } catch (e: any) {
+    console.error("[API/spedizioni] unexpected error:", e);
+    return NextResponse.json(
+      {
+        ok: false,
+        id: id_human,
+        recId: id_human,
+        error: "UNEXPECTED_ERROR",
+        details: e?.message ?? String(e),
+      },
+      { status: 500 }
+    );
+  }
 }
