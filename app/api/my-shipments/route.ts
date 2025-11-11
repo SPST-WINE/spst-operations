@@ -38,7 +38,7 @@ export async function GET() {
   try {
     client = await pool.connect();
 
-    const result = await client.query<ShipmentRow>(
+    const result = await client.query(
       `
       select
         id,
@@ -57,10 +57,12 @@ export async function GET() {
       `
     );
 
+    const rows = result.rows as ShipmentRow[];
+
     return NextResponse.json(
       {
         ok: true,
-        data: result.rows,
+        data: rows,
       },
       { status: 200 }
     );
