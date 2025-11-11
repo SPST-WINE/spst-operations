@@ -11,14 +11,11 @@ type ShipmentRow = {
   giorno_ritiro: string | null;
   colli_n: number | null;
   peso_reale_kg: string | number | null;
-  total_weight_real_kg?: string | number | null;
-  total_weight_vol_kg?: string | number | null;
-  total_weight_tariff_kg?: string | number | null;
   created_at: string;
 };
 
-// Supabase admin client che lavora sullo schema PUBLIC (per usare le view)
-function getSupabaseAdminPublic() {
+// Supabase admin client sullo schema "spst" (come in /api/spedizioni)
+function getSupabaseAdminSpst() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
@@ -36,12 +33,15 @@ function getSupabaseAdminPublic() {
       autoRefreshToken: false,
       persistSession: false,
     },
+    db: {
+      schema: "spst",
+    },
   });
 }
 
 // GET /api/my-shipments
 export async function GET() {
-  const supabaseAdmin = getSupabaseAdminPublic();
+  const supabaseAdmin = getSupabaseAdminSpst();
   if (!supabaseAdmin) {
     return NextResponse.json(
       {
@@ -53,10 +53,12 @@ export async function GET() {
   }
 
   try {
-    // In futuro qui potremo filtrare per utente loggato.
+    // In futuro qui filtreremo per utente loggato (customer_id).
     const { data, error } = await supabaseAdmin
-      .from("v_shipments_detail")
-      .select("*")
+      .from("shipments")
+      .select(
+        "id, human_id, tipo_spedizione, incoterm, mittente_citta, dest_citta, giorno_ritiro, colli_n, peso_reale_kg, created_at"
+      )
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -66,7 +68,7 @@ export async function GET() {
         {
           ok: false,
           error: "DB_SELECT_FAILED",
-          details: error.message ?? error,
+          details: error.message ?? String(error),
         },
         { status: 500 }
       );
