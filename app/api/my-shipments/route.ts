@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 type ShipmentRow = {
   id: string;
@@ -14,65 +14,79 @@ type ShipmentRow = {
   created_at: string;
 };
 
-const connectionString = process.env.DATABASE_URL;
+let cachedClient: SupabaseClient<any, any> | null = null;
 
-if (!connectionString) {
-  console.warn("[API/my-shipments] DATABASE_URL non configurata");
-}
+function getSupabaseServiceClient(): SupabaseClient<any, any> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// 🔹 Connessione con SSL disattivato (fix per Vercel)
-const pool = connectionString
-  ? new Pool({
-      connectionString,
-      ssl: { rejectUnauthorized: false },
-    })
-  : null;
-
-// 🔹 GET /api/my-shipments
-export async function GET() {
-  if (!pool) {
-    return NextResponse.json(
-      { ok: false, error: "NO_DATABASE_URL" },
-      { status: 500 }
-    );
+  if (!url || !key) {
+    throw new Error("SUPABASE_ADMIN_MISCONFIG: missing url or service key");
   }
 
-  let client;
+  if (!cachedClient) {
+    cachedClient = createClient<any, any>(url, key, {
+      db: { schema: "spst" },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+  }
+
+  return cachedClient;
+}
+
+// GET /api/my-shipments
+export async function GET() {
   try {
-    client = await pool.connect();
+    const supabase = getSupabaseServiceClient();
 
-    const query = `
-      select
-        id,
-        human_id,
-        tipo_spedizione,
-        incoterm,
-        mittente_citta,
-        dest_citta,
-        giorno_ritiro,
-        colli_n,
-        peso_reale_kg,
-        created_at
-      from spst.shipments
-      order by created_at desc
-      limit 200
-    `;
+    const { data, error } = await supabase
+      .from("shipments")
+      .select(
+        [
+          "id",
+          "human_id",
+          "tipo_spedizione",
+          "incoterm",
+          "mittente_citta",
+          "dest_citta",
+          "giorno_ritiro",
+          "colli_n",
+          "peso_reale_kg",
+          "created_at",
+        ].join(",")
+      )
+      .order("created_at", { ascending: false })
+      .limit(200);
 
-    const result = await client.query(query);
-    const rows = result.rows as ShipmentRow[];
+    if (error) {
+      console.error("[API/my-shipments] select error:", error);
+      return NextResponse.json(
+        { ok: false, error: "DB_SELECT_FAILED", details: error.message },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, rows }, { status: 200 });
+    const rows = (data || []) as ShipmentRow[];
+
+    return NextResponse.json(
+      {
+        ok: true,
+        rows,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     console.error("[API/my-shipments] unexpected error:", e);
     return NextResponse.json(
       {
         ok: false,
-        error: "DB_SELECT_FAILED",
+        error: "UNEXPECTED_ERROR",
         details: e?.message ?? String(e),
       },
       { status: 500 }
     );
-  } finally {
-    if (client) client.release();
   }
 }
