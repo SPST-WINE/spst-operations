@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
 // --- Tipi "soft" per il payload che arriva da nuova/vino ---
 
@@ -76,7 +76,7 @@ function computePackageMetrics(collo: any) {
 
 // --- Supabase client lazy (non esplode in build se mancano le env) ---
 
-function getSupabaseAdmin(): SupabaseClient | null {
+function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
@@ -158,7 +158,6 @@ export async function POST(req: Request) {
       .from("shipments")
       .insert({
         human_id: id_human,
-        // status/consegne li gestiremo nella fase successiva
         tipo_spedizione: body.tipoSped ?? null,
         incoterm: body.incoterm ?? null,
         incoterm_norm: body.incoterm ?? null,
@@ -174,7 +173,7 @@ export async function POST(req: Request) {
         dest_cap: dest.cap ?? null,
         colli_n,
         peso_reale_kg,
-        fields: body as any, // payload grezzo in jsonb per debug/migrazione
+        fields: body as any,
       })
       .select("*")
       .single();
