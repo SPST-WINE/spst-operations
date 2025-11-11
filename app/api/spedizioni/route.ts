@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-// --- Tipi "soft" per il payload che arriva da nuova/vino ---
-
 type Party = {
   ragioneSociale?: string;
   referente?: string;
@@ -35,19 +33,15 @@ type Payload = {
   packingList?: any[];
 };
 
-// --- Helper per ID tipo SP-YYYY-MM-DD-XXXXX ---
-
 function makeHumanId(date = new Date()): string {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   const suffix = Math.floor(Math.random() * 100000)
     .toString()
-    .padStart(5, "0"); // sempre 5 cifre
+    .padStart(5, "0");
   return `SP-${yyyy}-${mm}-${dd}-${suffix}`;
 }
-
-// --- Helper colli: volume e peso volumetrico ---
 
 function computePackageMetrics(collo: any) {
   const L = Number(collo?.lunghezza_cm ?? 0);
@@ -74,8 +68,6 @@ function computePackageMetrics(collo: any) {
   };
 }
 
-// --- Supabase client lazy (non esplode in build se mancano le env) ---
-
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
@@ -100,8 +92,6 @@ function getSupabaseAdmin() {
   });
 }
 
-// --- GET /api/spedizioni (per ora stub) ---
-
 export async function GET() {
   return NextResponse.json(
     {
@@ -113,16 +103,12 @@ export async function GET() {
   );
 }
 
-// --- POST /api/spedizioni ---
-// Crea spedizione in spst.shipments + spst.packages
-
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Payload;
   const id_human = makeHumanId();
 
   const supabaseAdmin = getSupabaseAdmin();
 
-  // Se non abbiamo le env su Vercel, non tocchiamo il DB ma lasciamo funzionare la UI
   if (!supabaseAdmin) {
     return NextResponse.json(
       {
@@ -139,7 +125,6 @@ export async function POST(req: Request) {
     const mitt = body.mittente || {};
     const dest = body.destinatario || {};
 
-    // giorno_ritiro: prendiamo solo la parte data (YYYY-MM-DD)
     const giorno_ritiro =
       body.ritiroData && !Number.isNaN(Date.parse(body.ritiroData))
         ? new Date(body.ritiroData).toISOString().slice(0, 10)
@@ -153,7 +138,6 @@ export async function POST(req: Request) {
         0
       ) || null;
 
-    // 1) INSERT su spst.shipments
     const { data: shipmentRow, error: shipErr } = await supabaseAdmin
       .from("shipments")
       .insert({
@@ -173,7 +157,7 @@ export async function POST(req: Request) {
         dest_cap: dest.cap ?? null,
         colli_n,
         peso_reale_kg,
-        -- niente "fields": usiamo il default '{}'::jsonb
+        // NB: non popoliamo "fields", lasciamo il default '{}'::jsonb
       } as any)
       .select("*")
       .single();
@@ -194,7 +178,6 @@ export async function POST(req: Request) {
 
     const shipmentId = (shipmentRow as any).id as string;
 
-    // 2) INSERT su spst.packages (uno per ogni collo)
     if (colli.length > 0) {
       const rows = colli.map((c: any) => {
         const m = computePackageMetrics(c);
@@ -224,7 +207,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // Risposta per la UI
     return NextResponse.json(
       {
         ok: true,
