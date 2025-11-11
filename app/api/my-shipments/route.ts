@@ -18,7 +18,7 @@ let cachedClient: SupabaseClient<any, any> | null = null;
 
 function getSupabaseServiceClient(): SupabaseClient<any, any> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     throw new Error("SUPABASE_ADMIN_MISCONFIG: missing url or service key");
@@ -69,7 +69,6 @@ export async function GET() {
       );
     }
 
-    // data è tipizzata in modo molto generico da supabase-js -> cast via unknown
     const rows = (data ?? []) as unknown as ShipmentRow[];
 
     return NextResponse.json(
