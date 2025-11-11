@@ -173,8 +173,8 @@ export async function POST(req: Request) {
         dest_cap: dest.cap ?? null,
         colli_n,
         peso_reale_kg,
-        fields: body as any,
-      })
+        -- niente "fields": usiamo il default '{}'::jsonb
+      } as any)
       .select("*")
       .single();
 
