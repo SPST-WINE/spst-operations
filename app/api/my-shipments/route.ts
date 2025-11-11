@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 
 type ShipmentRow = {
   id: string;
@@ -14,70 +14,53 @@ type ShipmentRow = {
   created_at: string;
 };
 
-// Supabase admin client sullo schema "spst" (come in /api/spedizioni)
-function getSupabaseAdminSpst() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
+const connectionString = process.env.DATABASE_URL;
 
-  if (!url || !key) {
-    console.warn("[API/my-shipments] Supabase env mancanti:", {
-      url: !!url,
-      key: !!key,
-    });
-    return null;
-  }
-
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    db: {
-      schema: "spst",
-    },
-  });
+if (!connectionString) {
+  console.warn("[API/my-shipments] DATABASE_URL non configurata");
 }
+
+const pool = connectionString ? new Pool({ connectionString }) : null;
 
 // GET /api/my-shipments
 export async function GET() {
-  const supabaseAdmin = getSupabaseAdminSpst();
-  if (!supabaseAdmin) {
+  if (!pool) {
     return NextResponse.json(
       {
         ok: false,
-        error: "NO_SUPABASE_ADMIN",
+        error: "NO_DATABASE_URL",
       },
       { status: 500 }
     );
   }
 
+  let client: any;
   try {
-    // In futuro qui filtreremo per utente loggato (customer_id).
-    const { data, error } = await supabaseAdmin
-      .from("shipments")
-      .select(
-        "id, human_id, tipo_spedizione, incoterm, mittente_citta, dest_citta, giorno_ritiro, colli_n, peso_reale_kg, created_at"
-      )
-      .order("created_at", { ascending: false })
-      .limit(50);
+    client = await pool.connect();
 
-    if (error) {
-      console.error("[API/my-shipments] select error:", error);
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "DB_SELECT_FAILED",
-          details: error.message ?? String(error),
-        },
-        { status: 500 }
-      );
-    }
+    const result = await client.query<ShipmentRow>(
+      `
+      select
+        id,
+        human_id,
+        tipo_spedizione,
+        incoterm,
+        mittente_citta,
+        dest_citta,
+        giorno_ritiro,
+        colli_n,
+        peso_reale_kg,
+        created_at
+      from spst.shipments
+      order by created_at desc
+      limit 50
+      `
+    );
 
     return NextResponse.json(
       {
         ok: true,
-        data: (data ?? []) as ShipmentRow[],
+        data: result.rows,
       },
       { status: 200 }
     );
@@ -86,10 +69,12 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
-        error: "UNEXPECTED_ERROR",
+        error: "DB_SELECT_FAILED",
         details: e?.message ?? String(e),
       },
       { status: 500 }
     );
+  } finally {
+    if (client) client.release();
   }
 }
