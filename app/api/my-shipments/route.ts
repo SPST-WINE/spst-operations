@@ -69,7 +69,8 @@ export async function GET() {
       );
     }
 
-    const rows = (data || []) as ShipmentRow[];
+    // data è tipizzata in modo molto generico da supabase-js -> cast via unknown
+    const rows = (data ?? []) as unknown as ShipmentRow[];
 
     return NextResponse.json(
       {
