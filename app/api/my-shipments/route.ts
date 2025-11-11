@@ -20,26 +20,28 @@ if (!connectionString) {
   console.warn("[API/my-shipments] DATABASE_URL non configurata");
 }
 
-const pool = connectionString ? new Pool({ connectionString }) : null;
+// 🔹 Connessione con SSL disattivato (fix per Vercel)
+const pool = connectionString
+  ? new Pool({
+      connectionString,
+      ssl: { rejectUnauthorized: false },
+    })
+  : null;
 
-// GET /api/my-shipments
+// 🔹 GET /api/my-shipments
 export async function GET() {
   if (!pool) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: "NO_DATABASE_URL",
-      },
+      { ok: false, error: "NO_DATABASE_URL" },
       { status: 500 }
     );
   }
 
-  let client: any;
+  let client;
   try {
     client = await pool.connect();
 
-    const result = await client.query(
-      `
+    const query = `
       select
         id,
         human_id,
@@ -53,19 +55,13 @@ export async function GET() {
         created_at
       from spst.shipments
       order by created_at desc
-      limit 50
-      `
-    );
+      limit 200
+    `;
 
+    const result = await client.query(query);
     const rows = result.rows as ShipmentRow[];
 
-    return NextResponse.json(
-      {
-        ok: true,
-        data: rows,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, rows }, { status: 200 });
   } catch (e: any) {
     console.error("[API/my-shipments] unexpected error:", e);
     return NextResponse.json(
