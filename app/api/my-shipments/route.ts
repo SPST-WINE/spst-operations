@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { Pool } from "pg";
 
 /* ----------------------------- shared utils ------------------------------ */
@@ -20,8 +20,8 @@ function logEnvSummary() {
 }
 
 /* ----------------------------- supabase admin ---------------------------- */
-
-function supabaseAdmin(): SupabaseClient {
+/** Nessun return type: evitiamo il mismatch `"public"` vs `"spst"` e castiamo a `any`. */
+function supabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE ||
@@ -32,12 +32,11 @@ function supabaseAdmin(): SupabaseClient {
     throw new Error("SUPABASE_ADMIN_MISCONFIG: missing url or service key");
   }
 
-  // Forza schema 'spst' in tutte le query .from()
   return createClient(url, key, {
     db: { schema: "spst" },
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
-  });
+  }) as any;
 }
 
 function logPgRestError(tag: string, err: any) {
@@ -59,14 +58,12 @@ function makePgPool(): Pool | null {
   const cs = process.env.DATABASE_URL;
   if (!cs) return null;
 
-  // Aggiungi sslmode=require se manca
   const hasParams = cs.includes("?");
   const needsSslMode = !/sslmode=/i.test(cs);
   const finalCs = hasParams
     ? (needsSslMode ? cs + "&sslmode=require" : cs)
     : (needsSslMode ? cs + "?sslmode=require" : cs);
 
-  // Alcuni ambienti lambda vogliono anche rejectUnauthorized:false per cert self-signed
   return new Pool({
     connectionString: finalCs,
     ssl: { rejectUnauthorized: false },
@@ -95,17 +92,16 @@ export async function GET(req: Request) {
 
   logEnvSummary();
 
-  /* ---------- 1) Tentativo via REST (Supabase) con schema forzato ---------- */
+  // 1) Tentativi via REST
   let tries = 0;
   let firstError: any = null;
   let lastError: any = null;
 
-  let sb: SupabaseClient;
+  let sb: any;
   try {
     sb = supabaseAdmin();
   } catch (e: any) {
     logPgRestError("bootstrap", e);
-    // Non abortiamo: proveremo fallback PG
     sb = undefined as any;
   }
 
@@ -113,12 +109,11 @@ export async function GET(req: Request) {
     while (tries < 3) {
       tries++;
       try {
-        // warmup su tabella schema-qualified
         const warm = await sb.from("shipments").select("id", { head: true, count: "exact" });
-        if (warm.error) logPgRestError("warmup", warm.error);
+        if (warm?.error) logPgRestError("warmup", warm.error);
 
         const { data, error } = await sb
-          .from("shipments") // schema impostato a 'spst' nel client
+          .from("shipments")
           .select(SELECT_COLS.replace(/\s+/g, " ").trim())
           .order("created_at", { ascending: false })
           .limit(100);
@@ -127,18 +122,13 @@ export async function GET(req: Request) {
           if (!firstError) firstError = error;
           lastError = error;
           logPgRestError(`select (try ${tries})`, error);
-
-          // PGRST002 = schema cache, prova di nuovo
           if (String(error?.code) === "PGRST002" || /schema cache/i.test(String(error?.message))) {
             await sleep(500 * tries);
             continue;
           }
-
-          // errori diversi -> passa al fallback PG
           break;
         }
 
-        // OK via REST
         return NextResponse.json(
           { ok: true, rows: Array.isArray(data) ? data : [], source: "rest", debug: debug ? { tries } : undefined },
           { status: 200 }
@@ -152,7 +142,7 @@ export async function GET(req: Request) {
     }
   }
 
-  /* ---------- 2) Fallback: connessione diretta Postgres (pg) --------------- */
+  // 2) Fallback PG
   const pool = makePgPool();
   if (!pool) {
     return NextResponse.json(
