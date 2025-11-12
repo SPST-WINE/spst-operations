@@ -255,3 +255,51 @@ export async function getPreventivo(
   return data ?? null;
 }
 
+
+// ---- SPEDIZIONI: lista "Le mie spedizioni" -------------------------------
+
+/**
+ * Carica la lista delle spedizioni passando dall'API Next /api/my-shipments.
+ * Restituisce sempre un array in rows, anche in caso di errore.
+ */
+export async function getMyShipments(): Promise<{
+  ok: boolean;
+  rows: any[];
+  error?: string;
+  details?: string;
+}> {
+  try {
+    const res = await fetch('/api/my-shipments', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    const json = (await res.json().catch(() => null)) as
+      | { ok: boolean; rows: any[]; error?: string; details?: string }
+      | null;
+
+    if (!res.ok || !json) {
+      return {
+        ok: false,
+        rows: [],
+        error: 'HTTP_ERROR',
+        details: `status ${res.status}`,
+      };
+    }
+
+    return {
+      ok: json.ok,
+      rows: Array.isArray(json.rows) ? json.rows : [],
+      error: json.error,
+      details: json.details,
+    };
+  } catch (e: any) {
+    console.error('[getMyShipments] fetch error:', e);
+    return {
+      ok: false,
+      rows: [],
+      error: 'NETWORK_ERROR',
+      details: e?.message ?? String(e),
+    };
+  }
+}
