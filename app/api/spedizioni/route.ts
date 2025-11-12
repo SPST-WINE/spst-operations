@@ -190,43 +190,47 @@ export async function POST(req: Request) {
       fields: body,
     };
 
-    const { data: shipment, error: insertErr } = await supabase
-      .from("spst.shipments")
-      .insert(insertRow)
-      .select()
-      .single();
+const { data: shipment, error: insertErr } = await supabase
+  .schema("spst")
+  .from("shipments")
+  .insert(insertRow)
+  .select()
+  .single();
 
-    if (insertErr) {
-      console.error("[API/spedizioni] insert error:", insertErr);
-      return NextResponse.json(
-        { ok: false, error: "INSERT_FAILED", details: insertErr.message },
-        { status: 500 }
-      );
-    }
+if (insertErr) {
+  console.error("[API/spedizioni] insert error:", insertErr);
+  return NextResponse.json(
+    { ok: false, error: "INSERT_FAILED", details: insertErr.message },
+    { status: 500 }
+  );
+}
 
-    /* ───── Inserisci colli in spst.packages (opzionale ma consigliato) ───── */
-    if (Array.isArray(colli) && colli.length > 0) {
-      const pkgs = colli.map((c) => {
-        const l1 = toNum(c.l1);
-        const l2 = toNum(c.l2);
-        const l3 = toNum(c.l3);
-        const peso = toNum(c.peso);
-        return {
-          shipment_id: shipment.id,
-          l1,
-          l2,
-          l3,
-          weight_kg: peso,
-          fields: c, // preservo qualsiasi extra (contenuto, note, ecc.)
-        };
-      });
+// INSERT packages (se ci sono colli)
+if (Array.isArray(colli) && colli.length > 0) {
+  const pkgs = colli.map((c) => {
+    const l1 = toNum(c.l1);
+    const l2 = toNum(c.l2);
+    const l3 = toNum(c.l3);
+    const peso = toNum(c.peso);
+    return {
+      shipment_id: shipment.id,
+      l1,
+      l2,
+      l3,
+      weight_kg: peso,
+      fields: c,
+    };
+  });
 
-      const { error: pkgErr } = await supabase.from("spst.packages").insert(pkgs);
-      if (pkgErr) {
-        // Non blocco la spedizione: loggo e ritorno comunque ok
-        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
-      }
-    }
+  const { error: pkgErr } = await supabase
+    .schema("spst")
+    .from("packages")
+    .insert(pkgs);
+
+  if (pkgErr) {
+    console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
+  }
+}
 
     const res = NextResponse.json({ ok: true, shipment });
     res.headers.set("Access-Control-Allow-Origin", "*");
