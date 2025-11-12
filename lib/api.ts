@@ -98,18 +98,14 @@ export async function postSpedizione(
 /** Restituisce SEMPRE un array normalizzato (usa { ok, rows } della route) */
 export async function getSpedizioni(
   getIdToken?: GetIdToken,
-  params?: { q?: string; sort?: 'created_desc' | 'ritiro_desc' | 'dest_az' | 'status' }
+  params?: { email?: string }
 ): Promise<any[]> {
-  const qs = new URLSearchParams();
-  if (params?.q) qs.set('q', params.q);
-  if (params?.sort) qs.set('sort', params.sort);
+  const headers: Record<string, string> = {};
+  if (params?.email) headers["x-user-email"] = params.email;
 
-  const data = await request<{ ok: boolean; rows: any[] }>(
-    `/api/spedizioni${qs.toString() ? `?${qs}` : ''}`,
-    { method: 'GET' },
-    getIdToken
-  );
-  return Array.isArray(data?.rows) ? data.rows : [];
+  const res = await fetch("/api/my-shipments", { headers });
+  const json = await res.json();
+  return Array.isArray(json?.rows) ? json.rows : [];
 }
 
 export function postSpedizioneAttachments(
