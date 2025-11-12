@@ -1,7 +1,6 @@
 // app/api/spedizioni/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/auth-helpers-nextjs";
 import { cookies, headers as nextHeaders } from "next/headers";
 
 /* ───────────── Helpers ───────────── */
@@ -59,6 +58,26 @@ function toISODate(d?: string | null): string | null {
   return null;
 }
 
+function getAccessTokenFromRequest() {
+  const hdrs = nextHeaders();
+  const auth = hdrs.get("authorization") || hdrs.get("Authorization") || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
+
+  // fallback cookie (supabase-js salva JSON in supabase-auth-token)
+  const jar = cookies();
+  const sb = jar.get("sb-access-token")?.value;
+  if (sb) return sb;
+
+  const supaCookie = jar.get("supabase-auth-token")?.value; // è un JSON string
+  if (supaCookie) {
+    try {
+      const arr = JSON.parse(supaCookie); // ["access_token","refresh_token",...]
+      if (Array.isArray(arr) && arr[0]) return arr[0];
+    } catch {}
+  }
+  return null;
+}
+
 /* ───────────── Next config ───────────── */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,33 +101,27 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    // ── Auth: prendi l'utente da Supabase (cookies) ──
-    const cookieStore = cookies();
-    const supabaseAuth = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set() { /* no-op on API route */ },
-          remove() { /* no-op on API route */ },
-        },
-      }
-    );
-    const { data: { user } } = await supabaseAuth.auth.getUser();
+    // ── Auth: prendi utente da Supabase senza auth-helpers ──
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+    }
+    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    });
+
+    const accessToken = getAccessTokenFromRequest();
+    const { data: userData } = accessToken
+      ? await supabaseAuth.auth.getUser(accessToken)
+      : { data: { user: null } as any };
 
     const hdrs = nextHeaders();
     const emailFromHeaders =
-      hdrs.get("x-user-email") ||
-      hdrs.get("x-client-email") ||
-      hdrs.get("x-auth-email") ||
-      null;
+      hdrs.get("x-user-email") || hdrs.get("x-client-email") || hdrs.get("x-auth-email") || null;
 
-    // Email raw + normalizzata (Supabase Auth → header → body)
     const emailRaw = firstNonEmpty(
-      user?.email || null,
+      userData?.user?.email || null,
       emailFromHeaders,
       body.email,
       body.email_cliente,
@@ -161,19 +174,16 @@ export async function POST(req: Request) {
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
     // ── Supabase (service role) per scrivere ──
-    const SUPABASE_URL =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_SERVICE_ROLE_KEY =
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL).");
-    if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error("Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY).");
-
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY).");
+    }
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     });
 
-    // JSONB 'fields' depurato
+    // JSONB 'fields' depurato (rimuovo chiavi che possono creare collisioni)
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
