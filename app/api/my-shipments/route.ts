@@ -1,45 +1,32 @@
-// app/api/my-shipments/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-type Row = {
+/** Tipi minimi della view */
+type MyShipment = {
   id: string;
   human_id: string | null;
   tipo_spedizione: string | null;
   incoterm: string | null;
   mittente_citta: string | null;
   dest_citta: string | null;
-  giorno_ritiro: string | null;   // date
+  giorno_ritiro: string | null;
   colli_n: number | null;
-  peso_reale_kg: string | number | null;
-  created_at: string;             // timestamptz
+  peso_reale_kg: number | null;
+  created_at: string;
   email_cliente: string | null;
+  email_norm: string | null;
 };
 
-function envSummary() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const sr = process.env.SUPABASE_SERVICE_ROLE || "";
-  return {
-    NEXT_PUBLIC_SUPABASE_URL: url.replace(/^https?:\/\//, ""),
-    SUPABASE_SERVICE_ROLE: sr ? `${sr.slice(0, 3)}…${sr.slice(-3)}` : "",
-  };
+function envOrThrow(name: string): string {
+  const v = process.env[name];
+  if (!v || v.trim() === "") throw new Error(`Missing env ${name}`);
+  return v;
 }
 
-function getEmail(req: Request) {
-  const u = new URL(req.url);
-  const qEmail = u.searchParams.get("email");
-  const hEmail = req.headers.get("x-user-email");
-  const email = (hEmail || qEmail || "").trim();
-  return email;
-}
-
-function getAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE;
-  if (!url || !key) {
-    throw new Error("SUPABASE_ADMIN_MISCONFIG");
-  }
-  // client admin; schema API per leggere la view api.my_shipments
+function adminClient() {
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+  const key = envOrThrow("SUPABASE_SERVICE_ROLE");
+  // forza schema 'api' perché la view è lì
   return createClient(url, key, {
     db: { schema: "api" },
     auth: { autoRefreshToken: false, persistSession: false },
@@ -47,67 +34,43 @@ function getAdmin() {
   });
 }
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(req: Request) {
+  const supa = adminClient();
+
+  // email dall’utente loggato oppure da query (?email=…)
+  const url = new URL(req.url);
+  const email =
+    (url.searchParams.get("email") || "").trim().toLowerCase();
+
   try {
-    // log "soft" per debug
-    console.warn("[API/my-shipments] ENV:", envSummary());
-  } catch {}
-
-  // 1) prendo email
-  const email = getEmail(req);
-
-  // 2) se manca, ritorno array vuoto (UI mostra “nessuna spedizione”)
-  if (!email) {
-    return NextResponse.json({ ok: true, rows: [] });
-  }
-
-  // 3) query via service-role sulla VIEW api.my_shipments (schema api)
-  try {
-    const supa = getAdmin();
-
-    const { data, error, status, statusText } = await supa
-      .from<"my_shipments", Row>("my_shipments")
+    let q = supa
+      .from<"my_shipments", MyShipment>("my_shipments")
       .select(
-        [
-          "id",
-          "human_id",
-          "tipo_spedizione",
-          "incoterm",
-          "mittente_citta",
-          "dest_citta",
-          "giorno_ritiro",
-          "colli_n",
-          "peso_reale_kg",
-          "created_at",
-          "email_cliente",
-        ].join(",")
+        "id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at,email_cliente,email_norm"
       )
-      .ilike("email_cliente", email) // match case-insensitive
       .order("created_at", { ascending: false })
       .limit(20);
 
+    if (email) {
+      q = q.ilike("email_norm", `%${email}%`);
+    }
+
+    const { data, error } = await q;
     if (error) {
-      console.error("[API/my-shipments] supabase error:", {
-        code: (error as any).code,
-        message: error.message,
-        status,
-        statusText,
-      });
+      console.error("[API/my-shipments] select error:", error);
       return NextResponse.json(
-        { ok: false, error: "DB_SELECT_FAILED", details: error.message },
+        { ok: false, error: error.code || "DB_SELECT_FAILED", details: error.message },
         { status: 502 }
       );
     }
 
     return NextResponse.json({ ok: true, rows: data ?? [] });
   } catch (e: any) {
-    console.error("[API/my-shipments] unexpected:", e?.message || e);
-    if (e?.message === "SUPABASE_ADMIN_MISCONFIG") {
-      return NextResponse.json(
-        { ok: false, error: "SUPABASE_ADMIN_MISCONFIG", details: "missing url or service role" },
-        { status: 500 }
-      );
-    }
+    console.error("[API/my-shipments] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500 }
