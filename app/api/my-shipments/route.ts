@@ -1,123 +1,115 @@
 // app/api/my-shipments/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-type ShipmentRow = {
+type Row = {
   id: string;
   human_id: string | null;
   tipo_spedizione: string | null;
   incoterm: string | null;
   mittente_citta: string | null;
   dest_citta: string | null;
-  giorno_ritiro: string | null;
+  giorno_ritiro: string | null;   // date
   colli_n: number | null;
   peso_reale_kg: string | number | null;
-  created_at: string;
+  created_at: string;             // timestamptz
+  email_cliente: string | null;
 };
 
-// ENV
-const RAW_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-const SR = (process.env.SUPABASE_SERVICE_ROLE || "").trim();
-
-// Nome risorsa REST esposta da PostgREST.
-// Se hai esposto lo schema `spst`, puoi anche usare "spst.shipments" qui.
-// Se invece hai creato una view "public.shipments", lascia "shipments".
-const REST_RESOURCE = process.env.SUPABASE_REST_RESOURCE || "shipments";
-
-/** Normalizza la base URL (accetta anche solo dominio nudo) */
-function baseUrl() {
-  if (!RAW_URL) return "";
-  return RAW_URL.startsWith("http") ? RAW_URL.replace(/\/+$/, "") : `https://${RAW_URL.replace(/\/+$/, "")}`;
+function envSummary() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const sr = process.env.SUPABASE_SERVICE_ROLE || "";
+  return {
+    NEXT_PUBLIC_SUPABASE_URL: url.replace(/^https?:\/\//, ""),
+    SUPABASE_SERVICE_ROLE: sr ? `${sr.slice(0, 3)}…${sr.slice(-3)}` : "",
+  };
 }
 
-function restUrl(path: string) {
-  const b = baseUrl();
-  return `${b}/rest/v1/${path.replace(/^\/+/, "")}`;
+function getEmail(req: Request) {
+  const u = new URL(req.url);
+  const qEmail = u.searchParams.get("email");
+  const hEmail = req.headers.get("x-user-email");
+  const email = (hEmail || qEmail || "").trim();
+  return email;
 }
 
-export async function GET(req: NextRequest) {
-  const debug = req.nextUrl.searchParams.get("debug") === "1";
-
-  // Check ENV
-  if (!RAW_URL || !SR) {
-    const details = {
-      NEXT_PUBLIC_SUPABASE_URL: RAW_URL || "(missing)",
-      SUPABASE_SERVICE_ROLE: SR ? "present" : "(missing)",
-    };
-    if (debug) console.error("[API/my-shipments] MISCONFIG", details);
-    return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: "MISCONFIG: missing url or service role", env: details },
-      { status: 500 }
-    );
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE;
+  if (!url || !key) {
+    throw new Error("SUPABASE_ADMIN_MISCONFIG");
   }
+  // client admin; schema API per leggere la view api.my_shipments
+  return createClient(url, key, {
+    db: { schema: "api" },
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
+  });
+}
 
-  // Costruzione query REST
-  const url = new URL(restUrl(REST_RESOURCE));
-  url.searchParams.set(
-    "select",
-    [
-      "id",
-      "human_id",
-      "tipo_spedizione",
-      "incoterm",
-      "mittente_citta",
-      "dest_citta",
-      "giorno_ritiro",
-      "colli_n",
-      "peso_reale_kg",
-      "created_at",
-    ].join(",")
-  );
-  url.searchParams.set("order", "created_at.desc");
-  url.searchParams.set("limit", "20");
-
-  if (debug) {
-    console.log("[API/my-shipments] ENV summary:", {
-      NEXT_PUBLIC_SUPABASE_URL: RAW_URL,
-      SUPABASE_SERVICE_ROLE: SR ? "present" : "missing",
-      REST_RESOURCE,
-    });
-    console.log("[API/my-shipments] REST URL:", String(url));
-  }
-
+export async function GET(req: Request) {
   try {
-    const r = await fetch(String(url), {
-      method: "GET",
-      headers: {
-        apikey: SR,
-        Authorization: `Bearer ${SR}`,
-        "X-Client-Info": "spst-operations/my-shipments",
-      },
-      cache: "no-store",
-    });
+    // log "soft" per debug
+    console.warn("[API/my-shipments] ENV:", envSummary());
+  } catch {}
 
-    const body = await r.json().catch(() => ({}));
+  // 1) prendo email
+  const email = getEmail(req);
 
-    if (!r.ok) {
-      if (debug) {
-        console.error("[API/my-shipments] REST error:", {
-          status: r.status,
-          statusText: r.statusText,
-          body,
-        });
-      }
-      // PostgREST schema cache error tipico quando lo schema/oggetto non è esposto
-      const code = body?.code || "DB_SELECT_FAILED";
-      const msg =
-        body?.message ||
-        (r.status === 503 ? "Service Unavailable" : r.statusText || "DB select failed");
+  // 2) se manca, ritorno array vuoto (UI mostra “nessuna spedizione”)
+  if (!email) {
+    return NextResponse.json({ ok: true, rows: [] });
+  }
+
+  // 3) query via service-role sulla VIEW api.my_shipments (schema api)
+  try {
+    const supa = getAdmin();
+
+    const { data, error, status, statusText } = await supa
+      .from<"my_shipments", Row>("my_shipments")
+      .select(
+        [
+          "id",
+          "human_id",
+          "tipo_spedizione",
+          "incoterm",
+          "mittente_citta",
+          "dest_citta",
+          "giorno_ritiro",
+          "colli_n",
+          "peso_reale_kg",
+          "created_at",
+          "email_cliente",
+        ].join(",")
+      )
+      .ilike("email_cliente", email) // match case-insensitive
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error("[API/my-shipments] supabase error:", {
+        code: (error as any).code,
+        message: error.message,
+        status,
+        statusText,
+      });
       return NextResponse.json(
-        { ok: false, error: code, details: msg },
+        { ok: false, error: "DB_SELECT_FAILED", details: error.message },
         { status: 502 }
       );
     }
 
-    const rows = (Array.isArray(body) ? (body as ShipmentRow[]) : []) ?? [];
-    return NextResponse.json({ ok: true, rows });
-  } catch (err: any) {
-    if (debug) console.error("[API/my-shipments] unexpected error:", err);
-    // Niente fallback pg: manteniamo il percorso REST pulito
+    return NextResponse.json({ ok: true, rows: data ?? [] });
+  } catch (e: any) {
+    console.error("[API/my-shipments] unexpected:", e?.message || e);
+    if (e?.message === "SUPABASE_ADMIN_MISCONFIG") {
+      return NextResponse.json(
+        { ok: false, error: "SUPABASE_ADMIN_MISCONFIG", details: "missing url or service role" },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(err?.message || err) },
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500 }
     );
   }
