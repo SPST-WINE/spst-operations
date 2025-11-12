@@ -9,7 +9,7 @@ import RitiroCard from "@/components/nuova/RitiroCard";
 import FatturaCard from "@/components/nuova/FatturaCard";
 import PackingListVino, { RigaPL } from "@/components/nuova/PackingListVino";
 import { Select } from "@/components/nuova/Field";
-import { postSpedizione, ApiError } from "@/lib/api";
+import { createClient } from "@supabase/supabase-js";
 
 // ------------------------------------------------------------
 // Types & helpers
@@ -191,6 +191,41 @@ function parseAddressFromDetails(d: any) {
 
 function newSessionToken() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ------------------------------------------------------------
+// Small API helper (local) - usa Supabase Auth
+// ------------------------------------------------------------
+async function createShipmentWithAuth(payload: any) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  const [{ data: { user } }, { data: { session } }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+
+  const email = user?.email ?? null;
+  const token = session?.access_token ?? null;
+
+  const res = await fetch("/api/spedizioni", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "x-user-email": email || "",
+    },
+    body: JSON.stringify({ ...payload, email }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.ok) {
+    const details = body?.details || body?.error || `${res.status} ${res.statusText}`;
+    throw new Error(details);
+  }
+  return body.shipment; // { id, ... }
 }
 
 // ------------------------------------------------------------
@@ -392,10 +427,10 @@ export default function NuovaVinoPage() {
         packingList: pl,
       };
 
-      const res = await postSpedizione(payload);
-      const id =
-        (res as any)?.id || (res as any)?.recId || "SPEDIZIONE";
+      // chiamata API con Supabase Auth (email + bearer)
+      const created = await createShipmentWithAuth(payload);
 
+      const id = created?.id || created?.recId || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
@@ -412,11 +447,10 @@ export default function NuovaVinoPage() {
           block: "start",
         });
       }
-    } catch (e) {
+    } catch (e: any) {
       const msg =
-        e instanceof ApiError
-          ? e.message
-          : "Si è verificato un errore durante il salvataggio. Riprova più tardi.";
+        e?.message ||
+        "Si è verificato un errore durante il salvataggio. Riprova più tardi.";
       setErrors([msg]);
       console.error("Errore salvataggio spedizione", e);
     } finally {
