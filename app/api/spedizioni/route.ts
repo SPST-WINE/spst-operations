@@ -1,6 +1,8 @@
+// app/api/spedizioni/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+/* -------------------- tipi payload -------------------- */
 type Party = {
   ragioneSociale?: string;
   referente?: string;
@@ -31,8 +33,14 @@ type Payload = {
   fatturaFileName?: string | null;
   colli?: any[];
   packingList?: any[];
+
+  // possibili campi lato client
+  emailCliente?: string;
+  customerEmail?: string;
+  createdByEmail?: string;
 };
 
+/* -------------------- helpers -------------------- */
 function makeHumanId(date = new Date()): string {
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
@@ -41,6 +49,12 @@ function makeHumanId(date = new Date()): string {
     .toString()
     .padStart(5, "0");
   return `SP-${yyyy}-${mm}-${dd}-${suffix}`;
+}
+
+function normalizeEmail(raw?: string | null): string | null {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v || !v.includes("@")) return null;
+  return v;
 }
 
 function computePackageMetrics(collo: any) {
@@ -68,37 +82,65 @@ function computePackageMetrics(collo: any) {
   };
 }
 
+function envOrThrow(name: string): string {
+  const v = process.env[name];
+  if (!v || v.trim() === "") throw new Error(`Missing env ${name}`);
+  return v;
+}
+
 function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
-
-  if (!url || !key) {
-    console.warn("[API/spedizioni] Supabase env mancanti, skip scrittura DB:", {
-      url: !!url,
-      key: !!key,
-    });
-    return null;
-  }
-
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    db: {
-      schema: "spst",
-    },
+  return createClient(url, key!, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    db: { schema: "spst" },
   });
 }
 
+// client con anon key per risolvere l’utente da access_token (se presente)
+function getSupabaseAnon() {
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+  const anon = envOrThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  return createClient(url, anon, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+async function pickEmailFromRequest(req: Request, body: Payload): Promise<string | null> {
+  const url = new URL(req.url);
+
+  // 1) querystring ?email=
+  const qEmail = normalizeEmail(url.searchParams.get("email"));
+
+  // 2) header custom
+  const hdrEmail = normalizeEmail(req.headers.get("x-user-email"));
+
+  // 3) body comuni
+  const bodyEmail =
+    normalizeEmail((body as any).emailCliente) ||
+    normalizeEmail((body as any).customerEmail) ||
+    normalizeEmail((body as any).createdByEmail);
+
+  // 4) token Authorization: Bearer <access_token> -> supabase.auth.getUser()
+  let tokenEmail: string | null = null;
+  const auth = req.headers.get("authorization") || req.headers.get("Authorization");
+  const m = auth?.match(/^Bearer\s+(.+)$/i);
+  if (m && m[1]) {
+    try {
+      const supa = getSupabaseAnon();
+      const { data, error } = await supa.auth.getUser(m[1]);
+      if (!error) tokenEmail = normalizeEmail(data.user?.email ?? null);
+    } catch {}
+  }
+
+  return qEmail || hdrEmail || bodyEmail || tokenEmail || null;
+}
+
+/* -------------------- routes -------------------- */
 export async function GET() {
   return NextResponse.json(
-    {
-      ok: true,
-      message: "Endpoint spedizioni (GET) non ancora implementato.",
-      data: [],
-    },
+    { ok: true, message: "Endpoint spedizioni (GET) non ancora implementato.", data: [] },
     { status: 200 }
   );
 }
@@ -107,19 +149,15 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Payload;
   const id_human = makeHumanId();
 
-  const supabaseAdmin = getSupabaseAdmin();
-
-  if (!supabaseAdmin) {
-    return NextResponse.json(
-      {
-        ok: true,
-        id: id_human,
-        recId: id_human,
-        db: "skipped (no SUPABASE_SERVICE_ROLE_KEY / URL)",
-      },
-      { status: 201 }
-    );
+  let email_cliente: string | null = null;
+  try {
+    email_cliente = await pickEmailFromRequest(req, body);
+  } catch (e) {
+    console.warn("[API/spedizioni] email resolution failed:", e);
   }
+  const email_norm = normalizeEmail(email_cliente);
+
+  const supabaseAdmin = getSupabaseAdmin();
 
   try {
     const mitt = body.mittente || {};
@@ -133,15 +171,18 @@ export async function POST(req: Request) {
     const colli = Array.isArray(body.colli) ? body.colli : [];
     const colli_n = colli.length || null;
     const peso_reale_kg =
-      colli.reduce(
-        (sum, c) => sum + (Number(c?.peso_kg ?? 0) || 0),
-        0
-      ) || null;
+      colli.reduce((sum, c) => sum + (Number(c?.peso_kg ?? 0) || 0), 0) || null;
 
     const { data: shipmentRow, error: shipErr } = await supabaseAdmin
       .from("shipments")
       .insert({
         human_id: id_human,
+        // --- email ---
+        email_cliente: email_cliente,
+        // avere sempre un campo normalizzato per filtri/indice
+        email_norm: email_norm,
+
+        // --- altri campi esistenti ---
         tipo_spedizione: body.tipoSped ?? null,
         incoterm: body.incoterm ?? null,
         incoterm_norm: body.incoterm ?? null,
@@ -157,7 +198,6 @@ export async function POST(req: Request) {
         dest_cap: dest.cap ?? null,
         colli_n,
         peso_reale_kg,
-        // NB: non popoliamo "fields", lasciamo il default '{}'::jsonb
       } as any)
       .select("*")
       .single();
@@ -179,18 +219,11 @@ export async function POST(req: Request) {
     const shipmentId = (shipmentRow as any).id as string;
 
     if (colli.length > 0) {
-      const rows = colli.map((c: any) => {
-        const m = computePackageMetrics(c);
-        return {
-          shipment_id: shipmentId,
-          ...m,
-        };
-      });
-
-      const { error: pkgErr } = await supabaseAdmin
-        .from("packages")
-        .insert(rows);
-
+      const rows = colli.map((c: any) => ({
+        shipment_id: shipmentId,
+        ...computePackageMetrics(c),
+      }));
+      const { error: pkgErr } = await getSupabaseAdmin().from("packages").insert(rows);
       if (pkgErr) {
         console.error("[API/spedizioni] insert packages error:", pkgErr);
         return NextResponse.json(
@@ -208,24 +241,13 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        id: id_human,
-        recId: id_human,
-        shipment_id: shipmentId,
-      },
+      { ok: true, id: id_human, recId: id_human, shipment_id: shipmentId },
       { status: 201 }
     );
   } catch (e: any) {
     console.error("[API/spedizioni] unexpected error:", e);
     return NextResponse.json(
-      {
-        ok: false,
-        id: id_human,
-        recId: id_human,
-        error: "UNEXPECTED_ERROR",
-        details: e?.message ?? String(e),
-      },
+      { ok: false, id: id_human, recId: id_human, error: "UNEXPECTED_ERROR", details: e?.message ?? String(e) },
       { status: 500 }
     );
   }
