@@ -1,6 +1,8 @@
+// app/api/my-shipments/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+/** Record minimal per la lista spedizioni */
 type Row = {
   id: string;
   human_id: string | null;
@@ -8,7 +10,7 @@ type Row = {
   incoterm: string | null;
   mittente_citta: string | null;
   dest_citta: string | null;
-  giorno_ritiro: string | null; // string perché in view usiamo to_char
+  giorno_ritiro: string | null;
   colli_n: number | null;
   peso_reale_kg: number | null;
   created_at: string;
@@ -26,7 +28,7 @@ function admin() {
   const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
   const key = envOrThrow("SUPABASE_SERVICE_ROLE");
   return createClient(url, key, {
-    db: { schema: "api" }, // lavoriamo sullo schema api (dove sta la view)
+    db: { schema: "api" }, // la view my_shipments sta nello schema 'api'
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
   });
@@ -51,12 +53,13 @@ export async function GET(req: Request) {
       });
     }
 
-    let q = supa
+    // NOTA TIPI: per tenere disponibile .ilike sui builder usiamo cast ad 'any'
+    // (evitiamo .returns<Row[]>() che restringe il tipo a TransformBuilder senza i metodi filter)
+    let q: any = supa
       .from("my_shipments")
       .select(
         "id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at,email_cliente,email_norm"
       )
-      .returns<Row[]>()
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -64,7 +67,7 @@ export async function GET(req: Request) {
       q = q.ilike("email_norm", `%${emailParam}%`);
     }
 
-    const { data, error } = await q;
+    const { data, error } = (await q) as { data: Row[] | null; error: any };
 
     if (error) {
       console.error("[API/my-shipments] select error:", error);
@@ -79,10 +82,12 @@ export async function GET(req: Request) {
       if ((data?.length || 0) > 0) console.log("[API/my-shipments] sample:", data?.[0]);
     }
 
-    // Fallback diagnostico via REST se 0 righe
+    // Fallback diagnostico via REST se 0 righe in debug
     if ((!data || data.length === 0) && debug) {
       try {
-        const restUrl = `${envOrThrow("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "")}/rest/v1/my_shipments?select=id,human_id,created_at&order=created_at.desc&limit=3`;
+        const restUrl =
+          `${envOrThrow("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "")}` +
+          `/rest/v1/my_shipments?select=id,human_id,created_at&order=created_at.desc&limit=3`;
         const r = await fetch(restUrl, {
           headers: {
             apikey: envOrThrow("SUPABASE_SERVICE_ROLE"),
@@ -96,7 +101,7 @@ export async function GET(req: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, rows: data ?? [] });
+    return NextResponse.json({ ok: true, rows: (data as Row[]) ?? [] });
   } catch (e: any) {
     console.error("[API/my-shipments] unexpected:", e);
     return NextResponse.json(
