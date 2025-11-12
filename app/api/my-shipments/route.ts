@@ -2,36 +2,45 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Pool } from "pg";
 
-/* ----------------------------- shared utils ------------------------------ */
-
-const mask = (v?: string | null, keep: number = 4) =>
-  !v ? "(empty)" : v.length <= keep ? "*".repeat(v.length) : v.slice(0, keep) + "…" + "*".repeat(Math.max(0, v.length - keep - 1));
+/* ----------------------------- utils ------------------------------ */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const trimProto = (u?: string | null) =>
+  u ? u.replace(/^https?:\/\//, "") : u;
 
-function logEnvSummary() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const keySR = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const dbUrl = process.env.DATABASE_URL;
-  console.warn("[API/my-shipments] ENV summary:", {
-    NEXT_PUBLIC_SUPABASE_URL: url ? url.replace(/^https?:\/\//, "").split(".supabase.co")[0] + ".supabase.co" : "(missing)",
-    SUPABASE_SERVICE_ROLE: keySR ? mask(keySR) : "(missing)",
-    DATABASE_URL: dbUrl ? (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://") ? "postgres(…)" : "(present)") : "(missing)",
-  });
+function mask(v?: string | null, keep: number = 4) {
+  if (!v) return "(empty)";
+  return v.length <= keep ? "*".repeat(v.length) : v.slice(0, keep) + "…" + "*".repeat(Math.max(0, v.length - keep - 1));
 }
 
-/* ----------------------------- supabase admin ---------------------------- */
-/** Nessun return type: evitiamo il mismatch `"public"` vs `"spst"` e castiamo a `any`. */
-function supabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+function log(tag: string, payload: any) {
+  try {
+    console[ tag.startsWith("error") ? "error" : tag.startsWith("warn") ? "warn" : "log" ](
+      `[API/my-shipments] ${tag}:`,
+      payload
+    );
+  } catch { console.error(`[API/my-shipments] ${tag} raw:`, payload); }
+}
 
+function envSummary() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const svc = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const dbu = process.env.DATABASE_URL || "";
+  return {
+    NEXT_PUBLIC_SUPABASE_URL: url ? `${trimProto(url).split(".supabase.co")[0]}.supabase.co` : "(missing)",
+    SUPABASE_SERVICE_ROLE: svc ? mask(svc) : "(missing)",
+    DATABASE_URL: dbu ? (dbu.startsWith("postgres") ? "postgres(…)" : "(present)") : "(missing)",
+  };
+}
+
+/* ------------------------ clients factories ----------------------- */
+function supabaseAdmin(): any {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    logEnvSummary();
+    log("warn env", envSummary());
     throw new Error("SUPABASE_ADMIN_MISCONFIG: missing url or service key");
   }
-
+  // Cast a any per evitare mismatch di tipi "public" vs "spst"
   return createClient(url, key, {
     db: { schema: "spst" },
     auth: { autoRefreshToken: false, persistSession: false },
@@ -39,152 +48,148 @@ function supabaseAdmin() {
   }) as any;
 }
 
-function logPgRestError(tag: string, err: any) {
-  try {
-    console.error(`[API/my-shipments] ${tag} error:`, {
-      code: err?.code,
-      details: err?.details,
-      hint: err?.hint,
-      message: err?.message ?? String(err),
-    });
-  } catch {
-    console.error(`[API/my-shipments] ${tag} raw error:`, err);
-  }
-}
-
-/* ----------------------------- direct PG client -------------------------- */
-
 function makePgPool(): Pool | null {
   const cs = process.env.DATABASE_URL;
   if (!cs) return null;
-
   const hasParams = cs.includes("?");
   const needsSslMode = !/sslmode=/i.test(cs);
-  const finalCs = hasParams
-    ? (needsSslMode ? cs + "&sslmode=require" : cs)
-    : (needsSslMode ? cs + "?sslmode=require" : cs);
-
+  const finalCs = hasParams ? (needsSslMode ? cs + "&sslmode=require" : cs)
+                            : (needsSslMode ? cs + "?sslmode=require" : cs);
   return new Pool({
     connectionString: finalCs,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: false }, // accetta self-signed (diagnostica)
     max: 2,
   });
 }
 
 const SELECT_COLS = `
-  id,
-  human_id,
-  tipo_spedizione,
-  incoterm,
-  mittente_citta,
-  dest_citta,
-  giorno_ritiro,
-  colli_n,
-  peso_reale_kg,
-  created_at
+  id, human_id, tipo_spedizione, incoterm,
+  mittente_citta, dest_citta, giorno_ritiro,
+  colli_n, peso_reale_kg, created_at
 `;
 
-/* --------------------------------- GET ----------------------------------- */
-
+/* ----------------------------- GET ------------------------------- */
 export async function GET(req: Request) {
-  const u = new URL(req.url);
-  const debug = u.searchParams.get("debug") === "1";
+  const url = new URL(req.url);
+  const debug = url.searchParams.get("debug") === "1";
+  log("warn ENV summary", envSummary());
 
-  logEnvSummary();
-
-  // 1) Tentativi via REST
-  let tries = 0;
-  let firstError: any = null;
-  let lastError: any = null;
-
-  let sb: any;
+  /* ---- Attempt A: supabase-js (schema spst) ---- */
   try {
-    sb = supabaseAdmin();
-  } catch (e: any) {
-    logPgRestError("bootstrap", e);
-    sb = undefined as any;
-  }
+    const sb = supabaseAdmin();
 
-  if (sb) {
-    while (tries < 3) {
-      tries++;
-      try {
-        const warm = await sb.from("shipments").select("id", { head: true, count: "exact" });
-        if (warm?.error) logPgRestError("warmup", warm.error);
+    // warmup HEAD (per forzare init schema-cache)
+    const warm = await sb.from("shipments").select("id", { head: true, count: "exact" });
+    if (warm?.error) log("error warmup", {
+      code: warm.error.code,
+      message: warm.error.message,
+      details: warm.error.details,
+      hint: warm.error.hint,
+    });
 
-        const { data, error } = await sb
-          .from("shipments")
-          .select(SELECT_COLS.replace(/\s+/g, " ").trim())
-          .order("created_at", { ascending: false })
-          .limit(100);
+    for (let i = 1; i <= 3; i++) {
+      const { data, error } = await sb
+        .from("shipments")
+        .select(SELECT_COLS.replace(/\s+/g, " ").trim())
+        .order("created_at", { ascending: false })
+        .limit(100);
 
-        if (error) {
-          if (!firstError) firstError = error;
-          lastError = error;
-          logPgRestError(`select (try ${tries})`, error);
-          if (String(error?.code) === "PGRST002" || /schema cache/i.test(String(error?.message))) {
-            await sleep(500 * tries);
-            continue;
-          }
-          break;
-        }
-
+      if (!error) {
         return NextResponse.json(
-          { ok: true, rows: Array.isArray(data) ? data : [], source: "rest", debug: debug ? { tries } : undefined },
+          { ok: true, rows: data ?? [], source: "rest-js", debug: debug ? { tries: i } : undefined },
           { status: 200 }
         );
-      } catch (e: any) {
-        if (!firstError) firstError = e;
-        lastError = e;
-        logPgRestError(`unexpected (try ${tries})`, e);
-        await sleep(500 * tries);
       }
+
+      log(`error select (try ${i})`, {
+        code: error.code, message: error.message, details: error.details, hint: error.hint,
+      });
+
+      // Retry solo per PGRST002 / schema cache
+      if (String(error.code) === "PGRST002" || /schema cache/i.test(String(error.message))) {
+        await sleep(600 * i);
+        continue;
+      }
+      break;
     }
-  }
-
-  // 2) Fallback PG
-  const pool = makePgPool();
-  if (!pool) {
-    return NextResponse.json(
-      {
-        ok: false,
-        rows: [],
-        error: firstError?.message ?? "DB_SELECT_FAILED",
-        details: firstError?.details ?? firstError?.hint ?? firstError?.code ?? "no DATABASE_URL; rest failed",
-        debug: debug ? { tries, firstError, lastError, source: "rest->none" } : undefined,
-      },
-      { status: 500 }
-    );
-  }
-
-  let client;
-  try {
-    client = await pool.connect();
-    const q = `
-      select ${SELECT_COLS}
-      from spst.shipments
-      order by created_at desc
-      limit 100
-    `;
-    const r = await client.query(q);
-    return NextResponse.json(
-      { ok: true, rows: r.rows ?? [], source: "pg", debug: debug ? { tries, fallback: true } : undefined },
-      { status: 200 }
-    );
   } catch (e: any) {
-    logPgRestError("pg-fallback", e);
-    return NextResponse.json(
-      {
-        ok: false,
-        rows: [],
-        error: e?.message ?? "PG_FALLBACK_FAILED",
-        details: e?.code ?? e?.name,
-        debug: debug ? { tries, firstError, lastError, source: "pg" } : undefined,
-      },
-      { status: 500 }
-    );
-  } finally {
-    try { client?.release?.(); } catch {}
-    try { await pool.end(); } catch {}
+    log("error bootstrap-js", { message: e?.message ?? String(e) });
   }
+
+  /* ---- Attempt B: raw REST fetch (diagnostica cruda) ---- */
+  try {
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const svc = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    if (!base || !svc) throw new Error("RAW_REST_MISCONFIG");
+
+    const restUrl = `${base.replace(/\/+$/,"")}/rest/v1/shipments?select=${encodeURIComponent(
+      SELECT_COLS.replace(/\s+/g, " ").trim()
+    )}&order=created_at.desc&limit=20`;
+
+    const res = await fetch(restUrl, {
+      method: "GET",
+      headers: {
+        apikey: svc,
+        Authorization: `Bearer ${svc}`,
+        Prefer: "count=exact",
+      },
+    });
+
+    const text = await res.text();
+    let payload: any = null;
+    try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
+
+    if (res.ok && Array.isArray(payload)) {
+      return NextResponse.json(
+        { ok: true, rows: payload, source: "raw-rest", debug: debug ? { status: res.status } : undefined },
+        { status: 200 }
+      );
+    } else {
+      log("error raw-rest", {
+        status: res.status,
+        statusText: res.statusText,
+        body: payload,
+        usedUrl: restUrl.replace(base, base.includes("supabase.co") ? base.replace(/^https?:\/\//,"https://…") : "(masked)"),
+      });
+    }
+  } catch (e: any) {
+    log("error raw-rest-catch", { message: e?.message ?? String(e) });
+  }
+
+  /* ---- Attempt C: PG fallback (TLS permissivo SOLO qui) ---- */
+  let client: any = null;
+  const pool = makePgPool();
+  if (pool) {
+    // Disabilito la verifica TLS solo nel percorso PG (diagnostica)
+    (globalThis as any).NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    try {
+      client = await pool.connect();
+      const q = `
+        select ${SELECT_COLS}
+        from spst.shipments
+        order by created_at desc
+        limit 100
+      `;
+      const r = await client.query(q);
+      return NextResponse.json(
+        { ok: true, rows: r.rows ?? [], source: "pg-fallback" },
+        { status: 200 }
+      );
+    } catch (e: any) {
+      log("error pg-fallback", {
+        code: e?.code, message: e?.message, detail: e?.detail, name: e?.name,
+      });
+    } finally {
+      try { client?.release?.(); } catch {}
+      try { await pool.end(); } catch {}
+    }
+  } else {
+    log("warn pg-fallback-skip", "DATABASE_URL missing");
+  }
+
+  /* ---- If all failed ---- */
+  return NextResponse.json(
+    { ok: false, rows: [], error: "DB_SELECT_FAILED", details: "All attempts failed (rest-js, raw-rest, pg-fallback)" },
+    { status: 500 }
+  );
 }
