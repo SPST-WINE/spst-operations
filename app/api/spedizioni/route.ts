@@ -16,11 +16,11 @@ type Party = {
 };
 
 type Collo = {
-  l1?: number | string;
-  l2?: number | string;
-  l3?: number | string;
-  peso?: number | string;
-  contenuto?: string;
+  l1?: number | string | null;
+  l2?: number | string | null;
+  l3?: number | string | null;
+  peso?: number | string | null;
+  contenuto?: string | null;
   [k: string]: any;
 };
 
@@ -66,7 +66,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ───────────── CORS preflight (facoltativo ma comodo) ───────────── */
+/* ───────────── CORS preflight ───────────── */
 export function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
@@ -97,13 +97,27 @@ export async function POST(req: Request) {
     );
     const emailNorm = normalizeEmail(emailRaw);
 
-    // Colli
-    const colli: Collo[] = Array.isArray(body.colli) ? body.colli : [];
-    const colli_n = colli.length || toNum(body.colli_n) || null;
-    const pesoTot = colli.reduce((sum, c) => {
-      const p = toNum(c?.peso) || 0;
-      return sum + p;
-    }, 0);
+    // Normalizza array colli (supporta entrambe le forme)
+    const rawColli: any[] = Array.isArray(body.colli)
+      ? body.colli
+      : Array.isArray(body.colli_n) // alcuni form usano un nome fuorviante
+      ? body.colli_n
+      : [];
+
+    const colli: Collo[] = rawColli.map((c: any) => ({
+      l1: toNum(c.l1 ?? c.lunghezza_cm),
+      l2: toNum(c.l2 ?? c.larghezza_cm),
+      l3: toNum(c.l3 ?? c.altezza_cm),
+      peso: toNum(c.peso ?? c.peso_kg),
+      contenuto: c.contenuto ?? c.contenuto_colli ?? null,
+      ...c, // preserva extra, finiranno in `fields` del package
+    }));
+
+    // Colli_n sempre derivato dalla lunghezza dell’array colli
+    const colli_n: number | null = Array.isArray(colli) ? colli.length : null;
+
+    // Pesi
+    const pesoTot = colli.reduce((sum, c) => (sum + (toNum(c?.peso) || 0)), 0);
     const peso_reale_kg =
       pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
 
@@ -114,7 +128,8 @@ export async function POST(req: Request) {
     const incoterm = firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
 
     // Tipo spedizione
-    const tipo_spedizione = firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
+    const tipo_spedizione =
+      firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
 
     // Dest abilitato import
     const dest_abilitato_import =
@@ -137,7 +152,7 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    /* ───── Supabase server client (service role lato server) ───── */
+    /* ───── Supabase server client (service role) ───── */
     const SUPABASE_URL =
       process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_SERVICE_ROLE_KEY =
@@ -154,11 +169,28 @@ export async function POST(req: Request) {
       auth: { persistSession: false },
     });
 
-    /* ───── Prepara INSERT in spst.shipments ───── */
+    /* ───── Payload JSONB 'fields' depurato per evitare collisioni con colonne ───── */
+    const fieldsSafe = (() => {
+      const clone: any = JSON.parse(JSON.stringify(body ?? {}));
+      const blocklist = [
+        "colli_n", "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
+        "tipoSped", "tipo_spedizione", "dest_abilitato_import",
+        "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
+        "dest_paese","dest_citta","dest_cap",
+        "email","email_cliente","email_norm",
+        "carrier","service_code","pickup_at","tracking_code","declared_value","status"
+      ];
+      for (const k of blocklist) delete clone[k];
+      return clone;
+    })();
+
+    /* ───── INSERT in spst.shipments ───── */
     const insertRow = {
+      // email
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
 
+      // indirizzi
       mittente_paese,
       mittente_citta,
       mittente_cap,
@@ -168,6 +200,7 @@ export async function POST(req: Request) {
       dest_citta,
       dest_cap,
 
+      // meta spedizione
       tipo_spedizione,
       incoterm,
       incoterm_norm: incoterm,
@@ -175,8 +208,9 @@ export async function POST(req: Request) {
       note_ritiro,
       giorno_ritiro,
 
+      // pesi/colli
       peso_reale_kg,
-      colli_n,
+      colli_n, // <-- sempre numero derivato
 
       // opzionali
       carrier: body.carrier ?? null,
@@ -186,51 +220,49 @@ export async function POST(req: Request) {
       declared_value: toNum(body.declared_value),
       status: body.status ?? "draft",
 
-      // cattura tutto il payload extra
-      fields: body,
+      // cattura tutto il payload extra (depurato)
+      fields: fieldsSafe,
     };
 
-const { data: shipment, error: insertErr } = await supabase
-  .schema("spst")
-  .from("shipments")
-  .insert(insertRow)
-  .select()
-  .single();
+    // log diagnostico (utile in fase di setup)
+    console.log("[API/spedizioni] insertRow =", JSON.stringify(insertRow));
 
-if (insertErr) {
-  console.error("[API/spedizioni] insert error:", insertErr);
-  return NextResponse.json(
-    { ok: false, error: "INSERT_FAILED", details: insertErr.message },
-    { status: 500 }
-  );
-}
+    const { data: shipment, error: insertErr } = await supabase
+      .schema("spst")
+      .from("shipments")
+      .insert(insertRow)
+      .select()
+      .single();
 
-// INSERT packages (se ci sono colli)
-if (Array.isArray(colli) && colli.length > 0) {
-  const pkgs = colli.map((c) => {
-    const l1 = toNum(c.l1);
-    const l2 = toNum(c.l2);
-    const l3 = toNum(c.l3);
-    const peso = toNum(c.peso);
-    return {
-      shipment_id: shipment.id,
-      l1,
-      l2,
-      l3,
-      weight_kg: peso,
-      fields: c,
-    };
-  });
+    if (insertErr) {
+      console.error("[API/spedizioni] insert error:", insertErr);
+      return NextResponse.json(
+        { ok: false, error: "INSERT_FAILED", details: insertErr.message },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
 
-  const { error: pkgErr } = await supabase
-    .schema("spst")
-    .from("packages")
-    .insert(pkgs);
+    /* ───── INSERT colli in spst.packages (opzionale ma consigliato) ───── */
+    if (Array.isArray(colli) && colli.length > 0) {
+      const pkgs = colli.map((c) => ({
+        shipment_id: shipment.id,
+        l1: toNum(c.l1 ?? c.lunghezza_cm),
+        l2: toNum(c.l2 ?? c.larghezza_cm),
+        l3: toNum(c.l3 ?? c.altezza_cm),
+        weight_kg: toNum(c.peso ?? c.peso_kg),
+        fields: c, // preserva qualsiasi extra (contenuto, note, ecc.)
+      }));
 
-  if (pkgErr) {
-    console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
-  }
-}
+      const { error: pkgErr } = await supabase
+        .schema("spst")
+        .from("packages")
+        .insert(pkgs);
+
+      if (pkgErr) {
+        // Non blocco la spedizione: loggo e proseguo
+        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
+      }
+    }
 
     const res = NextResponse.json({ ok: true, shipment });
     res.headers.set("Access-Control-Allow-Origin", "*");
@@ -239,9 +271,7 @@ if (Array.isArray(colli) && colli.length > 0) {
     console.error("[API/spedizioni] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" }
-      }
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 }
