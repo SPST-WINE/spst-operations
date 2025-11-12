@@ -26,7 +26,7 @@ function admin() {
   const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
   const key = envOrThrow("SUPABASE_SERVICE_ROLE");
   return createClient(url, key, {
-    db: { schema: "api" }, // IMPORTANTISSIMO: lavoriamo sullo schema api
+    db: { schema: "api" }, // lavoriamo sullo schema api (dove sta la view)
     auth: { autoRefreshToken: false, persistSession: false },
     global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
   });
@@ -53,7 +53,10 @@ export async function GET(req: Request) {
 
     let q = supa
       .from("my_shipments")
-      .select<Row>("id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at,email_cliente,email_norm")
+      .select(
+        "id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at,email_cliente,email_norm"
+      )
+      .returns<Row[]>()
       .order("created_at", { ascending: false })
       .limit(20);
 
@@ -73,12 +76,10 @@ export async function GET(req: Request) {
 
     if (debug) {
       console.log("[API/my-shipments] rows:", Array.isArray(data) ? data.length : "null");
-      if ((data?.length || 0) > 0) {
-        console.log("[API/my-shipments] sample:", data?.[0]);
-      }
+      if ((data?.length || 0) > 0) console.log("[API/my-shipments] sample:", data?.[0]);
     }
 
-    // Fallback diagnostico: se 0 righe, prova la REST diretta (stessa view, stesso schema)
+    // Fallback diagnostico via REST se 0 righe
     if ((!data || data.length === 0) && debug) {
       try {
         const restUrl = `${envOrThrow("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "")}/rest/v1/my_shipments?select=id,human_id,created_at&order=created_at.desc&limit=3`;
