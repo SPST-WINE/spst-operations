@@ -1,21 +1,25 @@
 import { NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 
-/* ----------------------------- utils logging ----------------------------- */
+/* ----------------------------- shared utils ------------------------------ */
 
 const mask = (v?: string | null, keep: number = 4) =>
   !v ? "(empty)" : v.length <= keep ? "*".repeat(v.length) : v.slice(0, keep) + "…" + "*".repeat(Math.max(0, v.length - keep - 1));
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function logEnvSummary() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const keySR = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const dbUrl = process.env.DATABASE_URL;
   console.warn("[API/my-shipments] ENV summary:", {
     NEXT_PUBLIC_SUPABASE_URL: url ? url.replace(/^https?:\/\//, "").split(".supabase.co")[0] + ".supabase.co" : "(missing)",
     SUPABASE_SERVICE_ROLE: keySR ? mask(keySR) : "(missing)",
+    DATABASE_URL: dbUrl ? (dbUrl.startsWith("postgres://") || dbUrl.startsWith("postgresql://") ? "postgres(…)" : "(present)") : "(missing)",
   });
 }
+
+/* ----------------------------- supabase admin ---------------------------- */
 
 function supabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -27,21 +31,16 @@ function supabaseAdmin(): SupabaseClient {
     logEnvSummary();
     throw new Error("SUPABASE_ADMIN_MISCONFIG: missing url or service key");
   }
+
+  // Forza schema 'spst' in tutte le query .from()
   return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    global: {
-      headers: {
-        "X-Client-Info": "spst-operations/my-shipments",
-      },
-    },
+    db: { schema: "spst" },
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
   });
 }
 
 function logPgRestError(tag: string, err: any) {
-  // tipica shape postgrest: { code, details, hint, message }
   try {
     console.error(`[API/my-shipments] ${tag} error:`, {
       code: err?.code,
@@ -54,114 +53,148 @@ function logPgRestError(tag: string, err: any) {
   }
 }
 
-/* ----------------------------- handler GET ------------------------------ */
+/* ----------------------------- direct PG client -------------------------- */
+
+function makePgPool(): Pool | null {
+  const cs = process.env.DATABASE_URL;
+  if (!cs) return null;
+
+  // Aggiungi sslmode=require se manca
+  const hasParams = cs.includes("?");
+  const needsSslMode = !/sslmode=/i.test(cs);
+  const finalCs = hasParams
+    ? (needsSslMode ? cs + "&sslmode=require" : cs)
+    : (needsSslMode ? cs + "?sslmode=require" : cs);
+
+  // Alcuni ambienti lambda vogliono anche rejectUnauthorized:false per cert self-signed
+  return new Pool({
+    connectionString: finalCs,
+    ssl: { rejectUnauthorized: false },
+    max: 2,
+  });
+}
+
+const SELECT_COLS = `
+  id,
+  human_id,
+  tipo_spedizione,
+  incoterm,
+  mittente_citta,
+  dest_citta,
+  giorno_ritiro,
+  colli_n,
+  peso_reale_kg,
+  created_at
+`;
+
+/* --------------------------------- GET ----------------------------------- */
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const wantDebug = url.searchParams.get("debug") === "1";
+  const u = new URL(req.url);
+  const debug = u.searchParams.get("debug") === "1";
 
+  logEnvSummary();
+
+  /* ---------- 1) Tentativo via REST (Supabase) con schema forzato ---------- */
   let tries = 0;
   let firstError: any = null;
   let lastError: any = null;
 
-  logEnvSummary();
-
-  let client: SupabaseClient;
+  let sb: SupabaseClient;
   try {
-    client = supabaseAdmin();
+    sb = supabaseAdmin();
   } catch (e: any) {
     logPgRestError("bootstrap", e);
+    // Non abortiamo: proveremo fallback PG
+    sb = undefined as any;
+  }
+
+  if (sb) {
+    while (tries < 3) {
+      tries++;
+      try {
+        // warmup su tabella schema-qualified
+        const warm = await sb.from("shipments").select("id", { head: true, count: "exact" });
+        if (warm.error) logPgRestError("warmup", warm.error);
+
+        const { data, error } = await sb
+          .from("shipments") // schema impostato a 'spst' nel client
+          .select(SELECT_COLS.replace(/\s+/g, " ").trim())
+          .order("created_at", { ascending: false })
+          .limit(100);
+
+        if (error) {
+          if (!firstError) firstError = error;
+          lastError = error;
+          logPgRestError(`select (try ${tries})`, error);
+
+          // PGRST002 = schema cache, prova di nuovo
+          if (String(error?.code) === "PGRST002" || /schema cache/i.test(String(error?.message))) {
+            await sleep(500 * tries);
+            continue;
+          }
+
+          // errori diversi -> passa al fallback PG
+          break;
+        }
+
+        // OK via REST
+        return NextResponse.json(
+          { ok: true, rows: Array.isArray(data) ? data : [], source: "rest", debug: debug ? { tries } : undefined },
+          { status: 200 }
+        );
+      } catch (e: any) {
+        if (!firstError) firstError = e;
+        lastError = e;
+        logPgRestError(`unexpected (try ${tries})`, e);
+        await sleep(500 * tries);
+      }
+    }
+  }
+
+  /* ---------- 2) Fallback: connessione diretta Postgres (pg) --------------- */
+  const pool = makePgPool();
+  if (!pool) {
     return NextResponse.json(
-      { ok: false, rows: [], error: e?.message ?? "BOOTSTRAP_ERROR" },
+      {
+        ok: false,
+        rows: [],
+        error: firstError?.message ?? "DB_SELECT_FAILED",
+        details: firstError?.details ?? firstError?.hint ?? firstError?.code ?? "no DATABASE_URL; rest failed",
+        debug: debug ? { tries, firstError, lastError, source: "rest->none" } : undefined,
+      },
       { status: 500 }
     );
   }
 
-  // Query di base
-  const selectCols =
-    "id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at";
-
-  // Retry: PGRST002 capita subito dopo migrazioni/policy update (schema cache).
-  while (tries < 3) {
-    tries++;
-    try {
-      // piccola “warm-up” con HEAD per stimolare schema cache
-      const warmup = await client
-        .from("shipments")
-        .select("id", { head: true, count: "exact" });
-
-      if (warmup.error) {
-        logPgRestError("warmup", warmup.error);
-      } else {
-        console.warn("[API/my-shipments] warmup ok; count:", warmup.count);
-      }
-
-      const { data, error } = await client
-        .from("shipments")
-        .select(selectCols)
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) {
-        if (!firstError) firstError = error;
-        lastError = error;
-        logPgRestError(`select (try ${tries})`, error);
-
-        // Se è il famoso PGRST002 -> backoff e retry
-        if (String(error?.code) === "PGRST002" || /schema cache/i.test(String(error?.message))) {
-          await sleep(500 * tries); // 500ms, 1s, 1.5s
-          continue;
-        }
-
-        // Altri errori: niente retry
-        return NextResponse.json(
-          {
-            ok: false,
-            rows: [],
-            error: error.message ?? "DB_SELECT_FAILED",
-            details: error.details ?? error.hint ?? error.code,
-            debug: wantDebug
-              ? {
-                  tries,
-                  firstError,
-                  lastError,
-                }
-              : undefined,
-          },
-          { status: 500 }
-        );
-      }
-
-      // Successo
-      return NextResponse.json(
-        {
-          ok: true,
-          rows: Array.isArray(data) ? data : [],
-          debug: wantDebug ? { tries } : undefined,
-        },
-        { status: 200 }
-      );
-    } catch (e: any) {
-      if (!firstError) firstError = e;
-      lastError = e;
-      logPgRestError(`unexpected (try ${tries})`, e);
-      await sleep(500 * tries);
-    }
+  let client;
+  try {
+    client = await pool.connect();
+    const q = `
+      select ${SELECT_COLS}
+      from spst.shipments
+      order by created_at desc
+      limit 100
+    `;
+    const r = await client.query(q);
+    return NextResponse.json(
+      { ok: true, rows: r.rows ?? [], source: "pg", debug: debug ? { tries, fallback: true } : undefined },
+      { status: 200 }
+    );
+  } catch (e: any) {
+    logPgRestError("pg-fallback", e);
+    return NextResponse.json(
+      {
+        ok: false,
+        rows: [],
+        error: e?.message ?? "PG_FALLBACK_FAILED",
+        details: e?.code ?? e?.name,
+        debug: debug ? { tries, firstError, lastError, source: "pg" } : undefined,
+      },
+      { status: 500 }
+    );
+  } finally {
+    try { client?.release?.(); } catch {}
+    try { await pool.end(); } catch {}
   }
-
-  // Se siamo qui, i retry non sono bastati
-  return NextResponse.json(
-    {
-      ok: false,
-      rows: [],
-      error: firstError?.message ?? "DB_SELECT_FAILED",
-      details:
-        firstError?.details ??
-        firstError?.hint ??
-        firstError?.code ??
-        "schema cache / connectivity?",
-      debug: wantDebug ? { tries, firstError, lastError } : undefined,
-    },
-    { status: 500 }
-  );
 }
