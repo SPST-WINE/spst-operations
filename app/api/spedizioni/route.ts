@@ -124,10 +124,8 @@ export async function POST(req: Request) {
     // Giorno ritiro
     const giorno_ritiro = toISODate(body.ritiroData ?? body.giorno_ritiro);
 
-    // Incoterm
+    // Incoterm e tipo spedizione
     const incoterm = firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
-
-    // Tipo spedizione
     const tipo_spedizione =
       firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
 
@@ -169,11 +167,12 @@ export async function POST(req: Request) {
       auth: { persistSession: false },
     });
 
-    /* ───── Payload JSONB 'fields' depurato per evitare collisioni con colonne ───── */
+    /* ───── Payload JSONB 'fields' depurato ───── */
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
-        "colli_n", "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
+        "colli_n", "colli", // <— rimuovo anche 'colli' per evitare cast/trigger
+        "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
         "tipoSped", "tipo_spedizione", "dest_abilitato_import",
         "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
         "dest_paese","dest_citta","dest_cap",
@@ -224,7 +223,6 @@ export async function POST(req: Request) {
       fields: fieldsSafe,
     };
 
-    // log diagnostico (utile in fase di setup)
     console.log("[API/spedizioni] insertRow =", JSON.stringify(insertRow));
 
     const { data: shipment, error: insertErr } = await supabase
@@ -242,7 +240,7 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ───── INSERT colli in spst.packages (opzionale ma consigliato) ───── */
+    /* ───── INSERT colli in spst.packages ───── */
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -259,7 +257,6 @@ export async function POST(req: Request) {
         .insert(pkgs);
 
       if (pkgErr) {
-        // Non blocco la spedizione: loggo e proseguo
         console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
       }
     }
