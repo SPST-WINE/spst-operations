@@ -116,35 +116,51 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── GET /api/spedizioni  → lista paginata dell’utente loggato ───────────── */
+/* ───────────── GET /api/spedizioni  → lista paginata dell’utente loggato ─────────────
+   Nota: usiamo service role per leggere (server-side) MA filtriamo per email dell’utente.
+   Così funziona anche senza policy RLS e non esponiamo nulla client-side. */
 export async function GET(req: Request) {
+  const started = Date.now();
   try {
     const url = new URL(req.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
     const q = (url.searchParams.get("q") || "").trim();
     const order = (url.searchParams.get("order") || "created_at.desc").trim();
+    const debug = url.searchParams.get("debug") === "1";
 
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json(
         { ok: false, error: "MISSING_SUPABASE_ENV" },
         { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
-    // client "utente": usiamo il token di sessione per far lavorare le RLS
+    // 1) recupero token utente per leggere la sua email
     const accessToken = getAccessTokenFromRequest();
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-      global: {
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-      },
-    }) as any;
+    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    const { data: uData, error: uErr } = accessToken
+      ? await supabaseAuth.auth.getUser(accessToken)
+      : { data: { user: null } as any, error: null as any };
 
-    let query = supabase
+    const email = normalizeEmail(uData?.user?.email || null);
+    if (!email) {
+      console.warn("[GET /api/spedizioni] no email (missing/invalid token)", { uErr, hasToken: !!accessToken });
+      return NextResponse.json(
+        { ok: true, page, limit, total: 0, rows: [], debug: debug ? { hasToken: !!accessToken, uErr } : undefined },
+        { headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    // 2) query server-side con filtro email
+    const supaSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) as any;
+
+    let query = supaSrv
       .schema("spst")
       .from("shipments")
       .select(
@@ -166,11 +182,10 @@ export async function GET(req: Request) {
           "email_norm",
         ].join(","),
         { count: "exact" }
-      );
+      )
+      .eq("email_norm", email);
 
-    // ricerca veloce
     if (q) {
-      // ricerco su human_id + città mitt/dest + tracking
       query = query.or(
         [
           `human_id.ilike.%${q}%`,
@@ -181,18 +196,28 @@ export async function GET(req: Request) {
       );
     }
 
-    // ordinamento (es. "created_at.desc" | "created_at.asc")
     const [ordCol, ordDir] = order.split(".");
     if (ordCol) {
       query = query.order(ordCol, { ascending: ordDir !== "desc", nullsFirst: false });
     }
 
-    // paginazione
     const from = (page - 1) * limit;
     const to = from + limit - 1;
     query = query.range(from, to);
 
     const { data, error, count } = await query;
+
+    if (debug) {
+      console.log("[GET /api/spedizioni] debug", {
+        email,
+        page, limit, q, order,
+        total: count ?? 0,
+        rows: (data || []).length,
+        ms: Date.now() - started,
+        error: error?.message,
+      });
+    }
+
     if (error) {
       return NextResponse.json(
         { ok: false, error: error.message },
@@ -201,16 +226,11 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        page,
-        limit,
-        total: count ?? 0,
-        rows: data ?? [],
-      },
+      { ok: true, page, limit, total: count ?? 0, rows: data ?? [] },
       { headers: { "Access-Control-Allow-Origin": "*" } }
     );
   } catch (e: any) {
+    console.error("[GET /api/spedizioni] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
@@ -385,7 +405,7 @@ export async function POST(req: Request) {
         fields: c,
       }));
 
-      const { error: pkgErr } = await supaAny
+      const { error: pkgErr } = await (supabaseSrv as any)
         .schema("spst")
         .from("packages")
         .insert(pkgs);
