@@ -92,7 +92,7 @@ function formatHumanId(d: Date, n: number) {
   return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
 }
 
-async function nextHumanIdForToday(supabaseSrv: ReturnType<typeof createClient>): Promise<string> {
+async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   const now = new Date();
   const pattern = (() => {
     const dd = String(now.getUTCDate()).padStart(2, "0");
@@ -101,7 +101,6 @@ async function nextHumanIdForToday(supabaseSrv: ReturnType<typeof createClient>)
     return `SP-${dd}-${mm}-${yyyy}-`;
   })();
 
-  // ⚠️ cast a any per evitare l'errore TS sullo schema tipizzato
   const supaAny = supabaseSrv as any;
 
   const { count, error } = await supaAny
@@ -136,7 +135,7 @@ export async function POST(req: Request) {
 
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const supaAny = supabaseSrv as any; // ← cast per usare .schema("spst")
+    const supaAny = supabaseSrv as any;
 
     const accessToken = getAccessTokenFromRequest();
     const { data: userData } = accessToken
