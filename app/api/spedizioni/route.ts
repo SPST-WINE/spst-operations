@@ -77,7 +77,7 @@ export function OPTIONS() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
     },
@@ -116,7 +116,109 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── POST /api/spedizioni ───────────── */
+/* ───────────── GET /api/spedizioni  → lista paginata dell’utente loggato ───────────── */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
+    const q = (url.searchParams.get("q") || "").trim();
+    const order = (url.searchParams.get("order") || "created_at.desc").trim();
+
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "MISSING_SUPABASE_ENV" },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    // client "utente": usiamo il token di sessione per far lavorare le RLS
+    const accessToken = getAccessTokenFromRequest();
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+      global: {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      },
+    }) as any;
+
+    let query = supabase
+      .schema("spst")
+      .from("shipments")
+      .select(
+        [
+          "id",
+          "human_id",
+          "created_at",
+          "status",
+          "tipo_spedizione",
+          "incoterm",
+          "giorno_ritiro",
+          "note_ritiro",
+          "colli_n",
+          "peso_reale_kg",
+          "mittente_citta",
+          "dest_citta",
+          "carrier",
+          "tracking_code",
+          "email_norm",
+        ].join(","),
+        { count: "exact" }
+      );
+
+    // ricerca veloce
+    if (q) {
+      // ricerco su human_id + città mitt/dest + tracking
+      query = query.or(
+        [
+          `human_id.ilike.%${q}%`,
+          `mittente_citta.ilike.%${q}%`,
+          `dest_citta.ilike.%${q}%`,
+          `tracking_code.ilike.%${q}%`,
+        ].join(",")
+      );
+    }
+
+    // ordinamento (es. "created_at.desc" | "created_at.asc")
+    const [ordCol, ordDir] = order.split(".");
+    if (ordCol) {
+      query = query.order(ordCol, { ascending: ordDir !== "desc", nullsFirst: false });
+    }
+
+    // paginazione
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        page,
+        limit,
+        total: count ?? 0,
+        rows: data ?? [],
+      },
+      { headers: { "Access-Control-Allow-Origin": "*" } }
+    );
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+    );
+  }
+}
+
+/* ───────────── POST /api/spedizioni  → crea spedizione ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
