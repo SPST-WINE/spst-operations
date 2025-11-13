@@ -25,11 +25,11 @@ type Collo = {
   [k: string]: any;
 };
 
-function toNum(x: any): number | null {
+const toNum = (x: any): number | null => {
   if (x === null || x === undefined) return null;
   const n = Number(String(x).replace(",", ".").trim());
   return Number.isFinite(n) ? n : null;
-}
+};
 function firstNonEmpty(...vals: (string | undefined | null)[]) {
   for (const v of vals) if (v && String(v).trim() !== "") return String(v).trim();
   return "";
@@ -41,9 +41,9 @@ function normalizeEmail(x?: string | null) {
 function toISODate(d?: string | null): string | null {
   if (!d) return null;
   const s = d.trim();
-  const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s); // dd-mm-yyyy
+  const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s);
   if (m1) { const [_, dd, mm, yyyy] = m1; return `${yyyy}-${mm}-${dd}`; }
-  const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s); // yyyy-mm-dd
+  const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s);
   if (m2) return s.substring(0, 10);
   const t = Date.parse(s);
   if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10);
@@ -56,7 +56,7 @@ function getAccessTokenFromRequest() {
   const jar = cookies();
   const sb = jar.get("sb-access-token")?.value;
   if (sb) return sb;
-  const supaCookie = jar.get("supabase-auth-token")?.value; // JSON string
+  const supaCookie = jar.get("supabase-auth-token")?.value;
   if (supaCookie) {
     try {
       const arr = JSON.parse(supaCookie);
@@ -65,6 +65,17 @@ function getAccessTokenFromRequest() {
   }
   return null;
 }
+const att = (x:any) => {
+  if (!x) return null;
+  if (typeof x === "string") return { url: x };
+  if (typeof x.url === "string" && x.url.trim()) {
+    const o:any = { url: String(x.url).trim() };
+    if (x.filename) o.filename = String(x.filename);
+    if (x.mime) o.mime = String(x.mime);
+    return o;
+  }
+  return null;
+};
 
 /* ───────────── Next config ───────────── */
 export const runtime = "nodejs";
@@ -93,24 +104,16 @@ function formatHumanId(d: Date, n: number) {
 }
 async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   const now = new Date();
-  const pattern = (() => {
-    const dd = String(now.getUTCDate()).padStart(2, "0");
-    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-    const yyyy = now.getUTCFullYear();
-    return `SP-${dd}-${mm}-${yyyy}-`;
-  })();
-
-  const sb: any = supabaseSrv;
-  const { count, error } = await sb
-    .schema("spst")
-    .from("shipments")
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = now.getUTCFullYear();
+  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
+  const supaAny = supabaseSrv as any;
+  const { count, error } = await supaAny
+    .schema("spst").from("shipments")
     .select("human_id", { count: "exact", head: true })
     .ilike("human_id", `${pattern}%`);
-
-  if (error) {
-    const ts = Date.now() % 100000;
-    return formatHumanId(now, ts);
-  }
+  if (error) return formatHumanId(now, Date.now() % 100000);
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
@@ -118,149 +121,124 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const sp = url.searchParams;
-
-    const page = Math.max(1, Number(sp.get("page") || 1));
-    const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || 20)));
-    const sort = sp.get("sort") || "created_desc"; // created_desc | created_asc
-    const q = (sp.get("q") || "").trim().toLowerCase();
-    const emailParam = sp.get("email");
-    const debug = sp.has("debug");
+    const q = (url.searchParams.get("q") || "").trim();
+    const sort = url.searchParams.get("sort") || "created_desc";
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+    const emailParam = url.searchParams.get("email");
 
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing Supabase env vars" },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return NextResponse.json({ ok:false, error:"Missing Supabase env" }, { status:500 });
     }
+    const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } }) as any;
 
-    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
-    const sb: any = supabaseSrv;
-
-    let emailNorm: string | null = null;
-    if (emailParam && emailParam.trim()) emailNorm = emailParam.trim().toLowerCase();
-
-    // ⚠️ niente commenti nella select
-    const selectCols = [
-      "id",
-      "created_at",
-      "human_id",
-      "email_norm",
-      "tipo_spedizione",
-      "incoterm",
-      "giorno_ritiro",
-      "mittente_paese",
-      "mittente_citta",
-      "mittente_cap",
-      "mittente_indirizzo",
-      "dest_paese",
-      "dest_citta",
-      "dest_cap",
-      "colli_n",
-      "peso_reale_kg",
-      "status",
-      "mittente_rs",
-      "mittente_telefono",
-      "mittente_piva",
-      "dest_rs",
-      "dest_telefono",
-      "dest_piva",
-      "fatt_rs",
-      "fatt_piva",
-      "fatt_valuta",
-      "formato_sped",
-      "contenuto_generale",
-      "dest_abilitato_import",
-      "fields",
-    ].join(",");
-
-    let qData = sb.schema("spst").from("shipments").select(selectCols, { count: "exact" });
-    if (emailNorm) qData = qData.eq("email_norm", emailNorm);
-
-    if (q) {
-      qData = qData.or(
-        [
-          `human_id.ilike.%${q}%`,
-          `dest_citta.ilike.%${q}%`,
-          `dest_paese.ilike.%${q}%`,
-          `mittente_citta.ilike.%${q}%`,
-        ].join(",")
-      );
-    }
-
-    if (sort === "created_asc") qData = qData.order("created_at", { ascending: true });
-    else qData = qData.order("created_at", { ascending: false });
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    qData = qData.range(from, to);
-
-    const { data: shipments, error, count } = await qData;
-    if (error) throw error;
-
-    const ids = (shipments || []).map((s: any) => s.id);
-    let packagesByShipment: Record<string, any[]> = {};
-
-    if (ids.length > 0) {
-      const { data: pkgs, error: pErr } = await sb
-        .schema("spst")
-        .from("packages")
-        .select("id,shipment_id,l1,l2,l3,weight_kg,contenuto")
-        .in("shipment_id", ids);
-
-      if (pErr) throw pErr;
-
-      for (const p of pkgs || []) {
-        const sid = p.shipment_id as string;
-        (packagesByShipment[sid] ||= []).push({
-          id: p.id,
-          l1: p.l1,
-          l2: p.l2,
-          l3: p.l3,
-          weight_kg: p.weight_kg,
-          contenuto: p.contenuto ?? null,
-        });
+    let emailNorm: string | null = normalizeEmail(emailParam);
+    if (!emailNorm) {
+      const token = getAccessTokenFromRequest();
+      if (token) {
+        const { data } = await auth.auth.getUser(token);
+        emailNorm = normalizeEmail(data?.user?.email ?? null);
+      }
+      if (!emailNorm) {
+        const hdrs = nextHeaders();
+        emailNorm = normalizeEmail(
+          hdrs.get("x-user-email") || hdrs.get("x-client-email") || hdrs.get("x-auth-email")
+        );
       }
     }
 
-    const rows = (shipments || []).map((r: any) => {
-      const created_it = r.created_at
-        ? new Date(r.created_at).toLocaleString("it-IT", { timeZone: "Europe/Rome" })
-        : null;
-      const list = packagesByShipment[r.id] || [];
-      return {
-        ...r,
-        created_it,
-        packages_count: list.length,
-        packages_preview: list.slice(0, 3),
-      };
-    });
+    const srvKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supa = createClient(SUPABASE_URL, srvKey || SUPABASE_ANON_KEY, { auth: { persistSession: false } }) as any;
 
-    const res = NextResponse.json(
-      {
-        ok: true,
-        page,
-        limit,
-        total: count ?? rows.length,
-        rows,
-        ...(debug ? { debug: { emailNorm, filterByEmail: !!emailNorm } } : {}),
+    let query = supa
+      .schema("spst").from("shipments")
+      .select(`
+        id,created_at,human_id,email_norm,
+        tipo_spedizione,incoterm,giorno_ritiro,
+        mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+        dest_paese,dest_citta,dest_cap,
+        colli_n,peso_reale_kg,status,
+        mittente_rs,mittente_telefono,mittente_piva,
+        dest_rs,dest_telefono,dest_piva,
+        fatt_rs,fatt_piva,fatt_valuta,
+        formato_sped,contenuto_generale,dest_abilitato_import,
+        ldv,fattura_proforma,fattura_commerciale,dle,
+        allegato1,allegato2,allegato3,allegato4,
+        packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
+      `, { count: "exact" });
+
+    if (emailNorm) query = query.eq("email_norm", emailNorm);
+    if (q) {
+      query = query.or([
+        `human_id.ilike.%${q}%`,
+        `dest_citta.ilike.%${q}%`,
+        `dest_paese.ilike.%${q}%`,
+        `mittente_citta.ilike.%${q}%`,
+        `mittente_paese.ilike.%${q}%`
+      ].join(","));
+    }
+
+    if (sort === "ritiro_desc") query = query.order("giorno_ritiro", { ascending: false, nullsFirst: true });
+    else if (sort === "dest_az") query = query.order("dest_citta", { ascending: true, nullsFirst: true }).order("dest_paese", { ascending: true, nullsFirst: true });
+    else if (sort === "status") query = query.order("status", { ascending: true, nullsFirst: true });
+    else query = query.order("created_at", { ascending: false, nullsFirst: true });
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const { data, error, count } = await query.range(from, to);
+    if (error) throw error;
+
+    const normAtt = (j:any) => (j && typeof j.url === "string") ? j : null;
+
+    const rows = (data || []).map((r:any) => ({
+      id: r.id,
+      created_at: r.created_at,
+      human_id: r.human_id,
+      email_norm: r.email_norm,
+      tipo_spedizione: r.tipo_spedizione,
+      incoterm: r.incoterm,
+      giorno_ritiro: r.giorno_ritiro,
+      mittente_paese: r.mittente_paese,
+      mittente_citta: r.mittente_citta,
+      mittente_cap: r.mittente_cap,
+      mittente_indirizzo: r.mittente_indirizzo,
+      dest_paese: r.dest_paese,
+      dest_citta: r.dest_citta,
+      dest_cap: r.dest_cap,
+      colli_n: r.colli_n,
+      peso_reale_kg: r.peso_reale_kg,
+      status: r.status,
+      mittente_rs: r.mittente_rs,
+      mittente_telefono: r.mittente_telefono,
+      mittente_piva: r.mittente_piva,
+      dest_rs: r.dest_rs,
+      dest_telefono: r.dest_telefono,
+      dest_piva: r.dest_piva,
+      fatt_rs: r.fatt_rs,
+      fatt_piva: r.fatt_piva,
+      fatt_valuta: r.fatt_valuta,
+      formato_sped: r.formato_sped,
+      contenuto_generale: r.contenuto_generale,
+      dest_abilitato_import: r.dest_abilitato_import,
+      attachments: {
+        ldv:                 normAtt(r.ldv),
+        fattura_proforma:    normAtt(r.fattura_proforma),
+        fattura_commerciale: normAtt(r.fattura_commerciale),
+        dle:                 normAtt(r.dle),
+        allegato1:           normAtt(r.allegato1),
+        allegato2:           normAtt(r.allegato2),
+        allegato3:           normAtt(r.allegato3),
+        allegato4:           normAtt(r.allegato4),
       },
-      { status: 200 }
-    );
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    return res;
-  } catch (e: any) {
+      packages: Array.isArray(r.packages) ? r.packages : [],
+    }));
+
+    return NextResponse.json({ ok:true, page, limit, total: count ?? rows.length, rows });
+  } catch (e:any) {
     console.error("[API/spedizioni:GET] unexpected:", e);
-    return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
-      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-    );
+    return NextResponse.json({ ok:false, error:String(e?.message||e) }, { status:500 });
   }
 }
 
@@ -283,9 +261,8 @@ export async function POST(req: Request) {
 
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const sb: any = supabaseSrv;
+    const supaAny = supabaseSrv as any;
 
-    // utente (se c’è token)
     const accessToken = getAccessTokenFromRequest();
     const { data: userData } = accessToken
       ? await supabaseAuth.auth.getUser(accessToken)
@@ -309,7 +286,6 @@ export async function POST(req: Request) {
 
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
-    const fatt: Party = body.fatturazione ?? {};
 
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
@@ -345,28 +321,40 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
+    // attachments
+    const attachments = body.attachments ?? body.allegati ?? {};
+    const ldv                 = att(attachments.ldv                 ?? body.ldv);
+    const fattura_proforma    = att(attachments.fattura_proforma    ?? body.fattura_proforma);
+    const fattura_commerciale = att(attachments.fattura_commerciale ?? body.fattura_commerciale);
+    const dle                 = att(attachments.dle                 ?? body.dle);
+    const allegato1           = att(attachments.allegato1           ?? body.allegato1);
+    const allegato2           = att(attachments.allegato2           ?? body.allegato2);
+    const allegato3           = att(attachments.allegato3           ?? body.allegato3);
+    const allegato4           = att(attachments.allegato4           ?? body.allegato4);
+
+    const fieldsSafe = (() => {
+      const clone: any = JSON.parse(JSON.stringify(body ?? {}));
+      const blocklist = [
+        "colli_n", "colli",
+        "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
+        "tipoSped", "tipo_spedizione", "dest_abilitato_import",
+        "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
+        "dest_paese","dest_citta","dest_cap",
+        "email","email_cliente","email_norm",
+        "carrier","service_code","pickup_at","tracking_code","declared_value","status",
+        "human_id",
+        "ldv","fattura_proforma","fattura_commerciale","dle","allegato1","allegato2","allegato3","allegato4",
+        "attachments","allegati"
+      ];
+      for (const k of blocklist) delete clone[k];
+      return clone;
+    })();
+
     const baseRow: any = {
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
-
       mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
       dest_paese, dest_citta, dest_cap,
-
-      mittente_rs: mitt.ragioneSociale ?? null,
-      mittente_telefono: mitt.telefono ?? null,
-      mittente_piva: mitt.piva ?? null,
-
-      dest_rs: dest.ragioneSociale ?? null,
-      dest_telefono: dest.telefono ?? null,
-      dest_piva: dest.piva ?? null,
-
-      fatt_rs: fatt.ragioneSociale ?? null,
-      fatt_piva: fatt.piva ?? null,
-      fatt_valuta: body.valuta ?? body.fatt_valuta ?? null,
-
-      formato_sped: body.formato ?? body.formato_sped ?? null,
-      contenuto_generale: body.contenuto ?? body.contenuto_generale ?? null,
-
       tipo_spedizione,
       incoterm,
       incoterm_norm: incoterm,
@@ -375,33 +363,18 @@ export async function POST(req: Request) {
       giorno_ritiro,
       peso_reale_kg,
       colli_n,
-
       carrier: body.carrier ?? null,
       service_code: body.service_code ?? null,
       pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
       declared_value: toNum(body.declared_value),
-
       status: body.status ?? "draft",
-
-      fields: (() => {
-        const clone: any = JSON.parse(JSON.stringify(body ?? {}));
-        const blocklist = [
-          "colli_n", "colli",
-          "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
-          "tipoSped", "tipo_spedizione", "dest_abilitato_import",
-          "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
-          "dest_paese","dest_citta","dest_cap",
-          "email","email_cliente","email_norm",
-          "carrier","service_code","pickup_at","tracking_code","declared_value","status",
-          "human_id"
-        ];
-        for (const k of blocklist) delete clone[k];
-        return clone;
-      })(),
+      fields: fieldsSafe,
+      ldv, fattura_proforma, fattura_commerciale, dle,
+      allegato1, allegato2, allegato3, allegato4,
     };
 
-    // human_id con retry su unique
+    // ── Genera human_id con retry su unique
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -409,19 +382,23 @@ export async function POST(req: Request) {
 
     while (attempt < MAX_RETRY) {
       attempt++;
-      const human_id = await nextHumanIdForToday(sb);
+      const human_id = await nextHumanIdForToday(supabaseSrv);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await sb
+      const { data, error } = await supaAny
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
         .select()
         .single();
 
-      if (!error) { shipment = data; break; }
-      if (error.code === "23505" || /unique/i.test(error.message)) { lastErr = error; continue; }
-      lastErr = error; break;
+      if (!error) {
+        shipment = data;
+        break;
+      }
+      if (error.code === "23505" || /unique/i.test(error.message)) {
+        lastErr = error; continue;
+      } else { lastErr = error; break; }
     }
 
     if (!shipment) {
@@ -439,10 +416,9 @@ export async function POST(req: Request) {
         l2: toNum(c.l2 ?? c.larghezza_cm),
         l3: toNum(c.l3 ?? c.altezza_cm),
         weight_kg: toNum(c.peso ?? c.peso_kg),
-        contenuto: c.contenuto ?? null,
         fields: c,
       }));
-      const { error: pkgErr } = await sb.schema("spst").from("packages").insert(pkgs);
+      const { error: pkgErr } = await supaAny.schema("spst").from("packages").insert(pkgs);
       if (pkgErr) console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
     }
 
