@@ -1,226 +1,164 @@
+// components/ShipmentDetail.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+type Pkg = {
+  id: string;
+  l1: number | null;
+  l2: number | null;
+  l3: number | null;
+  weight_kg: number | null;
+  contenuto?: string | null;
+};
 
-type Att = { url: string; filename?: string; name?: string };
-type FMap = Record<string, any>;
+type ShipRow = {
+  id: string;
+  human_id?: string | null;
+  created_it?: string | null;
 
-function getStr(f: FMap, keys: string[], def = '—') {
-  for (const k of keys) {
-    const v = f?.[k];
-    if (typeof v === 'string' && v.trim()) return v.trim();
-  }
-  return def;
+  // principali
+  tipo_spedizione?: string | null;
+  incoterm?: string | null;
+  giorno_ritiro?: string | null;
+  status?: string | null;
+
+  // mittente
+  mittente_rs?: string | null;
+  mittente_paese?: string | null;
+  mittente_citta?: string | null;
+  mittente_cap?: string | null;
+  mittente_indirizzo?: string | null;
+  mittente_telefono?: string | null;
+  mittente_piva?: string | null;
+
+  // destinatario
+  dest_rs?: string | null;
+  dest_paese?: string | null;
+  dest_citta?: string | null;
+  dest_cap?: string | null;
+  dest_telefono?: string | null;
+  dest_piva?: string | null;
+  dest_abilitato_import?: boolean | null;
+
+  // fatturazione
+  fatt_rs?: string | null;
+  fatt_piva?: string | null;
+  fatt_valuta?: string | null;
+
+  // colli / payload
+  colli_n?: number | null;
+  peso_reale_kg?: string | number | null;
+  formato_sped?: string | null;
+  contenuto_generale?: string | null;
+
+  // anteprima colli (server)
+  packages_count?: number;
+  packages_preview?: Pkg[];
+
+  // blob originale
+  fields?: any;
+};
+
+function L({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] font-medium text-slate-500">{children}</div>;
 }
-function getBool(f: FMap, keys: string[]) {
-  for (const k of keys) {
-    const v = f?.[k];
-    if (typeof v === 'boolean') return v;
-    if (v === 'true' || v === '1' || v === 1) return true;
-  }
-  return false;
-}
-function getDateStr(f: FMap, keys: string[]) {
-  const s = getStr(f, keys, '');
-  if (!s) return '—';
-  try { return new Date(s).toLocaleDateString(); } catch { return s; }
+function V({ children }: { children: React.ReactNode }) {
+  return <div className="text-[13px] text-slate-800">{children ?? '—'}</div>;
 }
 
-// Attachment grouping
-function pickAttachments(f: FMap) {
-  const all: { key: string; list: Att[] }[] = [];
-  for (const [k, v] of Object.entries(f || {})) {
-    if (Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && 'url' in v[0]) {
-      all.push({ key: k, list: v as Att[] });
-    }
-  }
-  const match = (k: string, re: RegExp) => re.test(k.toLowerCase());
-  const ldv = all.find(a => match(a.key, /(ldv|awb|lettera.*vett|waybill)/i))?.list ?? [];
-  const fattura = all.find(a => match(a.key, /fattur/i))?.list ?? [];
-  const packing = all.find(a => match(a.key, /packing/i))?.list ?? [];
-  const known = new Set([...(ldv ?? []), ...(fattura ?? []), ...(packing ?? [])]);
-  const altri: Att[] = [];
-  for (const a of all) for (const it of a.list) if (!known.has(it)) altri.push(it);
-  return { ldv, fattura, packing, altri };
-}
+export default function ShipmentDetail({ f }: { f: ShipRow }) {
+  const mittAddr = [f.mittente_indirizzo, f.mittente_cap, f.mittente_citta, f.mittente_paese]
+    .filter(Boolean).join(', ');
+  const destAddr = [f.dest_cap, f.dest_citta, f.dest_paese].filter(Boolean).join(', ');
 
-type ColloRow = { l?: number | null; w?: number | null; h?: number | null; peso?: number | null };
-
-export default function ShipmentDetail({ f }: { f: FMap }) {
-const [colli, setColli] = useState<
-  { lunghezza_cm: number | null; larghezza_cm: number | null; altezza_cm: number | null; peso_kg: number | null }[]
->([]);
-
-  const recId = f?.id || f?.['id'];
-  useEffect(() => {
-  let stop = false;
-  (async () => {
-    try {
-      const r = await fetch(`/api/spedizioni/${f.id}/colli`, { cache: 'no-store' });
-      const j = await r.json();
-      if (!stop && Array.isArray(j?.rows)) setColli(j.rows);
-    } catch {
-      if (!stop) setColli([]);
-    }
-  })();
-  return () => { stop = true; };
-}, [f.id]);
-  
-  // Header info
-  const id = getStr(f, ['ID Spedizione', 'ID SPST', 'ID Spedizione (custom)']);
-  const incoterm = getStr(f, ['Incoterm']);
-  const tipo = getStr(f, ['Sottotipo', 'Tipo spedizione', 'Sottotipo (B2B, B2C, Sample)']);
-  const dataRitiro = getDateStr(f, ['Ritiro - Data', 'Ritiro Data', 'Data ritiro']);
-
-  // Mittente
-  const m_rs   = getStr(f, ['Mittente - Ragione Sociale']);
-  const m_ref  = getStr(f, ['Mittente - Referente']);
-  const m_tel  = getStr(f, ['Mittente - Telefono']);
-  const m_addr = [getStr(f, ['Mittente - Indirizzo',''], ''), getStr(f, ['Mittente - CAP',''], ''),
-                  getStr(f, ['Mittente - Città',''], ''), getStr(f, ['Mittente - Paese',''], '')]
-                  .filter(Boolean).join(', ') || '—';
-
-  // Destinatario
-  const d_rs   = getStr(f, ['Destinatario - Ragione Sociale','Destinatario']);
-  const d_ref  = getStr(f, ['Destinatario - Referente']);
-  const d_tel  = getStr(f, ['Destinatario - Telefono']);
-  const d_addr = [getStr(f, ['Destinatario - Indirizzo',''], ''), getStr(f, ['Destinatario - CAP',''], ''),
-                  getStr(f, ['Destinatario - Città',''], ''), getStr(f, ['Destinatario - Paese',''], '')]
-                  .filter(Boolean).join(', ') || '—';
-  const d_abil = getBool(f, ['Destinatario abilitato import', 'Destinatario abilitato all’import', "Destinatario abilitato all'import"]);
-
-  // Fatturazione
-  const f_rs   = getStr(f, ['FATT Ragione Sociale']);
-  const f_ref  = getStr(f, ['FATT Referente']);
-  const f_tel  = getStr(f, ['FATT Telefono']);
-  const f_addr = [getStr(f, ['FATT Indirizzo',''], ''), getStr(f, ['FATT CAP',''], ''),
-                  getStr(f, ['FATT Città',''], ''), getStr(f, ['FATT Paese',''], '')]
-                  .filter(Boolean).join(', ') || '—';
-  const f_piva = getStr(f, ['FATT PIVA/CF','FATT P.IVA/CF','FATT PIVA','FATT P.IVA'], '—');
-  const f_same = getBool(f, ['FATT Uguale a Destinatario']);
-  const f_delega = getBool(f, ['Fattura - Delega a SPST', 'Fattura – Delega a SPST', 'Delega Fattura']);
-
-  const att = pickAttachments(f);
-
+  const colli = Array.isArray(f.packages_preview) ? f.packages_preview : [];
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* ID */}
       <div>
-        <div className="text-xs text-slate-500">ID Spedizione</div>
-        <div className="font-medium">{id}</div>
+        <L>ID Spedizione</L>
+        <V>{f.human_id || f.id}</V>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-md border p-2">
-          <div className="text-xs font-semibold">Mittente</div>
-          <div className="text-sm">{m_rs}</div>
-          <div className="text-xs text-slate-600">{m_ref !== '—' ? m_ref : ''}</div>
-          <div className="text-xs text-slate-600">{m_addr}</div>
-          <div className="text-xs">Tel: {m_tel}</div>
+      {/* Mittente / Destinatario */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-lg border p-3">
+          <L>Mittente</L>
+          <V>{f.mittente_rs || '—'}</V>
+          <V>{mittAddr || '—'}</V>
+          <V>Tel: {f.mittente_telefono || '—'}</V>
+          <div className="text-[11px] text-slate-500">P.IVA/CF: {f.mittente_piva || '—'}</div>
         </div>
-        <div className="rounded-md border p-2">
-          <div className="text-xs font-semibold">Destinatario</div>
-          <div className="text-sm">{d_rs}</div>
-          <div className="text-xs text-slate-600">{d_ref !== '—' ? d_ref : ''}</div>
-          <div className="text-xs text-slate-600">{d_addr}</div>
-          <div className="text-xs">Tel: {d_tel}</div>
-          <div className="mt-1 text-[11px]">
-            Abilitato import:{' '}
-            <span className={d_abil ? 'text-green-700' : 'text-slate-600'}>
-              {d_abil ? 'Sì' : 'No'}
-            </span>
+        <div className="rounded-lg border p-3">
+          <L>Destinatario</L>
+          <V>{f.dest_rs || '—'}</V>
+          <V>{destAddr || '—'}</V>
+          <V>Tel: {f.dest_telefono || '—'}</V>
+          <div className="text-[11px] text-slate-500">P.IVA/CF: {f.dest_piva || '—'}</div>
+          <div className="text-[11px] text-slate-500">
+            Abilitato import: {f.dest_abilitato_import ? 'Sì' : 'No'}
           </div>
         </div>
       </div>
 
-      <div className="grid gap-2 md:grid-cols-3 text-sm">
-        <div className="rounded-md border p-2">
-          <div className="text-xs text-slate-500">Data ritiro</div>
-          <div>{dataRitiro}</div>
+      {/* Ritiro / Incoterm / Tipo */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-lg border p-3">
+          <L>Data ritiro</L><V>{f.giorno_ritiro || '—'}</V>
         </div>
-        <div className="rounded-md border p-2">
-          <div className="text-xs text-slate-500">Incoterm</div>
-          <div className="font-medium">{incoterm}</div>
+        <div className="rounded-lg border p-3">
+          <L>Incoterm</L><V>{f.incoterm || '—'}</V>
         </div>
-        <div className="rounded-md border p-2">
-          <div className="text-xs text-slate-500">Tipo spedizione</div>
-          <div>{tipo}</div>
+        <div className="rounded-lg border p-3">
+          <L>Tipo spedizione</L><V>{f.tipo_spedizione || '—'}</V>
         </div>
       </div>
 
-      <div className="rounded-md border p-2">
-        <div className="text-xs font-semibold">Fatturazione</div>
-        <div className="text-sm">{f_rs}</div>
-        <div className="text-xs text-slate-600">{f_ref !== '—' ? f_ref : ''}</div>
-        <div className="text-xs text-slate-600">{f_addr}</div>
-        <div className="text-xs">P.IVA/CF: {f_piva}</div>
-        <div className="mt-1 text-[11px]">
-          Uguale a Destinatario:{' '}
-          <span className={f_same ? 'text-green-700' : 'text-slate-600'}>
-            {f_same ? 'Sì' : 'No'}
-          </span>
-          {' · '}
-          Delega fattura a SPST:{' '}
-          <span className={f_delega ? 'text-green-700' : 'text-slate-600'}>
-            {f_delega ? 'Sì' : 'No'}
-          </span>
-        </div>
-      </div>
-
-      {/* COLLI */}
+      {/* Fatturazione */}
       <div className="rounded-lg border p-3">
-  <div className="mb-1 text-sm font-medium">Colli</div>
-  {colli.length === 0 ? (
-    <div className="text-sm text-slate-500">Nessun collo disponibile</div>
-  ) : (
-    <div className="grid gap-2 md:grid-cols-2">
-      {colli.map((c, i) => (
-        <div key={i} className="rounded border p-2 text-sm">
-          <div className="font-medium mb-1">Collo #{i + 1}</div>
-          <div>L × W × H: {c.lunghezza_cm ?? '—'} × {c.larghezza_cm ?? '—'} × {c.altezza_cm ?? '—'} cm</div>
-          <div>Peso: {c.peso_kg ?? '—'} kg</div>
+        <L>Fatturazione</L>
+        <V>{f.fatt_rs || '—'}</V>
+        <div className="text-[11px] text-slate-500">P.IVA/CF: {f.fatt_piva || '—'}</div>
+        <div className="text-[11px] text-slate-500">Valuta: {f.fatt_valuta || '—'}</div>
+        <div className="mt-2 text-[11px] text-slate-500">
+          Uguale a Destinatario: {/* non normalizzato: guardo nel blob */}
+          {f?.fields?.fattSameAsDest ? 'Sì' : 'No'} • Delega fattura a SPST:
+          {f?.fields?.fattDelega ? ' Sì' : ' No'}
         </div>
-      ))}
-    </div>
-  )}
-</div>
+      </div>
 
+      {/* Colli */}
+      <div className="rounded-lg border p-3">
+        <L>Colli</L>
+        {colli.length === 0 ? (
+          <div className="text-[13px] text-slate-500">Nessun collo disponibile</div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {colli.map((p, i) => (
+              <div key={p.id || i} className="text-[13px]">
+                <span className="font-medium">Collo {i + 1}:</span>{' '}
+                {p.l1 ?? '–'}×{p.l2 ?? '–'}×{p.l3 ?? '–'} cm — Peso: {p.weight_kg ?? '–'} kg
+                {p.contenuto ? <> — Contenuto: {p.contenuto}</> : null}
+              </div>
+            ))}
+            {typeof f.packages_count === 'number' && f.packages_count > colli.length ? (
+              <div className="text-[11px] text-slate-500">
+                (+{f.packages_count - colli.length} altri colli…)
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
 
-      {/* ALLEGATI */}
-      <div className="rounded-md border p-2 text-sm space-y-2">
-        <div className="text-xs font-semibold">Allegati</div>
-        <div className="flex flex-wrap gap-2">
-          {att.ldv.length ? (
-            att.ldv.map((a, i) => (
-              <a key={`ldv-${i}`} href={a.url} target="_blank" rel="noopener noreferrer"
-                 className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
-                Scarica LDV
-              </a>
-            ))
-          ) : (
-            <span className="rounded border px-2 py-1 text-xs text-slate-500">LDV non disponibile</span>
-          )}
-
-          {att.fattura.map((a, i) => (
-            <a key={`fatt-${i}`} href={a.url} target="_blank" rel="noopener noreferrer"
-               className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
-              Fattura
-            </a>
-          ))}
-
-          {att.packing.map((a, i) => (
-            <a key={`pl-${i}`} href={a.url} target="_blank" rel="noopener noreferrer"
-               className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
-              Packing List
-            </a>
-          ))}
-
-          {att.altri.map((a, i) => (
-            <a key={`alt-${i}`} href={a.url} target="_blank" rel="noopener noreferrer"
-               className="rounded border px-2 py-1 text-xs hover:bg-slate-50">
-              Allegato
-            </a>
-          ))}
-        </div>
+      {/* Allegati (placeholder) */}
+      <div className="rounded-lg border p-3">
+        <L>Allegati</L>
+        <button
+          disabled
+          className="mt-2 inline-flex items-center rounded-md border px-2.5 py-1.5 text-xs text-slate-500"
+          title="In arrivo: collegare tabella shipment_documents"
+        >
+          LDV non disponibile
+        </button>
       </div>
     </div>
   );
