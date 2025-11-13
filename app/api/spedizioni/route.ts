@@ -1,7 +1,7 @@
 // app/api/spedizioni/route.ts
 import { NextResponse } from "next/server";
-import { cookies, headers as nextHeaders } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { cookies, headers as nextHeaders } from "next/headers";
 
 /* ───────────── Helpers ───────────── */
 type Party = {
@@ -116,6 +116,143 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
+/* ───────────── GET /api/spedizioni (list) ─────────────
+   Fix: niente embed; 2a query su packages e aggrego lato server */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const sp = url.searchParams;
+
+    const page = Math.max(1, Number(sp.get("page") || 1));
+    const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || 20)));
+    const sort = sp.get("sort") || "created_desc"; // created_desc | created_asc
+    const q = (sp.get("q") || "").trim().toLowerCase();
+    const emailParam = sp.get("email");
+    const debug = sp.has("debug");
+
+    const SUPABASE_URL =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "Missing Supabase env vars" },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    const supabaseSrv = createClient(
+      SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY,
+      { auth: { persistSession: false } }
+    );
+    const sb: any = supabaseSrv;
+
+    let emailNorm: string | null = null;
+    if (emailParam && emailParam.trim()) {
+      emailNorm = emailParam.trim().toLowerCase();
+    }
+
+    // Base select (senza embed)
+    let sel = `
+      id, created_at, human_id, email_norm,
+      tipo_spedizione, incoterm, giorno_ritiro,
+      mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
+      dest_paese, dest_citta, dest_cap,
+      colli_n, peso_reale_kg, status,
+      -- opzionali/normalizzati
+      mittente_rs, mittente_telefono, mittente_piva,
+      dest_rs, dest_telefono, dest_piva,
+      fatt_rs, fatt_piva, fatt_valuta, formato_sped, contenuto_generale,
+      dest_abilitato_import,
+      fields
+    `;
+
+    let qData = sb.schema("spst").from("shipments").select(sel, { count: "exact" });
+    if (emailNorm) qData = qData.eq("email_norm", emailNorm);
+
+    // ricerca testuale semplice su città/paese/id (se presente q)
+    if (q) {
+      qData = qData.or(
+        [
+          `human_id.ilike.%${q}%`,
+          `dest_citta.ilike.%${q}%`,
+          `dest_paese.ilike.%${q}%`,
+          `mittente_citta.ilike.%${q}%`,
+        ].join(",")
+      );
+    }
+
+    if (sort === "created_asc") qData = qData.order("created_at", { ascending: true });
+    else qData = qData.order("created_at", { ascending: false });
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    qData = qData.range(from, to);
+
+    const { data: shipments, error, count } = await qData;
+    if (error) throw error;
+
+    const ids = (shipments || []).map((s: any) => s.id);
+    let packagesByShipment: Record<string, any[]> = {};
+
+    if (ids.length > 0) {
+      const { data: pkgs, error: pErr } = await sb
+        .schema("spst")
+        .from("packages")
+        .select("id, shipment_id, l1, l2, l3, weight_kg, contenuto")
+        .in("shipment_id", ids);
+
+      if (pErr) throw pErr;
+
+      for (const p of pkgs || []) {
+        const sid = p.shipment_id as string;
+        if (!packagesByShipment[sid]) packagesByShipment[sid] = [];
+        packagesByShipment[sid].push({
+          id: p.id,
+          l1: p.l1, l2: p.l2, l3: p.l3,
+          weight_kg: p.weight_kg,
+          contenuto: p.contenuto ?? null,
+        });
+      }
+    }
+
+    const rows = (shipments || []).map((r: any) => {
+      const created_it = r.created_at
+        ? new Date(r.created_at).toLocaleString("it-IT", { timeZone: "Europe/Rome" })
+        : null;
+      const list = packagesByShipment[r.id] || [];
+      return {
+        ...r,
+        created_it,
+        packages_count: list.length,
+        packages_preview: list.slice(0, 3),
+      };
+    });
+
+    const res = NextResponse.json(
+      {
+        ok: true,
+        page,
+        limit,
+        total: count ?? rows.length,
+        rows,
+        ...(debug ? { debug: { emailNorm, filterByEmail: !!emailNorm } } : {}),
+      },
+      { status: 200 }
+    );
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
+  } catch (e: any) {
+    console.error("[API/spedizioni:GET] unexpected:", e);
+    return NextResponse.json(
+      { ok: false, error: String(e?.message || e) },
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+    );
+  }
+}
+
 /* ───────────── POST /api/spedizioni (create) ───────────── */
 export async function POST(req: Request) {
   try {
@@ -135,8 +272,9 @@ export async function POST(req: Request) {
 
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const supaAny = supabaseSrv as any;
+    const sb: any = supabaseSrv;
 
+    // utente (se c’è token)
     const accessToken = getAccessTokenFromRequest();
     const { data: userData } = accessToken
       ? await supabaseAuth.auth.getUser(accessToken)
@@ -158,9 +296,12 @@ export async function POST(req: Request) {
     );
     const emailNorm = normalizeEmail(emailRaw);
 
+    // mapping mitt/dest
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
+    const fatt: Party = body.fatturazione ?? {};
 
+    // colli
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
       l1: toNum(c.l1 ?? c.lunghezza_cm),
@@ -195,27 +336,29 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    const fieldsSafe = (() => {
-      const clone: any = JSON.parse(JSON.stringify(body ?? {}));
-      const blocklist = [
-        "colli_n", "colli",
-        "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
-        "tipoSped", "tipo_spedizione", "dest_abilitato_import",
-        "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
-        "dest_paese","dest_citta","dest_cap",
-        "email","email_cliente","email_norm",
-        "carrier","service_code","pickup_at","tracking_code","declared_value","status",
-        "human_id"
-      ];
-      for (const k of blocklist) delete clone[k];
-      return clone;
-    })();
-
+    // campi normalizzati per UI (ragione sociale, telefono, piva, …)
     const baseRow: any = {
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
+
       mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
       dest_paese, dest_citta, dest_cap,
+
+      mittente_rs: mitt.ragioneSociale ?? null,
+      mittente_telefono: mitt.telefono ?? null,
+      mittente_piva: mitt.piva ?? null,
+
+      dest_rs: dest.ragioneSociale ?? null,
+      dest_telefono: dest.telefono ?? null,
+      dest_piva: dest.piva ?? null,
+
+      fatt_rs: fatt.ragioneSociale ?? null,
+      fatt_piva: fatt.piva ?? null,
+      fatt_valuta: body.valuta ?? body.fatt_valuta ?? null,
+
+      formato_sped: body.formato ?? body.formato_sped ?? null,
+      contenuto_generale: body.contenuto ?? body.contenuto_generale ?? null,
+
       tipo_spedizione,
       incoterm,
       incoterm_norm: incoterm,
@@ -224,26 +367,31 @@ export async function POST(req: Request) {
       giorno_ritiro,
       peso_reale_kg,
       colli_n,
-      // opzionali / futuri
+
       carrier: body.carrier ?? null,
       service_code: body.service_code ?? null,
       pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
       declared_value: toNum(body.declared_value),
+
       status: body.status ?? "draft",
-      // alcuni extra utili per UI
-      mittente_rs: mitt.ragioneSociale ?? null,
-      mittente_telefono: mitt.telefono ?? null,
-      mittente_piva: mitt.piva ?? null,
-      dest_rs: dest.ragioneSociale ?? null,
-      dest_telefono: dest.telefono ?? null,
-      dest_piva: dest.piva ?? null,
-      fatt_rs: body?.fatturazione?.ragioneSociale ?? null,
-      fatt_piva: body?.fatturazione?.piva ?? null,
-      fatt_valuta: body?.valuta ?? body?.fatturazione?.valuta ?? null,
-      formato_sped: firstNonEmpty(body.formato, body.fields?.formato) || null,
-      contenuto_generale: body?.contenuto ?? body?.fields?.contenuto ?? null,
-      fields: fieldsSafe,
+
+      // fields “grezzi” depurati da duplicati/derivati
+      fields: (() => {
+        const clone: any = JSON.parse(JSON.stringify(body ?? {}));
+        const blocklist = [
+          "colli_n", "colli",
+          "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
+          "tipoSped", "tipo_spedizione", "dest_abilitato_import",
+          "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
+          "dest_paese","dest_citta","dest_cap",
+          "email","email_cliente","email_norm",
+          "carrier","service_code","pickup_at","tracking_code","declared_value","status",
+          "human_id"
+        ];
+        for (const k of blocklist) delete clone[k];
+        return clone;
+      })(),
     };
 
     // ── Genera human_id con retry su unique
@@ -254,10 +402,10 @@ export async function POST(req: Request) {
 
     while (attempt < MAX_RETRY) {
       attempt++;
-      const human_id = await nextHumanIdForToday(supabaseSrv);
+      const human_id = await nextHumanIdForToday(sb);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await supaAny
+      const { data, error } = await sb
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
@@ -268,9 +416,10 @@ export async function POST(req: Request) {
         shipment = data;
         break;
       }
+
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
-        continue;
+        continue; // riprova
       } else {
         lastErr = error;
         break;
@@ -285,7 +434,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── Inserisci pacchi (se presenti)
+    // ── Insert packages (se presenti)
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -297,7 +446,7 @@ export async function POST(req: Request) {
         fields: c,
       }));
 
-      const { error: pkgErr } = await supaAny
+      const { error: pkgErr } = await sb
         .schema("spst")
         .from("packages")
         .insert(pkgs);
@@ -318,116 +467,6 @@ export async function POST(req: Request) {
     console.error("[API/spedizioni] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-    );
-  }
-}
-
-/* ───────────── GET /api/spedizioni (list) ───────────── */
-export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const sp = url.searchParams;
-
-    const page = Math.max(1, Number(sp.get("page") || 1));
-    const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || 20)));
-    const sort = sp.get("sort") || "created_desc"; // created_desc | created_asc
-    const emailParam = sp.get("email");
-    const debug = sp.has("debug");
-
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing Supabase env vars" },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const sb: any = supabaseSrv;
-
-    // Prova ad ottenere email dall'access token se non presente come query
-    let emailNorm: string | null = null;
-    if (emailParam && emailParam.trim()) {
-      emailNorm = emailParam.trim().toLowerCase();
-    } else {
-      // opzionale: tenta da cookie auth
-      try {
-        const accessToken = getAccessTokenFromRequest();
-        if (accessToken) {
-          const supabaseAuth = createClient(SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string, {
-            auth: { persistSession: false },
-          });
-          const u = await supabaseAuth.auth.getUser(accessToken);
-          emailNorm = u?.data?.user?.email ? u.data.user.email.toLowerCase() : null;
-        }
-      } catch {}
-    }
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    // base select (include relazione packages se FK presente)
-    let sel =
-      `
-        id, created_at, human_id, email_norm,
-        tipo_spedizione, incoterm, giorno_ritiro,
-        mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
-        dest_paese, dest_citta, dest_cap,
-        colli_n, peso_reale_kg, status,
-        mittente_rs, mittente_telefono, mittente_piva,
-        dest_rs, dest_telefono, dest_piva,
-        fatt_rs, fatt_piva, fatt_valuta, formato_sped, contenuto_generale,
-        dest_abilitato_import,
-        fields,
-        packages:packages ( id, l1, l2, l3, weight_kg, contenuto )
-      `;
-
-    let qData = sb.schema("spst").from("shipments").select(sel, { count: "exact" });
-    if (emailNorm) qData = qData.eq("email_norm", emailNorm);
-
-    if (sort === "created_asc") qData = qData.order("created_at", { ascending: true });
-    else qData = qData.order("created_at", { ascending: false });
-
-    qData = qData.range(from, to);
-
-    const { data, error, count } = await qData;
-    if (error) throw error;
-
-    // Post-processing: created_it + packages preview
-    const rows = (data || []).map((r: any) => {
-      const created_it = r.created_at ? new Date(r.created_at).toLocaleString("it-IT", { timeZone: "Europe/Rome" }) : null;
-      const packages = Array.isArray(r.packages) ? r.packages : [];
-      const packages_preview = packages.slice(0, 3).map((p: any) => ({
-        id: p.id, l1: p.l1, l2: p.l2, l3: p.l3, weight_kg: p.weight_kg, contenuto: p.contenuto ?? null,
-      }));
-      return {
-        ...r,
-        created_it,
-        packages_count: packages.length,
-        packages_preview,
-      };
-    });
-
-    const res = NextResponse.json(
-      {
-        ok: true,
-        page,
-        limit,
-        total: count ?? rows.length,
-        rows,
-        ...(debug ? { debug: { emailNorm, filterByEmail: !!emailNorm } } : {}),
-      },
-      { status: 200 }
-    );
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    return res;
-  } catch (e: any) {
-    console.error("[API/spedizioni:GET] unexpected:", e);
-    return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
