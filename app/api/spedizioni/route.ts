@@ -77,7 +77,7 @@ export function OPTIONS() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Methods": "POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
     },
@@ -116,129 +116,7 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── GET /api/spedizioni  → lista paginata dell’utente loggato ─────────────
-   Nota: usiamo service role per leggere (server-side) MA filtriamo per email dell’utente.
-   Così funziona anche senza policy RLS e non esponiamo nulla client-side. */
-export async function GET(req: Request) {
-  const started = Date.now();
-  try {
-    const url = new URL(req.url);
-    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
-    const q = (url.searchParams.get("q") || "").trim();
-    const order = (url.searchParams.get("order") || "created_at.desc").trim();
-    const debug = url.searchParams.get("debug") === "1";
-
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "MISSING_SUPABASE_ENV" },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    // 1) recupero token utente per leggere la sua email
-    const accessToken = getAccessTokenFromRequest();
-    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
-    const { data: uData, error: uErr } = accessToken
-      ? await supabaseAuth.auth.getUser(accessToken)
-      : { data: { user: null } as any, error: null as any };
-
-    const email = normalizeEmail(uData?.user?.email || null);
-    if (!email) {
-      console.warn("[GET /api/spedizioni] no email (missing/invalid token)", { uErr, hasToken: !!accessToken });
-      return NextResponse.json(
-        { ok: true, page, limit, total: 0, rows: [], debug: debug ? { hasToken: !!accessToken, uErr } : undefined },
-        { headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    // 2) query server-side con filtro email
-    const supaSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) as any;
-
-    let query = supaSrv
-      .schema("spst")
-      .from("shipments")
-      .select(
-        [
-          "id",
-          "human_id",
-          "created_at",
-          "status",
-          "tipo_spedizione",
-          "incoterm",
-          "giorno_ritiro",
-          "note_ritiro",
-          "colli_n",
-          "peso_reale_kg",
-          "mittente_citta",
-          "dest_citta",
-          "carrier",
-          "tracking_code",
-          "email_norm",
-        ].join(","),
-        { count: "exact" }
-      )
-      .eq("email_norm", email);
-
-    if (q) {
-      query = query.or(
-        [
-          `human_id.ilike.%${q}%`,
-          `mittente_citta.ilike.%${q}%`,
-          `dest_citta.ilike.%${q}%`,
-          `tracking_code.ilike.%${q}%`,
-        ].join(",")
-      );
-    }
-
-    const [ordCol, ordDir] = order.split(".");
-    if (ordCol) {
-      query = query.order(ordCol, { ascending: ordDir !== "desc", nullsFirst: false });
-    }
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-
-    const { data, error, count } = await query;
-
-    if (debug) {
-      console.log("[GET /api/spedizioni] debug", {
-        email,
-        page, limit, q, order,
-        total: count ?? 0,
-        rows: (data || []).length,
-        ms: Date.now() - started,
-        error: error?.message,
-      });
-    }
-
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: error.message },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    return NextResponse.json(
-      { ok: true, page, limit, total: count ?? 0, rows: data ?? [] },
-      { headers: { "Access-Control-Allow-Origin": "*" } }
-    );
-  } catch (e: any) {
-    console.error("[GET /api/spedizioni] unexpected:", e);
-    return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-    );
-  }
-}
-
-/* ───────────── POST /api/spedizioni  → crea spedizione ───────────── */
+/* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -317,10 +195,12 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
+    // <-- QUI: non filtriamo più "colli" dalla copia per il drawer
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
-        "colli_n", "colli",
+        "colli_n",                                  // (ok tenerlo fuori, è già in root)
+        // "colli",                                 // ⚠️ RIMOSSO DALLA BLOCKLIST
         "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
         "tipoSped", "tipo_spedizione", "dest_abilitato_import",
         "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
@@ -405,7 +285,7 @@ export async function POST(req: Request) {
         fields: c,
       }));
 
-      const { error: pkgErr } = await (supabaseSrv as any)
+      const { error: pkgErr } = await supaAny
         .schema("spst")
         .from("packages")
         .insert(pkgs);
