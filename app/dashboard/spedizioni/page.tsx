@@ -1,25 +1,41 @@
-// app/dashboard/spedizioni/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type Row = {
   id: string;
-  human_id?: string | null;
-  created_at?: string;
-  status?: string | null;
-  tipo_spedizione?: string | null;
-  incoterm?: string | null;
-  giorno_ritiro?: string | null;
-  note_ritiro?: string | null;
-  colli_n?: number | null;
-  peso_reale_kg?: string | number | null;
-  mittente_citta?: string | null;
-  dest_citta?: string | null;
-  carrier?: string | null;
-  tracking_code?: string | null;
-  email_norm?: string | null;
+  human_id: string | null;
+  created_at: string;
+  status: string | null;
+  tipo_spedizione: string | null;
+  incoterm: string | null;
+  giorno_ritiro: string | null;
+  note_ritiro: string | null;
+  colli_n: number | null;
+  peso_reale_kg: number | string | null;
+  mittente_citta: string | null;
+  dest_citta: string | null;
+  carrier: string | null;
+  tracking_code: string | null;
+  email_norm: string | null;
 };
+
+type ApiList = {
+  ok: boolean;
+  page: number;
+  limit: number;
+  total: number;
+  rows: Row[];
+};
+
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || (process.env as any).SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+const supabase = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+});
 
 export default function SpedizioniPage() {
   const [q, setQ] = useState("");
@@ -28,112 +44,125 @@ export default function SpedizioniPage() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  const order = "created_at.desc";
-  const pageCount = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
+  const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
-  const fetchRows = async () => {
+  async function load() {
     setLoading(true);
+    setError(null);
     try {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-        order,
-      });
-      if (q.trim()) params.set("q", q.trim());
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token || null;
 
-      const r = await fetch(`/api/spedizioni?${params.toString()}`, { cache: "no-store" });
-      const j = await r.json().catch(() => ({}));
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      if (q.trim()) params.set("q", q.trim());
+      // params.set("debug", "1"); // abilita log verbosi lato API
+
+      const r = await fetch(`/api/spedizioni?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      const j: ApiList | any = await r.json().catch(() => ({}));
       if (!r.ok || !j?.ok) {
-        console.error("Fetch spedizioni error:", j?.error || r.statusText);
-        setRows([]);
-        setTotal(0);
-      } else {
-        setRows(j.rows || []);
-        setTotal(j.total || 0);
+        throw new Error(j?.error || `${r.status} ${r.statusText}`);
       }
-    } catch (e) {
-      console.error("Fetch spedizioni exception:", e);
+      setRows(j.rows || []);
+      setTotal(j.total || 0);
+    } catch (e: any) {
+      console.error("[UI] GET /api/spedizioni error:", e);
+      setError(e?.message || "Errore di caricamento");
       setRows([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
-    fetchRows();
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, limit, order]);
-
-  const onSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    fetchRows();
-  };
+  }, [page, limit]);
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Le mie spedizioni</h2>
 
-      <form onSubmit={onSearch} className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Cerca per ID, città, tracking..."
-          className="border rounded-lg px-3 py-2 text-sm w-full"
+          placeholder="Cerca per ID, città, tracking…"
+          className="w-full rounded-lg border px-3 py-2 text-sm"
         />
         <button
-          type="submit"
-          className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"
+          onClick={() => {
+            setPage(1);
+            load();
+          }}
+          className="rounded-lg border bg-white px-3 py-2 text-sm hover:bg-slate-50"
           disabled={loading}
         >
           Cerca
         </button>
-      </form>
+      </div>
 
-      <div className="rounded-2xl border bg-white overflow-x-auto">
+      {error && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-2xl border bg-white">
         <table className="min-w-full text-sm">
-          <thead className="bg-slate-50">
+          <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="text-left p-3">ID</th>
-              <th className="text-left p-3">Creato</th>
-              <th className="text-left p-3">Tipo</th>
-              <th className="text-left p-3">Incoterm</th>
-              <th className="text-left p-3">Ritiro</th>
-              <th className="text-left p-3">Mittente</th>
-              <th className="text-left p-3">Destinatario</th>
-              <th className="text-left p-3">Colli</th>
-              <th className="text-left p-3">Peso (kg)</th>
-              <th className="text-left p-3">Stato</th>
+              <th className="px-3 py-2 text-left">ID</th>
+              <th className="px-3 py-2 text-left">Creato</th>
+              <th className="px-3 py-2 text-left">Tipo</th>
+              <th className="px-3 py-2 text-left">Incoterm</th>
+              <th className="px-3 py-2 text-left">Ritiro</th>
+              <th className="px-3 py-2 text-left">Mittente</th>
+              <th className="px-3 py-2 text-left">Destinatario</th>
+              <th className="px-3 py-2 text-right">Colli</th>
+              <th className="px-3 py-2 text-right">Peso (kg)</th>
+              <th className="px-3 py-2 text-left">Stato</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-3" colSpan={10}>
+                <td colSpan={10} className="px-3 py-6 text-center text-slate-500">
                   Caricamento…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="p-3" colSpan={10}>
+                <td colSpan={10} className="px-3 py-6 text-center text-slate-500">
                   Nessuna spedizione trovata.
                 </td>
               </tr>
             ) : (
               rows.map((r) => (
                 <tr key={r.id} className="border-t">
-                  <td className="p-3 font-mono">{r.human_id || r.id}</td>
-                  <td className="p-3">{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
-                  <td className="p-3">{r.tipo_spedizione || "—"}</td>
-                  <td className="p-3">{r.incoterm || "—"}</td>
-                  <td className="p-3">{r.giorno_ritiro || "—"}</td>
-                  <td className="p-3">{r.mittente_citta || "—"}</td>
-                  <td className="p-3">{r.dest_citta || "—"}</td>
-                  <td className="p-3">{r.colli_n ?? "—"}</td>
-                  <td className="p-3">{r.peso_reale_kg ?? "—"}</td>
-                  <td className="p-3">{r.status || "—"}</td>
+                  <td className="px-3 py-2 font-mono">{r.human_id || r.id}</td>
+                  <td className="px-3 py-2">{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="px-3 py-2">{r.tipo_spedizione || "—"}</td>
+                  <td className="px-3 py-2">{r.incoterm || "—"}</td>
+                  <td className="px-3 py-2">
+                    {r.giorno_ritiro ? new Date(r.giorno_ritiro).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="px-3 py-2">{r.mittente_citta || "—"}</td>
+                  <td className="px-3 py-2">{r.dest_citta || "—"}</td>
+                  <td className="px-3 py-2 text-right">{r.colli_n ?? "—"}</td>
+                  <td className="px-3 py-2 text-right">
+                    {r.peso_reale_kg != null ? String(r.peso_reale_kg) : "—"}
+                  </td>
+                  <td className="px-3 py-2">{r.status || "—"}</td>
                 </tr>
               ))
             )}
@@ -141,28 +170,24 @@ export default function SpedizioniPage() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-500">
-          {total} risultati · Pagina {page}/{pageCount}
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-sm text-slate-500">
+          {rows.length} di {total} risultati — Pagina {page}/{pages}
         </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={loading || page <= 1}
-            className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
-          >
-            ←
-          </button>
-          <button
-            type="button"
-            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-            disabled={loading || page >= pageCount}
-            className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
-          >
-            →
-          </button>
-        </div>
+        <button
+          className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          disabled={page <= 1 || loading}
+        >
+          ←
+        </button>
+        <button
+          className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
+          onClick={() => setPage((p) => Math.min(pages, p + 1))}
+          disabled={page >= pages || loading}
+        >
+          →
+        </button>
       </div>
     </div>
   );
