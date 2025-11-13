@@ -84,14 +84,13 @@ export function OPTIONS() {
   });
 }
 
-/* ───────────── human_id generator (route-level) ───────────── */
+/* ───────────── human_id generator ───────────── */
 function formatHumanId(d: Date, n: number) {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const yyyy = d.getUTCFullYear();
   return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
 }
-
 async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   const now = new Date();
   const pattern = (() => {
@@ -101,9 +100,8 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
     return `SP-${dd}-${mm}-${yyyy}-`;
   })();
 
-  const supaAny = supabaseSrv as any;
-
-  const { count, error } = await supaAny
+  const sb: any = supabaseSrv;
+  const { count, error } = await sb
     .schema("spst")
     .from("shipments")
     .select("human_id", { count: "exact", head: true })
@@ -116,8 +114,7 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── GET /api/spedizioni (list) ─────────────
-   Fix: niente embed; 2a query su packages e aggrego lato server */
+/* ───────────── GET /api/spedizioni ───────────── */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -130,8 +127,7 @@ export async function GET(req: Request) {
     const emailParam = sp.get("email");
     const debug = sp.has("debug");
 
-    const SUPABASE_URL =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_SERVICE_ROLE_KEY =
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -142,37 +138,51 @@ export async function GET(req: Request) {
       );
     }
 
-    const supabaseSrv = createClient(
-      SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY,
-      { auth: { persistSession: false } }
-    );
+    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    });
     const sb: any = supabaseSrv;
 
     let emailNorm: string | null = null;
-    if (emailParam && emailParam.trim()) {
-      emailNorm = emailParam.trim().toLowerCase();
-    }
+    if (emailParam && emailParam.trim()) emailNorm = emailParam.trim().toLowerCase();
 
-    // Base select (senza embed)
-    let sel = `
-      id, created_at, human_id, email_norm,
-      tipo_spedizione, incoterm, giorno_ritiro,
-      mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
-      dest_paese, dest_citta, dest_cap,
-      colli_n, peso_reale_kg, status,
-      -- opzionali/normalizzati
-      mittente_rs, mittente_telefono, mittente_piva,
-      dest_rs, dest_telefono, dest_piva,
-      fatt_rs, fatt_piva, fatt_valuta, formato_sped, contenuto_generale,
-      dest_abilitato_import,
-      fields
-    `;
+    // ⚠️ niente commenti nella select
+    const selectCols = [
+      "id",
+      "created_at",
+      "human_id",
+      "email_norm",
+      "tipo_spedizione",
+      "incoterm",
+      "giorno_ritiro",
+      "mittente_paese",
+      "mittente_citta",
+      "mittente_cap",
+      "mittente_indirizzo",
+      "dest_paese",
+      "dest_citta",
+      "dest_cap",
+      "colli_n",
+      "peso_reale_kg",
+      "status",
+      "mittente_rs",
+      "mittente_telefono",
+      "mittente_piva",
+      "dest_rs",
+      "dest_telefono",
+      "dest_piva",
+      "fatt_rs",
+      "fatt_piva",
+      "fatt_valuta",
+      "formato_sped",
+      "contenuto_generale",
+      "dest_abilitato_import",
+      "fields",
+    ].join(",");
 
-    let qData = sb.schema("spst").from("shipments").select(sel, { count: "exact" });
+    let qData = sb.schema("spst").from("shipments").select(selectCols, { count: "exact" });
     if (emailNorm) qData = qData.eq("email_norm", emailNorm);
 
-    // ricerca testuale semplice su città/paese/id (se presente q)
     if (q) {
       qData = qData.or(
         [
@@ -201,17 +211,18 @@ export async function GET(req: Request) {
       const { data: pkgs, error: pErr } = await sb
         .schema("spst")
         .from("packages")
-        .select("id, shipment_id, l1, l2, l3, weight_kg, contenuto")
+        .select("id,shipment_id,l1,l2,l3,weight_kg,contenuto")
         .in("shipment_id", ids);
 
       if (pErr) throw pErr;
 
       for (const p of pkgs || []) {
         const sid = p.shipment_id as string;
-        if (!packagesByShipment[sid]) packagesByShipment[sid] = [];
-        packagesByShipment[sid].push({
+        (packagesByShipment[sid] ||= []).push({
           id: p.id,
-          l1: p.l1, l2: p.l2, l3: p.l3,
+          l1: p.l1,
+          l2: p.l2,
+          l3: p.l3,
           weight_kg: p.weight_kg,
           contenuto: p.contenuto ?? null,
         });
@@ -253,7 +264,7 @@ export async function GET(req: Request) {
   }
 }
 
-/* ───────────── POST /api/spedizioni (create) ───────────── */
+/* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -296,12 +307,10 @@ export async function POST(req: Request) {
     );
     const emailNorm = normalizeEmail(emailRaw);
 
-    // mapping mitt/dest
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
     const fatt: Party = body.fatturazione ?? {};
 
-    // colli
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
       l1: toNum(c.l1 ?? c.lunghezza_cm),
@@ -336,7 +345,6 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    // campi normalizzati per UI (ragione sociale, telefono, piva, …)
     const baseRow: any = {
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
@@ -376,7 +384,6 @@ export async function POST(req: Request) {
 
       status: body.status ?? "draft",
 
-      // fields “grezzi” depurati da duplicati/derivati
       fields: (() => {
         const clone: any = JSON.parse(JSON.stringify(body ?? {}));
         const blocklist = [
@@ -394,7 +401,7 @@ export async function POST(req: Request) {
       })(),
     };
 
-    // ── Genera human_id con retry su unique
+    // human_id con retry su unique
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -412,18 +419,9 @@ export async function POST(req: Request) {
         .select()
         .single();
 
-      if (!error) {
-        shipment = data;
-        break;
-      }
-
-      if (error.code === "23505" || /unique/i.test(error.message)) {
-        lastErr = error;
-        continue; // riprova
-      } else {
-        lastErr = error;
-        break;
-      }
+      if (!error) { shipment = data; break; }
+      if (error.code === "23505" || /unique/i.test(error.message)) { lastErr = error; continue; }
+      lastErr = error; break;
     }
 
     if (!shipment) {
@@ -434,7 +432,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── Insert packages (se presenti)
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -445,22 +442,11 @@ export async function POST(req: Request) {
         contenuto: c.contenuto ?? null,
         fields: c,
       }));
-
-      const { error: pkgErr } = await sb
-        .schema("spst")
-        .from("packages")
-        .insert(pkgs);
-
-      if (pkgErr) {
-        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
-      }
+      const { error: pkgErr } = await sb.schema("spst").from("packages").insert(pkgs);
+      if (pkgErr) console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
     }
 
-    const res = NextResponse.json({
-      ok: true,
-      shipment,
-      id: shipment.human_id || shipment.id,
-    });
+    const res = NextResponse.json({ ok: true, shipment, id: shipment.human_id || shipment.id });
     res.headers.set("Access-Control-Allow-Origin", "*");
     return res;
   } catch (e: any) {
