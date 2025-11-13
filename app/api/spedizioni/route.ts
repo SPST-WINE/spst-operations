@@ -77,7 +77,7 @@ export function OPTIONS() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Methods": "POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
     },
@@ -114,148 +114,6 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
     return formatHumanId(now, ts);
   }
   return formatHumanId(now, (count ?? 0) + 1);
-}
-
-/* ───────────── GET /api/spedizioni ───────────── */
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
-  const search = (url.searchParams.get("q") || "").trim();
-  const sort = (url.searchParams.get("sort") || "created_desc") as
-    | "created_desc" | "ritiro_desc" | "dest_az" | "status";
-  const debug = url.searchParams.has("debug");
-
-  try {
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "MISSING_SUPABASE_CONFIG" },
-        { status: 500 }
-      );
-    }
-
-    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
-    const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-    const supaAny = supabaseSrv as any;
-
-    // Identità utente
-    const accessToken = getAccessTokenFromRequest();
-    const { data: userData, error: uErr } = accessToken
-      ? await supabaseAuth.auth.getUser(accessToken)
-      : { data: { user: null } as any, error: null as any };
-
-    const emailFromQuery = url.searchParams.get("email");
-    const emailFromHeaders =
-      nextHeaders().get("x-user-email") ||
-      nextHeaders().get("x-client-email") ||
-      nextHeaders().get("x-auth-email") ||
-      null;
-
-    const emailRaw = firstNonEmpty(
-      userData?.user?.email || null,
-      emailFromHeaders,
-      emailFromQuery
-    );
-    const emailNorm = normalizeEmail(emailRaw);
-
-    // Query base
-    let query = supaAny
-      .schema("spst")
-      .from("shipments")
-      .select(
-        [
-          "id",
-          "created_at",
-          "human_id",
-          "tipo_spedizione",
-          "incoterm",
-          "giorno_ritiro",
-          "mittente_citta",
-          "dest_citta",
-          "dest_paese",
-          "colli_n",
-          "peso_reale_kg",
-          "status",
-          "email_norm",
-        ].join(","),
-        { count: "exact" }
-      );
-
-    if (emailNorm) {
-      query = query.eq("email_norm", emailNorm);
-    }
-
-    if (search) {
-      // ricerca su più colonne
-      const like = `%${search}%`;
-      query = query.or(
-        [
-          `human_id.ilike.${like}`,
-          `dest_citta.ilike.${like}`,
-          `dest_paese.ilike.${like}`,
-          `mittente_citta.ilike.${like}`,
-        ].join(",")
-      );
-    }
-
-    // ordinamento
-    if (sort === "ritiro_desc") {
-      query = query.order("giorno_ritiro", { ascending: false }).order("created_at", { ascending: false });
-    } else if (sort === "dest_az") {
-      query = query.order("dest_citta", { ascending: true, nullsFirst: true });
-    } else if (sort === "status") {
-      query = query.order("status", { ascending: true }).order("created_at", { ascending: false });
-    } else {
-      // created_desc
-      query = query.order("created_at", { ascending: false });
-    }
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: error.message },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-      );
-    }
-
-    const res = NextResponse.json(
-      {
-        ok: true,
-        page,
-        limit,
-        total: count ?? 0,
-        rows: data || [],
-        ...(debug
-          ? {
-              debug: {
-                hasToken: !!accessToken,
-                uErr: uErr?.message || null,
-                emailNorm,
-                filterByEmail: !!emailNorm,
-              },
-            }
-          : {}),
-      },
-      { status: 200 }
-    );
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    return res;
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
-    );
-  }
 }
 
 /* ───────────── POST /api/spedizioni ───────────── */
@@ -302,6 +160,7 @@ export async function POST(req: Request) {
 
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
+    const fatt: Party = body.fatturazione ?? (body.fields?.fatturazione ?? {});
 
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
@@ -325,7 +184,7 @@ export async function POST(req: Request) {
         ? body.destAbilitato
         : typeof body.dest_abilitato_import === "boolean"
         ? body.dest_abilitato_import
-        : null;
+        : (body.fields?.destAbilitato ?? null);
     const note_ritiro = body.ritiroNote ?? body.note_ritiro ?? null;
 
     const mittente_paese = mitt.paese ?? body.mittente_paese ?? null;
@@ -347,13 +206,18 @@ export async function POST(req: Request) {
         "dest_paese","dest_citta","dest_cap",
         "email","email_cliente","email_norm",
         "carrier","service_code","pickup_at","tracking_code","declared_value","status",
-        "human_id"
+        "human_id",
+        // nuovi normalizzati
+        "mittente","destinatario","fatturazione",
+        "valuta","formato","contenuto"
       ];
       for (const k of blocklist) delete clone[k];
       return clone;
     })();
 
+    // ── Row normalizzata (PATCH)
     const baseRow: any = {
+      // --- già presenti ---
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
       mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
@@ -372,6 +236,32 @@ export async function POST(req: Request) {
       tracking_code: body.tracking_code ?? null,
       declared_value: toNum(body.declared_value),
       status: body.status ?? "draft",
+
+      // --- NUOVE colonne normalizzate ---
+      mittente_rs:         firstNonEmpty(mitt.ragioneSociale),
+      mittente_referente:  firstNonEmpty(mitt.referente),
+      mittente_telefono:   firstNonEmpty(mitt.telefono),
+      mittente_piva:       firstNonEmpty(mitt.piva),
+
+      dest_rs:             firstNonEmpty(dest.ragioneSociale),
+      dest_referente:      firstNonEmpty(dest.referente),
+      dest_telefono:       firstNonEmpty(dest.telefono),
+      dest_piva:           firstNonEmpty(dest.piva),
+
+      fatt_rs:             firstNonEmpty(fatt.ragioneSociale),
+      fatt_referente:      firstNonEmpty(fatt.referente),
+      fatt_paese:          firstNonEmpty((fatt as any).paese),
+      fatt_citta:          firstNonEmpty((fatt as any).citta),
+      fatt_cap:            firstNonEmpty((fatt as any).cap),
+      fatt_indirizzo:      firstNonEmpty((fatt as any).indirizzo),
+      fatt_telefono:       firstNonEmpty((fatt as any).telefono),
+      fatt_piva:           firstNonEmpty((fatt as any).piva),
+
+      fatt_valuta:         firstNonEmpty(body.valuta, body.fields?.valuta),
+      formato_sped:        firstNonEmpty(body.formato, body.fields?.formato),   // "Pacco" / "Pallet"
+      contenuto_generale:  firstNonEmpty(body.contenuto, body.fields?.contenuto),
+
+      // Manteniamo anche il payload originale ripulito
       fields: fieldsSafe,
     };
 
@@ -415,6 +305,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // ── Inserisci pacchi (con contenuto)
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -422,6 +313,7 @@ export async function POST(req: Request) {
         l2: toNum(c.l2 ?? c.larghezza_cm),
         l3: toNum(c.l3 ?? c.altezza_cm),
         weight_kg: toNum(c.peso ?? c.peso_kg),
+        contenuto: c.contenuto ?? c.contenuto_colli ?? null,
         fields: c,
       }));
 
