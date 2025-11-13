@@ -1,79 +1,105 @@
 // components/SpedizioniClient.tsx
-"use client";
+'use client';
 
-import { useEffect, useMemo, useState } from "react";
-import { Package, Boxes, Search, ArrowUpDown } from "lucide-react";
-import Drawer from "@/components/Drawer";
-import ShipmentDetail from "@/components/ShipmentDetail";
+import { useEffect, useMemo, useState } from 'react';
+import { Package, Boxes, Search, ArrowUpDown } from 'lucide-react';
+import Drawer from '@/components/Drawer';
+import ShipmentDetail from '@/components/ShipmentDetail';
+import { getIdToken } from '@/lib/firebase-client-auth';
+import { createClient } from '@supabase/supabase-js';
 
 type Row = {
-  // campi dal backend (Supabase GET /api/spedizioni)
-  id: string;                 // human_id oppure uuid
-  human_id?: string | null;   // se presente lato API
-  created_at?: string | null;
-  status?: string | null;
-  tipo_spedizione?: string | null;
-  incoterm?: string | null;
-  giorno_ritiro?: string | null;
-  note_ritiro?: string | null;
-
-  mittente_paese?: string | null;
-  mittente_citta?: string | null;
-  dest_paese?: string | null;
-  dest_citta?: string | null;
-
-  colli_n?: number | null;
-  peso_reale_kg?: number | string | null;
-
-  fields?: any;               // payload originale (packing list, mittente/destinatario, ecc.)
+  id: string;
+  _createdTime?: string | null;
+  [key: string]: any;
 };
 
 function norm(s?: string) {
-  return (s || "")
+  return (s || '')
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "");
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
 }
 
-function StatusBadge({ value }: { value?: string | null }) {
-  const v = (value || "").toLowerCase();
-  let cls = "bg-amber-50 text-amber-700 ring-amber-200";
-  let text = value || "—";
+function log(...a: any[]) {
+  // tutti i log hanno lo stesso prefisso per filtrarli facilmente in console
+  console.log('%cSPST[spedizioni]', 'color:#1c3e5e;font-weight:600', ...a);
+}
 
-  if (v.includes("in transito") || v.includes("intransit"))
-    cls = "bg-sky-50 text-sky-700 ring-sky-200";
-  else if (v.includes("in consegna") || v.includes("outfordelivery"))
-    cls = "bg-amber-50 text-amber-700 ring-amber-200";
-  else if (v.includes("consegn"))
-    cls = "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  else if (v.includes("eccez") || v.includes("exception") || v.includes("failed"))
-    cls = "bg-rose-50 text-rose-700 ring-rose-200";
+function warn(...a: any[]) {
+  console.warn('SPST[spedizioni]', ...a);
+}
+
+function error(...a: any[]) {
+  console.error('SPST[spedizioni]', ...a);
+}
+
+function StatusBadge({ value }: { value?: string }) {
+  const v = (value || '').toLowerCase();
+  let cls = 'bg-amber-50 text-amber-700 ring-amber-200';
+  let text = value || '—';
+
+  if (v.includes('in transito') || v.includes('intransit')) cls = 'bg-sky-50 text-sky-700 ring-sky-200';
+  else if (v.includes('in consegna') || v.includes('outfordelivery')) cls = 'bg-amber-50 text-amber-700 ring-amber-200';
+  else if (v.includes('consegn')) cls = 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+  else if (v.includes('eccez') || v.includes('exception') || v.includes('failed')) cls = 'bg-rose-50 text-rose-700 ring-rose-200';
+
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}>{text}</span>;
+}
+
+type Att = { url: string; filename?: string };
+function att(fields: any, name: string): Att | undefined {
+  const v = fields?.[name];
+  return Array.isArray(v) && v[0]?.url ? { url: v[0].url as string, filename: v[0].filename as string | undefined } : undefined;
+}
+
+function DocButtons({ row }: { row: Row }) {
+  const f = row as any;
+
+  const ldv = att(f, 'Allegato LDV') || att(f, 'LDV') || att(f, 'Lettera di vettura') || att(f, 'AWB');
+  const fatt = att(f, 'Allegato Fattura') || att(f, 'Fattura - Allegato Cliente') || att(f, 'Fattura');
+  const pl = att(f, 'Allegato PL') || att(f, 'Packing List - Allegato Cliente') || att(f, 'Packing List');
+  const dle = att(f, 'Allegato DLE');
+  const extra = [att(f, 'Allegato 1'), att(f, 'Allegato 2'), att(f, 'Allegato 3')].filter(Boolean) as Att[];
+
+  const Btn = ({ href, label }: { href: string; label: string }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center rounded-md bg-[#1c3e5e] px-2.5 py-1 text-xs font-medium text-white hover:opacity-95"
+    >
+      {label}
+    </a>
+  );
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}>
-      {text}
-    </span>
+    <div className="mt-3 flex flex-wrap gap-2">
+      {ldv && <Btn href={ldv.url} label="LDV" />}
+      {fatt && <Btn href={fatt.url} label="Fattura" />}
+      {pl && <Btn href={pl.url} label="Packing List" />}
+      {dle && <Btn href={dle.url} label="DLE" />}
+      {extra.map((e, i) => (
+        <Btn key={`${e.url}-${i}`} href={e.url} label="Allegato" />
+      ))}
+    </div>
   );
 }
 
 function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
-  // Se un domani salviamo il "Formato" nei fields, potremo distinguere pallet vs pacco.
-  const isPallet =
-    /pallet/i.test(String(r.fields?.formato || "")) ||
-    /pallet/i.test(String(r.fields?.Formato || ""));
+  const formato: string = r['Formato'] || '';
+  const isPallet = /pallet/i.test(formato);
+  const ref = r['ID Spedizione'] || r.human_id || r.id;
 
-  const ref = r.human_id || r.id;
-  const destRS =
-    r.fields?.destinatario?.ragioneSociale ||
-    r.fields?.destinatario?.ragione_sociale ||
-    "";
-
+  const destRS = r['Destinatario - Ragione Sociale'] || r['Destinatario'] || r.dest_ragione_sociale || '';
+  const destCitta = r['Destinatario - Città'] || r.dest_citta;
+  const destPaese = r['Destinatario - Paese'] || r.dest_paese;
   const dest =
-    r.dest_citta || r.dest_paese
-      ? `${r.dest_citta || ""}${r.dest_citta && r.dest_paese ? " " : ""}${
-          r.dest_paese ? ` (${r.dest_paese})` : ""
-        }`
-      : "—";
+    destCitta || destPaese
+      ? `${destCitta || ''}${destCitta && destPaese ? ' ' : ''}${destPaese ? ` (${destPaese})` : ''}`
+      : '—';
+
+  const stato = r['Stato'] || r.status || '—';
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow min-h-[112px] flex items-start gap-4">
@@ -85,17 +111,13 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="font-semibold text-slate-900 truncate">{ref}</div>
-            {destRS ? (
-              <div className="text-sm text-slate-700 truncate">
-                Destinatario: {destRS}
-              </div>
-            ) : null}
-            <div className="text-sm text-slate-500 truncate">
-              Destinazione: {dest}
-            </div>
+            {destRS ? <div className="text-sm text-slate-700 truncate">Destinatario: {destRS}</div> : null}
+            <div className="text-sm text-slate-500 truncate">Destinazione: {dest}</div>
           </div>
-          <StatusBadge value={r.status || "draft"} />
+          <StatusBadge value={stato} />
         </div>
+
+        <DocButtons row={r} />
 
         <div className="mt-3">
           <button onClick={onDetails} className="text-xs text-[#1c3e5e] underline">
@@ -110,58 +132,117 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
 export default function SpedizioniClient() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState<"created_desc" | "ritiro_desc" | "dest_az" | "status">(
-    "created_desc"
-  );
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<'created_desc' | 'ritiro_desc' | 'dest_az' | 'status'>('created_desc');
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState<Row | null>(null);
+
+  // Supabase client (solo lato client, anon)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabase = useMemo(() => createClient(supabaseUrl, supabaseAnon), [supabaseUrl, supabaseAnon]);
 
   useEffect(() => {
     let alive = true;
 
     async function load() {
       setLoading(true);
+      setApiError(null);
+
       try {
-        const params = new URLSearchParams();
-        if (q.trim()) params.set("q", q.trim());
-        if (sort) params.set("sort", sort);
+        // --- Auth: proviamo tutto
+        let bearer: string | null = null;
+        let email: string | null = null;
 
-        // Email usata per filtrare lato API: la salviamo in login.
-        const userEmail =
-          (typeof window !== "undefined" && localStorage.getItem("userEmail")) || "";
-
-        if (userEmail) {
-          params.set("email", userEmail);
-        } else {
-          // fallback dev: mostra tutto (se la rotta supporta ?all=1)
-          params.set("all", "1");
+        // 1) Firebase ID token (se presente)
+        try {
+          const t = await getIdToken();
+          if (t) {
+            bearer = t;
+            log('Auth via Firebase ID token presente');
+          }
+        } catch {
+          // ignore
         }
 
-        const headers: HeadersInit = {};
-        if (userEmail) headers["x-user-email"] = userEmail;
+        // 2) Supabase session
+        if (!bearer || !email) {
+          const { data, error: sErr } = await supabase.auth.getSession();
+          if (!sErr && data?.session) {
+            const at = data.session.access_token;
+            const em = data.session.user?.email || null;
+            if (at) {
+              bearer = at;
+              log('Auth via Supabase session OK (token)');
+            }
+            if (em) {
+              email = em;
+              log('Email da Supabase:', email);
+              // salvo come fallback locale
+              try {
+                localStorage.setItem('userEmail', email);
+              } catch {}
+            }
+          }
+        }
 
+        // 3) fallback localStorage
+        if (!email) {
+          try {
+            const ls = localStorage.getItem('userEmail');
+            if (ls) {
+              email = ls;
+              log('Email da localStorage:', email);
+            }
+          } catch {}
+        }
+
+        const params = new URLSearchParams();
+        if (q.trim()) params.set('q', q.trim());
+        if (sort) params.set('sort', sort);
+        if (email) params.set('email', email);
+
+        const headers: HeadersInit = {};
+        if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+        if (email) headers['x-user-email'] = email;
+
+        log('→ GET /api/spedizioni', { query: params.toString(), headers });
         const res = await fetch(`/api/spedizioni?${params.toString()}`, {
           headers,
-          cache: "no-store",
+          cache: 'no-store',
         });
-        const j = await res.json().catch(() => ({}));
+
+        const text = await res.text();
+        let j: any = {};
+        try {
+          j = JSON.parse(text);
+        } catch {
+          j = { ok: false, parseError: true, raw: text };
+        }
+        log('← /api/spedizioni response', { status: res.status, ok: res.ok, body: j });
 
         if (!alive) return;
 
-        if (j?.ok) {
-          // Mappiamo l'ID visuale a human_id se presente
+        if (res.ok && j?.ok) {
           const flat: Row[] = (j.rows || []).map((r: any) => ({
-            ...r,
             id: r.human_id || r.id,
+            _createdTime: r._createdTime ?? r.created_at ?? r.createdTime ?? r._rawJson?.createdTime ?? null,
+            ...(r.fields || r),
           }));
+          log('righe parse:', flat.length, flat);
           setRows(flat);
         } else {
+          const msg = j?.error || j?.message || `HTTP ${res.status}`;
+          setApiError(msg);
           setRows([]);
+          warn('API non ok:', msg);
         }
-      } catch {
-        if (alive) setRows([]);
+      } catch (e: any) {
+        error('load() exception', e);
+        setApiError(String(e?.message || e));
+        setRows([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -171,52 +252,52 @@ export default function SpedizioniClient() {
     return () => {
       alive = false;
     };
-  }, [q, sort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, sort]); // ricarica quando cambiano filtro/ordinamento
 
   const filtered = useMemo(() => {
     const needle = norm(q);
     const arr = !needle
       ? rows
-      : rows.filter((r) => {
+      : rows.filter(r => {
           const hay = [
-            r.human_id || r.id,
-            r.dest_citta || "",
-            r.dest_paese || "",
-            r.mittente_citta || "",
-            r.fields?.destinatario?.ragioneSociale || "",
+            r['ID Spedizione'] || r.human_id,
+            r['Destinatario - Ragione Sociale'] || r.dest_ragione_sociale,
+            r['Destinatario - Città'] || r.dest_citta,
+            r['Destinatario - Paese'] || r.dest_paese,
+            r['Mittente - Ragione Sociale'] || r.mitt_ragione_sociale,
           ]
+            .filter(Boolean)
             .map(norm)
-            .join(" | ");
+            .join(' | ');
           return hay.includes(needle);
         });
 
     const copy = [...arr];
     copy.sort((a, b) => {
-      if (sort === "ritiro_desc") {
-        const da = a.giorno_ritiro ? new Date(a.giorno_ritiro).getTime() : 0;
-        const db = b.giorno_ritiro ? new Date(b.giorno_ritiro).getTime() : 0;
+      if (sort === 'ritiro_desc') {
+        const da = a['Ritiro - Data'] ? new Date(a['Ritiro - Data']).getTime() : (a.giorno_ritiro ? new Date(a.giorno_ritiro).getTime() : 0);
+        const db = b['Ritiro - Data'] ? new Date(b['Ritiro - Data']).getTime() : (b.giorno_ritiro ? new Date(b.giorno_ritiro).getTime() : 0);
         return db - da;
       }
-      if (sort === "dest_az") {
-        const aa = `${a.dest_citta || ""} ${a.dest_paese || ""}`.toLowerCase();
-        const bb = `${b.dest_citta || ""} ${b.dest_paese || ""}`.toLowerCase();
+      if (sort === 'dest_az') {
+        const aa = `${a['Destinatario - Città'] || a.dest_citta || ''} ${a['Destinatario - Paese'] || a.dest_paese || ''}`.toLowerCase();
+        const bb = `${b['Destinatario - Città'] || b.dest_citta || ''} ${b['Destinatario - Paese'] || b.dest_paese || ''}`.toLowerCase();
         return aa.localeCompare(bb);
       }
-      if (sort === "status") {
-        const order = (s?: string | null) => {
-          const v = (s || "").toLowerCase();
-          if (v.includes("in transito") || v.includes("intransit")) return 2;
-          if (v.includes("in consegna") || v.includes("outfordelivery")) return 1;
-          if (v.includes("consegn")) return 0;
-          if (v.includes("eccez") || v.includes("exception") || v.includes("failed"))
-            return 3;
+      if (sort === 'status') {
+        const order = (s?: string) => {
+          const v = (s || '').toLowerCase();
+          if (v.includes('in transito') || v.includes('intransit')) return 2;
+          if (v.includes('in consegna') || v.includes('outfordelivery')) return 1;
+          if (v.includes('consegn')) return 0;
+          if (v.includes('eccez') || v.includes('exception') || v.includes('failed')) return 3;
           return 4;
         };
-        return order(a.status) - order(b.status);
+        return order(a['Stato'] || a.status) - order(b['Stato'] || b.status);
       }
-      // created_desc
-      const ca = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const cb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      const ca = a._createdTime ? new Date(a._createdTime).getTime() : 0;
+      const cb = b._createdTime ? new Date(b._createdTime).getTime() : 0;
       return cb - ca;
     });
 
@@ -231,7 +312,7 @@ export default function SpedizioniClient() {
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={e => setQ(e.target.value)}
             placeholder="Cerca: destinatario, città, paese, ID…"
             className="pl-8 pr-3 py-2 text-sm rounded-lg border bg-white w-72"
           />
@@ -240,7 +321,7 @@ export default function SpedizioniClient() {
           <ArrowUpDown className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as any)}
+            onChange={e => setSort(e.target.value as any)}
             className="pl-8 pr-3 py-2 text-sm rounded-lg border bg-white"
             title="Ordina per"
           >
@@ -252,33 +333,30 @@ export default function SpedizioniClient() {
         </div>
       </div>
 
+      {/* Messaggio errore API (se c'è) */}
+      {apiError ? (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+          Non riesco a caricare le spedizioni: <span className="font-mono">{apiError}</span>.  
+          Controlla di essere loggato e che l’email dell’utente corrisponda a quella salvata nelle spedizioni.
+        </div>
+      ) : null}
+
       {/* Lista 1 card per riga */}
       {loading ? (
-        <div className="text-sm text-slate-500">Caricamento…</div>
+        <div className="text-sm text-slate-500 mt-3">Caricamento…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-sm text-slate-500">Nessuna spedizione trovata.</div>
+        <div className="text-sm text-slate-500 mt-3">Nessuna spedizione trovata.</div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((r) => (
-            <Card
-              key={(r.human_id || r.id) as string}
-              r={r}
-              onDetails={() => {
-                setSel(r);
-                setOpen(true);
-              }}
-            />
+        <div className="mt-3 space-y-3">
+          {filtered.map(r => (
+            <Card key={r.id} r={r} onDetails={() => { setSel(r); setOpen(true); }} />
           ))}
         </div>
       )}
 
       {/* Drawer dettagli */}
-      <Drawer
-        open={open}
-        onClose={() => setOpen(false)}
-        title={sel ? (sel.human_id || sel.id) : undefined}
-      >
-        {sel ? <ShipmentDetail f={sel.fields ?? sel} /> : null}
+      <Drawer open={open} onClose={() => setOpen(false)} title={sel ? (sel['ID Spedizione'] || sel.human_id || sel.id) : undefined}>
+        {sel ? <ShipmentDetail f={(sel as any).fields ?? (sel as any)} /> : null}
       </Drawer>
     </>
   );
