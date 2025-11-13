@@ -1,173 +1,169 @@
-'use client';
+// app/dashboard/spedizioni/page.tsx
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from "react";
 
-type ShipmentRow = {
+type Row = {
   id: string;
-  human_id: string | null;
-  tipo_spedizione: string | null;
-  incoterm: string | null;
-  mittente_citta: string | null;
-  dest_citta: string | null;
-  giorno_ritiro: string | null;
-  colli_n: number | null;
-  peso_reale_kg: string | number | null;
-  total_weight_real_kg?: string | number | null;
-  total_weight_vol_kg?: string | number | null;
-  total_weight_tariff_kg?: string | number | null;
-  created_at: string;
+  human_id?: string | null;
+  created_at?: string;
+  status?: string | null;
+  tipo_spedizione?: string | null;
+  incoterm?: string | null;
+  giorno_ritiro?: string | null;
+  note_ritiro?: string | null;
+  colli_n?: number | null;
+  peso_reale_kg?: string | number | null;
+  mittente_citta?: string | null;
+  dest_citta?: string | null;
+  carrier?: string | null;
+  tracking_code?: string | null;
+  email_norm?: string | null;
 };
 
-type ApiResponse =
-  | { ok: true; data: ShipmentRow[] }
-  | { ok: false; error: string; details?: string };
+export default function SpedizioniPage() {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+  const [loading, setLoading] = useState(false);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [total, setTotal] = useState(0);
 
-function formatDate(value: string | null) {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('it-IT');
-}
+  const order = "created_at.desc";
+  const pageCount = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
-function formatNumber(value: string | number | null, decimals = 1) {
-  if (value == null) return '—';
-  const n = typeof value === 'string' ? Number(value) : value;
-  if (Number.isNaN(n)) return String(value);
-  return n.toLocaleString('it-IT', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
+  const fetchRows = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        order,
+      });
+      if (q.trim()) params.set("q", q.trim());
 
-export default function ShipmentsPage() {
-  const router = useRouter();
-  const [data, setData] = useState<ShipmentRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+      const r = await fetch(`/api/spedizioni?${params.toString()}`, { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        console.error("Fetch spedizioni error:", j?.error || r.statusText);
+        setRows([]);
+        setTotal(0);
+      } else {
+        setRows(j.rows || []);
+        setTotal(j.total || 0);
+      }
+    } catch (e) {
+      console.error("Fetch spedizioni exception:", e);
+      setRows([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
+    fetchRows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit, order]);
 
-    (async () => {
-      try {
-        const res = await fetch('/api/my-shipments');
-        const json = (await res.json()) as ApiResponse;
-        if (cancelled) return;
-
-        if (!res.ok || !json.ok) {
-          setError('Errore nel caricamento delle spedizioni.');
-          console.error('[Le mie spedizioni] API error:', json);
-          return;
-        }
-
-        setData(json.data ?? []);
-      } catch (e) {
-        if (!cancelled) {
-          setError('Errore di rete nel caricamento delle spedizioni.');
-          console.error('[Le mie spedizioni] fetch error:', e);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const onSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    fetchRows();
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">Le mie spedizioni</h2>
+      <h2 className="text-lg font-semibold">Le mie spedizioni</h2>
+
+      <form onSubmit={onSearch} className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Cerca per ID, città, tracking..."
+          className="border rounded-lg px-3 py-2 text-sm w-full"
+        />
         <button
-          type="button"
-          onClick={() => router.push('/dashboard/nuova/vino')}
+          type="submit"
           className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"
+          disabled={loading}
         >
-          Nuova spedizione vino
+          Cerca
         </button>
+      </form>
+
+      <div className="rounded-2xl border bg-white overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="text-left p-3">ID</th>
+              <th className="text-left p-3">Creato</th>
+              <th className="text-left p-3">Tipo</th>
+              <th className="text-left p-3">Incoterm</th>
+              <th className="text-left p-3">Ritiro</th>
+              <th className="text-left p-3">Mittente</th>
+              <th className="text-left p-3">Destinatario</th>
+              <th className="text-left p-3">Colli</th>
+              <th className="text-left p-3">Peso (kg)</th>
+              <th className="text-left p-3">Stato</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td className="p-3" colSpan={10}>
+                  Caricamento…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td className="p-3" colSpan={10}>
+                  Nessuna spedizione trovata.
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="p-3 font-mono">{r.human_id || r.id}</td>
+                  <td className="p-3">{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
+                  <td className="p-3">{r.tipo_spedizione || "—"}</td>
+                  <td className="p-3">{r.incoterm || "—"}</td>
+                  <td className="p-3">{r.giorno_ritiro || "—"}</td>
+                  <td className="p-3">{r.mittente_citta || "—"}</td>
+                  <td className="p-3">{r.dest_citta || "—"}</td>
+                  <td className="p-3">{r.colli_n ?? "—"}</td>
+                  <td className="p-3">{r.peso_reale_kg ?? "—"}</td>
+                  <td className="p-3">{r.status || "—"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {loading && (
-        <div className="rounded-2xl border bg-white p-4 text-sm text-slate-600 flex items-center gap-2">
-          <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
-          Caricamento spedizioni…
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500">
+          {total} risultati · Pagina {page}/{pageCount}
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={loading || page <= 1}
+            className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            disabled={loading || page >= pageCount}
+            className="rounded-lg border bg-white px-3 py-1 text-sm disabled:opacity-50"
+          >
+            →
+          </button>
         </div>
-      )}
-
-      {error && !loading && (
-        <div className="rounded-2xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && data.length === 0 && (
-        <div className="rounded-2xl border bg-white p-4 text-sm text-slate-600">
-          Nessuna spedizione ancora presente. Crea la tua prima spedizione dal pulsante in alto.
-        </div>
-      )}
-
-      {!loading && !error && data.length > 0 && (
-        <div className="overflow-x-auto rounded-2xl border bg-white">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-2 text-left">ID Spedizione</th>
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Incoterm</th>
-                <th className="px-4 py-2 text-left">Mittente</th>
-                <th className="px-4 py-2 text-left">Destinatario</th>
-                <th className="px-4 py-2 text-left">Giorno ritiro</th>
-                <th className="px-4 py-2 text-right">Colli</th>
-                <th className="px-4 py-2 text-right">Peso reale (kg)</th>
-                <th className="px-4 py-2 text-left">Creata il</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-t hover:bg-slate-50 cursor-pointer"
-                  onClick={() => {
-                    // in futuro potremo fare dettaglio: /dashboard/spedizioni/[id]
-                    // Per ora non cambiamo pagina.
-                  }}
-                >
-                  <td className="px-4 py-2 font-mono text-xs">
-                    {s.human_id || s.id}
-                  </td>
-                  <td className="px-4 py-2">
-                    {s.tipo_spedizione || '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    {s.incoterm || '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    {s.mittente_citta || '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    {s.dest_citta || '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    {formatDate(s.giorno_ritiro)}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {s.colli_n ?? '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {formatNumber(s.peso_reale_kg, 1)}
-                  </td>
-                  <td className="px-4 py-2">
-                    {formatDate(s.created_at)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
