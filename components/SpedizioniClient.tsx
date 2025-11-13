@@ -105,6 +105,12 @@ function mapDbToLegacyFields(r: RowDb) {
   const f = r.fields || {};
   const mitt = f.mittente || {};
   const dest = f.destinatario || {};
+  const fatt = f.fatturazione || {};
+  const sameAsDest = !!f.fattSameAsDest;
+  const delega = !!f.fattDelega;
+
+  // Colli: se presenti nel payload salvato dal POST
+  const colli = Array.isArray(f.colli) ? f.colli : [];
 
   return {
     // riferimenti
@@ -114,29 +120,42 @@ function mapDbToLegacyFields(r: RowDb) {
 
     // mittente
     'Mittente - Ragione Sociale': mitt.ragioneSociale || '',
+    'Mittente - Indirizzo': mitt.indirizzo || '',
     'Mittente - Città': r.mittente_citta || mitt.citta || '',
     'Mittente - Paese': r.mittente_paese || mitt.paese || '',
+    'Mittente - Tel': mitt.telefono || '',
 
     // destinatario
     'Destinatario - Ragione Sociale': dest.ragioneSociale || '',
+    'Destinatario - Indirizzo': dest.indirizzo || '',
     'Destinatario - Città': r.dest_citta || dest.citta || '',
     'Destinatario - Paese': r.dest_paese || dest.paese || '',
+    'Destinatario - Tel': dest.telefono || '',
+    'Abilitato import': (r as any).dest_abilitato_import ? 'Sì' : 'No',
 
-    // ritiro
+    // ritiro / incoterm
     'Ritiro - Data': r.giorno_ritiro || '',
     'Ritiro - Note': r.note_ritiro || '',
-
-    // spedizione
     'Incoterm': r.incoterm || '',
-    'Tipo Spedizione': r.tipo_spedizione || '',
+    'Tipo spedizione': r.tipo_spedizione || '',
+
+    // fatturazione
+    'Fatturazione - Ragione Sociale': fatt.ragioneSociale || '',
+    'P.IVA/CF': fatt.piva || fatt.piva_cf || '',
+    'Uguale a Destinatario': sameAsDest ? 'Sì' : 'No',
+    'Delega fattura a SPST': delega ? 'Sì' : 'No',
+
+    // colli / pesi
     'Colli (n)': r.colli_n ?? '',
     'Peso (kg)': r.peso_reale_kg ?? '',
+    'Colli': colli, // il Drawer cerca questo array
 
     // tracking (placeholder)
     'Tracking - Corriere': r.carrier || '',
     'Tracking - Codice': r.tracking_code || '',
   };
 }
+
 
 function Card({ r, onDetails }: { r: RowUi; onDetails: () => void }) {
   const f = r.fields;
