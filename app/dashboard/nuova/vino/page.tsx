@@ -430,7 +430,7 @@ export default function NuovaVinoPage() {
       // chiamata API con Supabase Auth (email + bearer)
       const created = await createShipmentWithAuth(payload);
 
-      const id = created?.id || created?.recId || "SPEDIZIONE";
+      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
