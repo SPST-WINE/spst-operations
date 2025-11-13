@@ -78,13 +78,13 @@ export function OPTIONS() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type,Authorization,x-user-email",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
     },
   });
 }
 
-/* ───────────── human_id generator ───────────── */
+/* ───────────── human_id generator (route-level) ───────────── */
 function formatHumanId(d: Date, n: number) {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -94,12 +94,15 @@ function formatHumanId(d: Date, n: number) {
 
 async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   const now = new Date();
-  const dd = String(now.getUTCDate()).padStart(2, "0");
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = now.getUTCFullYear();
-  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
+  const pattern = (() => {
+    const dd = String(now.getUTCDate()).padStart(2, "0");
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = now.getUTCFullYear();
+    return `SP-${dd}-${mm}-${yyyy}-`;
+  })();
 
   const supaAny = supabaseSrv as any;
+
   const { count, error } = await supaAny
     .schema("spst")
     .from("shipments")
@@ -115,57 +118,81 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
 
 /* ───────────── GET /api/spedizioni ───────────── */
 export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+  const search = (url.searchParams.get("q") || "").trim();
+  const sort = (url.searchParams.get("sort") || "created_desc") as
+    | "created_desc" | "ritiro_desc" | "dest_az" | "status";
+  const debug = url.searchParams.has("debug");
+
   try {
-    const url = new URL(req.url);
-    const q = (url.searchParams.get("q") || "").trim();
-    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10)));
-    const sort = url.searchParams.get("sort") || "created_desc";
-    const all = url.searchParams.get("all") === "1";
-    const emailParam = url.searchParams.get("email");
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "MISSING_SUPABASE_CONFIG" },
+        { status: 500 }
+      );
+    }
+
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
-    const supaAny = supabaseAuth as any;
+    const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const supaAny = supabaseSrv as any;
 
-    // 1) prova a leggere l'email dall'access token Supabase
-    let email: string | null = null;
-    let hasToken = false;
+    // Identità utente
     const accessToken = getAccessTokenFromRequest();
-    if (accessToken) {
-      hasToken = true;
-      const { data: u, error: uErr } = await supabaseAuth.auth.getUser(accessToken);
-      if (!uErr && u?.user?.email) email = u.user.email.toLowerCase();
-    }
+    const { data: userData, error: uErr } = accessToken
+      ? await supabaseAuth.auth.getUser(accessToken)
+      : { data: { user: null } as any, error: null as any };
 
-    // 2) fallback da query ?email= o header x-user-email
-    if (!email) {
-      const hdrs = nextHeaders();
-      const h = hdrs.get("x-user-email");
-      email = normalizeEmail(emailParam || h);
-    }
+    const emailFromQuery = url.searchParams.get("email");
+    const emailFromHeaders =
+      nextHeaders().get("x-user-email") ||
+      nextHeaders().get("x-client-email") ||
+      nextHeaders().get("x-auth-email") ||
+      null;
 
-    // 3) se ancora nulla: solo se all=1 mostriamo tutto (dev)
-    const mustFilter = !all && !!email;
+    const emailRaw = firstNonEmpty(
+      userData?.user?.email || null,
+      emailFromHeaders,
+      emailFromQuery
+    );
+    const emailNorm = normalizeEmail(emailRaw);
 
-    // base query
+    // Query base
     let query = supaAny
       .schema("spst")
       .from("shipments")
       .select(
-        "id, human_id, created_at, status, tipo_spedizione, incoterm, giorno_ritiro, note_ritiro, " +
-        "mittente_paese, mittente_citta, dest_paese, dest_citta, colli_n, peso_reale_kg, email_norm, fields",
+        [
+          "id",
+          "created_at",
+          "human_id",
+          "tipo_spedizione",
+          "incoterm",
+          "giorno_ritiro",
+          "mittente_citta",
+          "dest_citta",
+          "dest_paese",
+          "colli_n",
+          "peso_reale_kg",
+          "status",
+          "email_norm",
+        ].join(","),
         { count: "exact" }
       );
 
-    if (mustFilter) {
-      query = query.eq("email_norm", email);
+    if (emailNorm) {
+      query = query.eq("email_norm", emailNorm);
     }
 
-    // ricerca semplice
-    if (q) {
-      const like = `%${q}%`;
+    if (search) {
+      // ricerca su più colonne
+      const like = `%${search}%`;
       query = query.or(
         [
           `human_id.ilike.${like}`,
@@ -176,34 +203,54 @@ export async function GET(req: Request) {
       );
     }
 
-    // sort
-    if (sort === "ritiro_desc")      query = query.order("giorno_ritiro", { ascending: false, nullsFirst: true });
-    else if (sort === "dest_az")     query = query.order("dest_citta", { ascending: true, nullsFirst: true }).order("dest_paese", { ascending: true, nullsFirst: true });
-    else if (sort === "status")      query = query.order("status", { ascending: true, nullsFirst: true });
-    else                             query = query.order("created_at", { ascending: false, nullsFirst: true });
+    // ordinamento
+    if (sort === "ritiro_desc") {
+      query = query.order("giorno_ritiro", { ascending: false }).order("created_at", { ascending: false });
+    } else if (sort === "dest_az") {
+      query = query.order("dest_citta", { ascending: true, nullsFirst: true });
+    } else if (sort === "status") {
+      query = query.order("status", { ascending: true }).order("created_at", { ascending: false });
+    } else {
+      // created_desc
+      query = query.order("created_at", { ascending: false });
+    }
 
-    // pagina
     const from = (page - 1) * limit;
     const to = from + limit - 1;
     query = query.range(from, to);
 
-    const { data, count, error } = await query;
-    if (error) throw error;
+    const { data, error, count } = await query;
 
-    return NextResponse.json({
-      ok: true,
-      page,
-      limit,
-      total: count ?? 0,
-      rows: data ?? [],
-      debug: {
-        hasToken,
-        mustFilter,
-        email: email ?? null,
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    const res = NextResponse.json(
+      {
+        ok: true,
+        page,
+        limit,
+        total: count ?? 0,
+        rows: data || [],
+        ...(debug
+          ? {
+              debug: {
+                hasToken: !!accessToken,
+                uErr: uErr?.message || null,
+                emailNorm,
+                filterByEmail: !!emailNorm,
+              },
+            }
+          : {}),
       },
-    }, { headers: { "Access-Control-Allow-Origin": "*" } });
+      { status: 200 }
+    );
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
   } catch (e: any) {
-    console.error("[API/spedizioni][GET] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
@@ -290,12 +337,10 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    // Manteniamo colli e sotto-oggetti dentro fields per il Drawer
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
-        "colli_n", // (già in root)
-        // "colli",  // <- NON rimuovere
+        "colli_n", "colli",
         "peso_reale_kg", "giorno_ritiro", "incoterm", "incoterm_norm",
         "tipoSped", "tipo_spedizione", "dest_abilitato_import",
         "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
@@ -352,6 +397,7 @@ export async function POST(req: Request) {
         shipment = data;
         break;
       }
+
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
@@ -362,7 +408,7 @@ export async function POST(req: Request) {
     }
 
     if (!shipment) {
-      console.error("[API/spedizioni][POST] insert error:", lastErr);
+      console.error("[API/spedizioni] insert error:", lastErr);
       return NextResponse.json(
         { ok: false, error: "INSERT_FAILED", details: lastErr?.message || String(lastErr) },
         { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
@@ -385,7 +431,7 @@ export async function POST(req: Request) {
         .insert(pkgs);
 
       if (pkgErr) {
-        console.warn("[API/spedizioni][POST] packages warning:", pkgErr.message);
+        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
       }
     }
 
@@ -397,7 +443,7 @@ export async function POST(req: Request) {
     res.headers.set("Access-Control-Allow-Origin", "*");
     return res;
   } catch (e: any) {
-    console.error("[API/spedizioni][POST] unexpected:", e);
+    console.error("[API/spedizioni] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
