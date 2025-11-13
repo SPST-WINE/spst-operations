@@ -30,48 +30,36 @@ function toNum(x: any): number | null {
   const n = Number(String(x).replace(",", ".").trim());
   return Number.isFinite(n) ? n : null;
 }
-
 function firstNonEmpty(...vals: (string | undefined | null)[]) {
-  for (const v of vals) {
-    if (v && String(v).trim() !== "") return String(v).trim();
-  }
+  for (const v of vals) if (v && String(v).trim() !== "") return String(v).trim();
   return "";
 }
-
 function normalizeEmail(x?: string | null) {
   const v = (x ?? "").trim();
   return v ? v.toLowerCase() : null;
 }
-
 function toISODate(d?: string | null): string | null {
   if (!d) return null;
   const s = d.trim();
   const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s); // dd-mm-yyyy
-  if (m1) {
-    const [_, dd, mm, yyyy] = m1;
-    return `${yyyy}-${mm}-${dd}`;
-  }
+  if (m1) { const [_, dd, mm, yyyy] = m1; return `${yyyy}-${mm}-${dd}`; }
   const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s); // yyyy-mm-dd
   if (m2) return s.substring(0, 10);
   const t = Date.parse(s);
   if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10);
   return null;
 }
-
 function getAccessTokenFromRequest() {
   const hdrs = nextHeaders();
   const auth = hdrs.get("authorization") || hdrs.get("Authorization") || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
-
-  // fallback cookie (supabase-js salva JSON in supabase-auth-token)
   const jar = cookies();
   const sb = jar.get("sb-access-token")?.value;
   if (sb) return sb;
-
-  const supaCookie = jar.get("supabase-auth-token")?.value; // è un JSON string
+  const supaCookie = jar.get("supabase-auth-token")?.value; // JSON string
   if (supaCookie) {
     try {
-      const arr = JSON.parse(supaCookie); // ["access_token","refresh_token",...]
+      const arr = JSON.parse(supaCookie);
       if (Array.isArray(arr) && arr[0]) return arr[0];
     } catch {}
   }
@@ -96,20 +84,60 @@ export function OPTIONS() {
   });
 }
 
+/* ───────────── human_id generator (route-level) ───────────── */
+function formatHumanId(d: Date, n: number) {
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
+}
+
+async function nextHumanIdForToday(supabaseSrv: ReturnType<typeof createClient>): Promise<string> {
+  // conta quanti ID del giorno esistono già e propone il prossimo
+  const now = new Date();
+  const pattern = (() => {
+    const dd = String(now.getUTCDate()).padStart(2, "0");
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = now.getUTCFullYear();
+    return `SP-${dd}-${mm}-${yyyy}-`;
+  })();
+
+  // usa rpc o count; qui facciamo count con il filtro like
+  const { count, error } = await supabaseSrv
+    .schema("spst")
+    .from("shipments")
+    .select("human_id", { count: "exact", head: true })
+    .ilike("human_id", `${pattern}%`);
+
+  if (error) {
+    // fallback conservativo: usa timestamp gli ultimi 5 cifre
+    const ts = Date.now() % 100000;
+    return formatHumanId(now, ts);
+  }
+  // prossimo progressivo (count+1)
+  return formatHumanId(now, (count ?? 0) + 1);
+}
+
 /* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    // ── Auth: prendi utente da Supabase senza auth-helpers ──
+    // ── Auth user from Supabase
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.");
     }
-    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    });
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error("Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY).");
+    }
+
+    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+    const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
     const accessToken = getAccessTokenFromRequest();
     const { data: userData } = accessToken
@@ -136,12 +164,8 @@ export async function POST(req: Request) {
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
 
-    // Normalizza array colli (supporta entrambe le forme)
-    const rawColli: any[] = Array.isArray(body.colli)
-      ? body.colli
-      : Array.isArray(body.colli_n)
-      ? body.colli_n
-      : [];
+    // Colli
+    const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
       l1: toNum(c.l1 ?? c.lunghezza_cm),
       l2: toNum(c.l2 ?? c.larghezza_cm),
@@ -159,9 +183,11 @@ export async function POST(req: Request) {
     const incoterm = firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
     const tipo_spedizione = firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
     const dest_abilitato_import =
-      typeof body.destAbilitato === "boolean" ? body.destAbilitato
-      : typeof body.dest_abilitato_import === "boolean" ? body.dest_abilitato_import
-      : null;
+      typeof body.destAbilitato === "boolean"
+        ? body.destAbilitato
+        : typeof body.dest_abilitato_import === "boolean"
+        ? body.dest_abilitato_import
+        : null;
     const note_ritiro = body.ritiroNote ?? body.note_ritiro ?? null;
 
     const mittente_paese = mitt.paese ?? body.mittente_paese ?? null;
@@ -173,17 +199,7 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    // ── Supabase (service role) per scrivere ──
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY).");
-    }
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
-
-    // JSONB 'fields' depurato (rimuovo chiavi che possono creare collisioni)
+    // JSONB 'fields' depurato
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
@@ -193,14 +209,15 @@ export async function POST(req: Request) {
         "mittente_paese","mittente_citta","mittente_cap","mittente_indirizzo",
         "dest_paese","dest_citta","dest_cap",
         "email","email_cliente","email_norm",
-        "carrier","service_code","pickup_at","tracking_code","declared_value","status"
+        "carrier","service_code","pickup_at","tracking_code","declared_value","status",
+        "human_id"
       ];
       for (const k of blocklist) delete clone[k];
       return clone;
     })();
 
-    // INSERT in shipments
-    const insertRow = {
+    // Prepara riga base (senza human_id)
+    const baseRow: any = {
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
       mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
@@ -222,22 +239,49 @@ export async function POST(req: Request) {
       fields: fieldsSafe,
     };
 
-    const { data: shipment, error: insertErr } = await supabase
-      .schema("spst")
-      .from("shipments")
-      .insert(insertRow)
-      .select()
-      .single();
+    // ── Genera human_id qui (route) con retry su unique
+    let shipment: any = null;
+    const MAX_RETRY = 6;
+    let attempt = 0;
+    let lastErr: any = null;
 
-    if (insertErr) {
-      console.error("[API/spedizioni] insert error:", insertErr);
+    while (attempt < MAX_RETRY) {
+      attempt++;
+      const human_id = await nextHumanIdForToday(supabaseSrv);
+      const insertRow = { ...baseRow, human_id };
+
+      const { data, error } = await supabaseSrv
+        .schema("spst")
+        .from("shipments")
+        .insert(insertRow)
+        .select()
+        .single();
+
+      if (!error) {
+        shipment = data;
+        break;
+      }
+
+      // codice unicità violata in Postgres
+      if (error.code === "23505" || /unique/i.test(error.message)) {
+        // qualcun altro ha preso quel progressivo: riprova
+        lastErr = error;
+        continue;
+      } else {
+        lastErr = error;
+        break;
+      }
+    }
+
+    if (!shipment) {
+      console.error("[API/spedizioni] insert error:", lastErr);
       return NextResponse.json(
-        { ok: false, error: "INSERT_FAILED", details: insertErr.message },
+        { ok: false, error: "INSERT_FAILED", details: lastErr?.message || String(lastErr) },
         { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
-    // INSERT colli in packages
+    // INSERT colli
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -247,14 +291,22 @@ export async function POST(req: Request) {
         weight_kg: toNum(c.peso ?? c.peso_kg),
         fields: c,
       }));
-      const { error: pkgErr } = await supabase
+
+      const { error: pkgErr } = await supabaseSrv
         .schema("spst")
         .from("packages")
         .insert(pkgs);
-      if (pkgErr) console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
+
+      if (pkgErr) {
+        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
+      }
     }
 
-    const res = NextResponse.json({ ok: true, shipment });
+    const res = NextResponse.json({
+      ok: true,
+      shipment,
+      id: shipment.human_id || shipment.id, // shortcut per la UI
+    });
     res.headers.set("Access-Control-Allow-Origin", "*");
     return res;
   } catch (e: any) {
