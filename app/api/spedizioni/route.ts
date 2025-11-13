@@ -1,7 +1,7 @@
 // app/api/spedizioni/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { cookies, headers as nextHeaders } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 
 /* ───────────── Helpers ───────────── */
 type Party = {
@@ -77,7 +77,7 @@ export function OPTIONS() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type,Authorization",
       "Access-Control-Max-Age": "86400",
     },
@@ -116,7 +116,7 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── POST /api/spedizioni ───────────── */
+/* ───────────── POST /api/spedizioni (create) ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
@@ -160,7 +160,6 @@ export async function POST(req: Request) {
 
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
-    const fatt: Party = body.fatturazione ?? (body.fields?.fatturazione ?? {});
 
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
@@ -184,7 +183,7 @@ export async function POST(req: Request) {
         ? body.destAbilitato
         : typeof body.dest_abilitato_import === "boolean"
         ? body.dest_abilitato_import
-        : (body.fields?.destAbilitato ?? null);
+        : null;
     const note_ritiro = body.ritiroNote ?? body.note_ritiro ?? null;
 
     const mittente_paese = mitt.paese ?? body.mittente_paese ?? null;
@@ -206,18 +205,13 @@ export async function POST(req: Request) {
         "dest_paese","dest_citta","dest_cap",
         "email","email_cliente","email_norm",
         "carrier","service_code","pickup_at","tracking_code","declared_value","status",
-        "human_id",
-        // nuovi normalizzati
-        "mittente","destinatario","fatturazione",
-        "valuta","formato","contenuto"
+        "human_id"
       ];
       for (const k of blocklist) delete clone[k];
       return clone;
     })();
 
-    // ── Row normalizzata (PATCH)
     const baseRow: any = {
-      // --- già presenti ---
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
       mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
@@ -230,38 +224,25 @@ export async function POST(req: Request) {
       giorno_ritiro,
       peso_reale_kg,
       colli_n,
+      // opzionali / futuri
       carrier: body.carrier ?? null,
       service_code: body.service_code ?? null,
       pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
       declared_value: toNum(body.declared_value),
       status: body.status ?? "draft",
-
-      // --- NUOVE colonne normalizzate ---
-      mittente_rs:         firstNonEmpty(mitt.ragioneSociale),
-      mittente_referente:  firstNonEmpty(mitt.referente),
-      mittente_telefono:   firstNonEmpty(mitt.telefono),
-      mittente_piva:       firstNonEmpty(mitt.piva),
-
-      dest_rs:             firstNonEmpty(dest.ragioneSociale),
-      dest_referente:      firstNonEmpty(dest.referente),
-      dest_telefono:       firstNonEmpty(dest.telefono),
-      dest_piva:           firstNonEmpty(dest.piva),
-
-      fatt_rs:             firstNonEmpty(fatt.ragioneSociale),
-      fatt_referente:      firstNonEmpty(fatt.referente),
-      fatt_paese:          firstNonEmpty((fatt as any).paese),
-      fatt_citta:          firstNonEmpty((fatt as any).citta),
-      fatt_cap:            firstNonEmpty((fatt as any).cap),
-      fatt_indirizzo:      firstNonEmpty((fatt as any).indirizzo),
-      fatt_telefono:       firstNonEmpty((fatt as any).telefono),
-      fatt_piva:           firstNonEmpty((fatt as any).piva),
-
-      fatt_valuta:         firstNonEmpty(body.valuta, body.fields?.valuta),
-      formato_sped:        firstNonEmpty(body.formato, body.fields?.formato),   // "Pacco" / "Pallet"
-      contenuto_generale:  firstNonEmpty(body.contenuto, body.fields?.contenuto),
-
-      // Manteniamo anche il payload originale ripulito
+      // alcuni extra utili per UI
+      mittente_rs: mitt.ragioneSociale ?? null,
+      mittente_telefono: mitt.telefono ?? null,
+      mittente_piva: mitt.piva ?? null,
+      dest_rs: dest.ragioneSociale ?? null,
+      dest_telefono: dest.telefono ?? null,
+      dest_piva: dest.piva ?? null,
+      fatt_rs: body?.fatturazione?.ragioneSociale ?? null,
+      fatt_piva: body?.fatturazione?.piva ?? null,
+      fatt_valuta: body?.valuta ?? body?.fatturazione?.valuta ?? null,
+      formato_sped: firstNonEmpty(body.formato, body.fields?.formato) || null,
+      contenuto_generale: body?.contenuto ?? body?.fields?.contenuto ?? null,
       fields: fieldsSafe,
     };
 
@@ -287,7 +268,6 @@ export async function POST(req: Request) {
         shipment = data;
         break;
       }
-
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
@@ -305,7 +285,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ── Inserisci pacchi (con contenuto)
+    // ── Inserisci pacchi (se presenti)
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -313,7 +293,7 @@ export async function POST(req: Request) {
         l2: toNum(c.l2 ?? c.larghezza_cm),
         l3: toNum(c.l3 ?? c.altezza_cm),
         weight_kg: toNum(c.peso ?? c.peso_kg),
-        contenuto: c.contenuto ?? c.contenuto_colli ?? null,
+        contenuto: c.contenuto ?? null,
         fields: c,
       }));
 
@@ -338,6 +318,116 @@ export async function POST(req: Request) {
     console.error("[API/spedizioni] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+    );
+  }
+}
+
+/* ───────────── GET /api/spedizioni (list) ───────────── */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const sp = url.searchParams;
+
+    const page = Math.max(1, Number(sp.get("page") || 1));
+    const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || 20)));
+    const sort = sp.get("sort") || "created_desc"; // created_desc | created_asc
+    const emailParam = sp.get("email");
+    const debug = sp.has("debug");
+
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "Missing Supabase env vars" },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const sb: any = supabaseSrv;
+
+    // Prova ad ottenere email dall'access token se non presente come query
+    let emailNorm: string | null = null;
+    if (emailParam && emailParam.trim()) {
+      emailNorm = emailParam.trim().toLowerCase();
+    } else {
+      // opzionale: tenta da cookie auth
+      try {
+        const accessToken = getAccessTokenFromRequest();
+        if (accessToken) {
+          const supabaseAuth = createClient(SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string, {
+            auth: { persistSession: false },
+          });
+          const u = await supabaseAuth.auth.getUser(accessToken);
+          emailNorm = u?.data?.user?.email ? u.data.user.email.toLowerCase() : null;
+        }
+      } catch {}
+    }
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // base select (include relazione packages se FK presente)
+    let sel =
+      `
+        id, created_at, human_id, email_norm,
+        tipo_spedizione, incoterm, giorno_ritiro,
+        mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
+        dest_paese, dest_citta, dest_cap,
+        colli_n, peso_reale_kg, status,
+        mittente_rs, mittente_telefono, mittente_piva,
+        dest_rs, dest_telefono, dest_piva,
+        fatt_rs, fatt_piva, fatt_valuta, formato_sped, contenuto_generale,
+        dest_abilitato_import,
+        fields,
+        packages:packages ( id, l1, l2, l3, weight_kg, contenuto )
+      `;
+
+    let qData = sb.schema("spst").from("shipments").select(sel, { count: "exact" });
+    if (emailNorm) qData = qData.eq("email_norm", emailNorm);
+
+    if (sort === "created_asc") qData = qData.order("created_at", { ascending: true });
+    else qData = qData.order("created_at", { ascending: false });
+
+    qData = qData.range(from, to);
+
+    const { data, error, count } = await qData;
+    if (error) throw error;
+
+    // Post-processing: created_it + packages preview
+    const rows = (data || []).map((r: any) => {
+      const created_it = r.created_at ? new Date(r.created_at).toLocaleString("it-IT", { timeZone: "Europe/Rome" }) : null;
+      const packages = Array.isArray(r.packages) ? r.packages : [];
+      const packages_preview = packages.slice(0, 3).map((p: any) => ({
+        id: p.id, l1: p.l1, l2: p.l2, l3: p.l3, weight_kg: p.weight_kg, contenuto: p.contenuto ?? null,
+      }));
+      return {
+        ...r,
+        created_it,
+        packages_count: packages.length,
+        packages_preview,
+      };
+    });
+
+    const res = NextResponse.json(
+      {
+        ok: true,
+        page,
+        limit,
+        total: count ?? rows.length,
+        rows,
+        ...(debug ? { debug: { emailNorm, filterByEmail: !!emailNorm } } : {}),
+      },
+      { status: 200 }
+    );
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
+  } catch (e: any) {
+    console.error("[API/spedizioni:GET] unexpected:", e);
+    return NextResponse.json(
+      { ok: false, error: String(e?.message || e) },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
