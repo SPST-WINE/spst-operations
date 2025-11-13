@@ -93,7 +93,6 @@ function formatHumanId(d: Date, n: number) {
 }
 
 async function nextHumanIdForToday(supabaseSrv: ReturnType<typeof createClient>): Promise<string> {
-  // conta quanti ID del giorno esistono già e propone il prossimo
   const now = new Date();
   const pattern = (() => {
     const dd = String(now.getUTCDate()).padStart(2, "0");
@@ -102,19 +101,19 @@ async function nextHumanIdForToday(supabaseSrv: ReturnType<typeof createClient>)
     return `SP-${dd}-${mm}-${yyyy}-`;
   })();
 
-  // usa rpc o count; qui facciamo count con il filtro like
-  const { count, error } = await supabaseSrv
+  // ⚠️ cast a any per evitare l'errore TS sullo schema tipizzato
+  const supaAny = supabaseSrv as any;
+
+  const { count, error } = await supaAny
     .schema("spst")
     .from("shipments")
     .select("human_id", { count: "exact", head: true })
     .ilike("human_id", `${pattern}%`);
 
   if (error) {
-    // fallback conservativo: usa timestamp gli ultimi 5 cifre
     const ts = Date.now() % 100000;
     return formatHumanId(now, ts);
   }
-  // prossimo progressivo (count+1)
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
@@ -123,7 +122,6 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    // ── Auth user from Supabase
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const SUPABASE_SERVICE_ROLE_KEY =
@@ -138,6 +136,7 @@ export async function POST(req: Request) {
 
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const supabaseSrv  = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+    const supaAny = supabaseSrv as any; // ← cast per usare .schema("spst")
 
     const accessToken = getAccessTokenFromRequest();
     const { data: userData } = accessToken
@@ -160,11 +159,9 @@ export async function POST(req: Request) {
     );
     const emailNorm = normalizeEmail(emailRaw);
 
-    // Mittente/Destinatario
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
 
-    // Colli
     const rawColli: any[] = Array.isArray(body.colli) ? body.colli : Array.isArray(body.colli_n) ? body.colli_n : [];
     const colli: Collo[] = rawColli.map((c: any) => ({
       l1: toNum(c.l1 ?? c.lunghezza_cm),
@@ -199,7 +196,6 @@ export async function POST(req: Request) {
     const dest_citta = dest.citta ?? body.dest_citta ?? null;
     const dest_cap = dest.cap ?? body.dest_cap ?? null;
 
-    // JSONB 'fields' depurato
     const fieldsSafe = (() => {
       const clone: any = JSON.parse(JSON.stringify(body ?? {}));
       const blocklist = [
@@ -216,7 +212,6 @@ export async function POST(req: Request) {
       return clone;
     })();
 
-    // Prepara riga base (senza human_id)
     const baseRow: any = {
       email_cliente: emailRaw || null,
       email_norm: emailNorm,
@@ -239,7 +234,7 @@ export async function POST(req: Request) {
       fields: fieldsSafe,
     };
 
-    // ── Genera human_id qui (route) con retry su unique
+    // ── Genera human_id con retry su unique
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -250,7 +245,7 @@ export async function POST(req: Request) {
       const human_id = await nextHumanIdForToday(supabaseSrv);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await supabaseSrv
+      const { data, error } = await supaAny
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
@@ -262,9 +257,7 @@ export async function POST(req: Request) {
         break;
       }
 
-      // codice unicità violata in Postgres
       if (error.code === "23505" || /unique/i.test(error.message)) {
-        // qualcun altro ha preso quel progressivo: riprova
         lastErr = error;
         continue;
       } else {
@@ -281,7 +274,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // INSERT colli
     if (Array.isArray(colli) && colli.length > 0) {
       const pkgs = colli.map((c) => ({
         shipment_id: shipment.id,
@@ -292,7 +284,7 @@ export async function POST(req: Request) {
         fields: c,
       }));
 
-      const { error: pkgErr } = await supabaseSrv
+      const { error: pkgErr } = await supaAny
         .schema("spst")
         .from("packages")
         .insert(pkgs);
@@ -305,7 +297,7 @@ export async function POST(req: Request) {
     const res = NextResponse.json({
       ok: true,
       shipment,
-      id: shipment.human_id || shipment.id, // shortcut per la UI
+      id: shipment.human_id || shipment.id,
     });
     res.headers.set("Access-Control-Allow-Origin", "*");
     return res;
