@@ -7,31 +7,66 @@ import Drawer from '@/components/Drawer';
 import ShipmentDetail from '@/components/ShipmentDetail';
 import { getIdToken } from '@/lib/firebase-client-auth';
 
+/* ------------------------- tipi (in linea con l'API) ------------------------- */
+type Pkg = {
+  id: string;
+  l1: number | null;
+  l2: number | null;
+  l3: number | null;
+  weight_kg: number | null;
+  contenuto?: string | null;
+};
+
 type Row = {
   id: string;
-  created_at?: string | null;
   human_id?: string | null;
+  created_at?: string | null;
+  created_it?: string | null;
+
+  // principali
   tipo_spedizione?: string | null;
   incoterm?: string | null;
   giorno_ritiro?: string | null;
-  mittente_ragione_sociale?: string | null;
-  mittente_citta?: string | null;
+  status?: string | null;
+
+  // mittente
+  mittente_rs?: string | null;
   mittente_paese?: string | null;
+  mittente_citta?: string | null;
   mittente_cap?: string | null;
   mittente_indirizzo?: string | null;
-  dest_ragione_sociale?: string | null;
-  dest_citta?: string | null;
+  mittente_telefono?: string | null;
+  mittente_piva?: string | null;
+
+  // destinatario
+  dest_rs?: string | null;
   dest_paese?: string | null;
+  dest_citta?: string | null;
   dest_cap?: string | null;
-  dest_indirizzo?: string | null;
+  dest_telefono?: string | null;
+  dest_piva?: string | null;
   dest_abilitato_import?: boolean | null;
+
+  // fatturazione
+  fatt_rs?: string | null;
+  fatt_piva?: string | null;
+  fatt_valuta?: string | null;
+
+  // colli / payload
   colli_n?: number | null;
-  peso_reale_kg?: number | string | null;
-  status?: string | null;
-  email_norm?: string | null;
-  [k: string]: any;
+  peso_reale_kg?: string | number | null;
+  formato_sped?: string | null;
+  contenuto_generale?: string | null;
+
+  // anteprima colli (server)
+  packages_count?: number;
+  packages_preview?: Pkg[];
+
+  // blob originale per retro-compat
+  fields?: any;
 };
 
+/* --------------------------------- helpers ---------------------------------- */
 function norm(s?: string) {
   return (s || '')
     .toLowerCase()
@@ -39,31 +74,31 @@ function norm(s?: string) {
     .replace(/\p{Diacritic}/gu, '');
 }
 
+/* --------------------------------- UI bits ---------------------------------- */
 function StatusBadge({ value }: { value?: string | null }) {
   const v = (value || '').toLowerCase();
   let cls = 'bg-amber-50 text-amber-700 ring-amber-200';
-  let text = value || '—';
-  if (v.includes('in transito')) cls = 'bg-sky-50 text-sky-700 ring-sky-200';
-  else if (v.includes('in consegna')) cls = 'bg-amber-50 text-amber-700 ring-amber-200';
+  if (v.includes('in transito') || v.includes('intransit')) cls = 'bg-sky-50 text-sky-700 ring-sky-200';
+  else if (v.includes('in consegna') || v.includes('outfordelivery')) cls = 'bg-amber-50 text-amber-700 ring-amber-200';
   else if (v.includes('consegn')) cls = 'bg-emerald-50 text-emerald-700 ring-emerald-200';
   else if (v.includes('eccez') || v.includes('exception') || v.includes('failed')) cls = 'bg-rose-50 text-rose-700 ring-rose-200';
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}>{text}</span>;
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}>{value || '—'}</span>;
 }
 
 function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
-  const isPallet = /pallet/i.test(String(r.formato || ''));
+  const isPallet = /pallet/i.test(r.formato_sped || r.fields?.formato || '');
   const ref = r.human_id || r.id;
-  const destRS = r.dest_ragione_sociale || '';
-  const dest =
-    r.dest_citta || r.dest_paese
-      ? `${r.dest_citta || ''}${r.dest_citta && r.dest_paese ? ' ' : ''}${r.dest_paese ? ` (${r.dest_paese})` : ''}`
-      : '—';
+
+  const destRS = r.dest_rs || r.fields?.['Destinatario - Ragione Sociale'] || '';
+  const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(' ') || '—';
+  const stato = r.status || '—';
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow min-h-[112px] flex items-start gap-4">
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 shrink-0">
         {isPallet ? <Boxes className="h-5 w-5" /> : <Package className="h-5 w-5" />}
       </span>
+
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -71,8 +106,9 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
             {destRS ? <div className="text-sm text-slate-700 truncate">Destinatario: {destRS}</div> : null}
             <div className="text-sm text-slate-500 truncate">Destinazione: {dest}</div>
           </div>
-          <StatusBadge value={r.status} />
+          <StatusBadge value={stato} />
         </div>
+
         <div className="mt-3">
           <button onClick={onDetails} className="text-xs text-[#1c3e5e] underline">
             Mostra dettagli
@@ -83,58 +119,19 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
   );
 }
 
-/** Adapter: Supabase row -> chiavi “Airtable-like” usate da ShipmentDetail */
-function toFMap(r: Row) {
-  return {
-    // Header
-    'ID Spedizione': r.human_id || r.id,
-    // Mittente
-    'Mittente - Ragione Sociale': r.mittente_ragione_sociale || null,
-    'Mittente - Città': r.mittente_citta || null,
-    'Mittente - Paese': r.mittente_paese || null,
-    'Mittente - CAP': r.mittente_cap || null,
-    'Mittente - Indirizzo': r.mittente_indirizzo || null,
-    'Mittente - Telefono': r.mittente_telefono || null,
-    // Destinatario
-    'Destinatario - Ragione Sociale': r.dest_ragione_sociale || null,
-    'Destinatario - Città': r.dest_citta || null,
-    'Destinatario - Paese': r.dest_paese || null,
-    'Destinatario - CAP': r.dest_cap || null,
-    'Destinatario - Indirizzo': r.dest_indirizzo || null,
-    'Destinatario - Telefono': r.dest_telefono || null,
-    'Destinatario - Abilitato Import': r.dest_abilitato_import ? 'Sì' : 'No',
-    // Dati spedizione
-    'Ritiro - Data': r.giorno_ritiro || null,
-    'Incoterm': r.incoterm || null,
-    'Tipo spedizione': r.tipo_spedizione || null,
-    // Fatturazione (placeholder se non hai ancora i campi)
-    'Fatturazione - Ragione Sociale': r.fatt_ragione_sociale || null,
-    'Fatturazione - P.IVA/CF': r.fatt_piva_cf || null,
-    'Fatturazione - Uguale a Destinatario': r.fatt_uguale_dest ? 'Sì' : 'No',
-    'Fatturazione - Delega fattura a SPST': r.fatt_delega_spst ? 'Sì' : 'No',
-    // Colli
-    'Colli - Numero': r.colli_n ?? null,
-    'Peso (kg)': r.peso_reale_kg ?? null,
-    // Stato
-    'Stato': r.status || null,
-    // Allegati (se/quando li avrai)
-    'Allegato LDV': r.ldv_url ? [{ url: r.ldv_url, filename: 'LDV.pdf' }] : [],
-    'Allegato Fattura': r.fattura_url ? [{ url: r.fattura_url, filename: 'Fattura.pdf' }] : [],
-    'Allegato PL': r.pl_url ? [{ url: r.pl_url, filename: 'PackingList.pdf' }] : [],
-    'Allegato DLE': r.dle_url ? [{ url: r.dle_url, filename: 'DLE.pdf' }] : [],
-  };
-}
-
+/* --------------------------------- main cmp --------------------------------- */
 export default function SpedizioniClient() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<'created_desc' | 'ritiro_desc' | 'dest_az' | 'status'>('created_desc');
+
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState<Row | null>(null);
 
   useEffect(() => {
     let alive = true;
+
     async function load() {
       setLoading(true);
       try {
@@ -142,31 +139,58 @@ export default function SpedizioniClient() {
         if (q.trim()) params.set('q', q.trim());
         if (sort) params.set('sort', sort);
 
+        // Auth: Bearer da Firebase se disponibile, altrimenti fallback email da localStorage
         const headers: HeadersInit = {};
+        let emailFallback = '';
+
         try {
           const token = await getIdToken();
-          if (token) headers['Authorization'] = `Bearer ${token}`;
-        } catch {}
-        if (!('Authorization' in headers)) {
-          const email = typeof window !== 'undefined' ? localStorage.getItem('userEmail') : '';
-          if (email) params.set('email', email);
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+            console.debug('SPST[spedizioni] Auth via Supabase session OK (token)');
+          } else {
+            console.debug('SPST[spedizioni] Auth via Supabase session KO (token assente)');
+          }
+        } catch {
+          console.debug('SPST[spedizioni] Auth token fetch error (ignored)');
         }
 
-        const res = await fetch(`/api/spedizioni?${params.toString()}`, { headers, cache: 'no-store' });
-        const j = await res.json().catch(() => ({}));
-        console.log("SPST[spedizioni] → /api/spedizioni", { status: res.status, body: j });
+        if (!('Authorization' in headers)) {
+          emailFallback = typeof window !== 'undefined' ? (localStorage.getItem('userEmail') || '') : '';
+          if (emailFallback) params.set('email', emailFallback);
+          console.debug('SPST[spedizioni] email da localStorage:', emailFallback || '(vuota)');
+        }
+
+        const url = `/api/spedizioni?${params.toString()}`;
+        console.debug('SPST[spedizioni] → GET', url, { query: Object.fromEntries(params), headers });
+
+        const res = await fetch(url, { headers, cache: 'no-store' });
+        const body = await res.json().catch(() => ({}));
+
+        console.debug('SPST[spedizioni] ← /api/spedizioni response', { status: res.status, ok: body?.ok, body });
 
         if (!alive) return;
-        setRows(Array.isArray(j?.rows) ? j.rows : []);
+
+        if (res.ok && body?.ok) {
+          // l'API già ritorna righe con campi normalizzati: le usiamo direttamente
+          const arr: Row[] = Array.isArray(body.rows) ? body.rows : [];
+          console.debug('SPST[spedizioni] righe parse:', arr.length, arr.slice(0, 2));
+          setRows(arr);
+        } else {
+          setRows([]);
+        }
       } catch (e) {
-        console.error("SPST[spedizioni] fetch error:", e);
+        console.warn('SPST[spedizioni] load error:', e);
         if (alive) setRows([]);
       } finally {
         if (alive) setLoading(false);
       }
     }
+
     load();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [q, sort]);
 
   const filtered = useMemo(() => {
@@ -174,7 +198,15 @@ export default function SpedizioniClient() {
     const arr = !needle
       ? rows
       : rows.filter(r => {
-          const hay = [r.human_id, r.dest_citta, r.dest_paese, r.mittente_citta].map(norm).join(' | ');
+          const hay = [
+            r.human_id,
+            r.dest_rs,
+            r.dest_citta,
+            r.dest_paese,
+            r.mittente_rs,
+          ]
+            .map(norm)
+            .join(' | ');
           return hay.includes(needle);
         });
 
@@ -193,16 +225,17 @@ export default function SpedizioniClient() {
       if (sort === 'status') {
         const order = (s?: string | null) => {
           const v = (s || '').toLowerCase();
-          if (v.includes('in transito')) return 2;
-          if (v.includes('in consegna')) return 1;
+          if (v.includes('in transito') || v.includes('intransit')) return 2;
+          if (v.includes('in consegna') || v.includes('outfordelivery')) return 1;
           if (v.includes('consegn')) return 0;
           if (v.includes('eccez') || v.includes('exception') || v.includes('failed')) return 3;
           return 4;
         };
         return order(a.status) - order(b.status);
       }
-      const ca = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const cb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      // created_desc
+      const ca = a.created_it ? new Date(a.created_it).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
+      const cb = b.created_it ? new Date(b.created_it).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
       return cb - ca;
     });
 
@@ -238,7 +271,7 @@ export default function SpedizioniClient() {
         </div>
       </div>
 
-      {/* Lista */}
+      {/* Lista 1 card per riga */}
       {loading ? (
         <div className="text-sm text-slate-500">Caricamento…</div>
       ) : filtered.length === 0 ? (
@@ -253,7 +286,7 @@ export default function SpedizioniClient() {
 
       {/* Drawer dettagli */}
       <Drawer open={open} onClose={() => setOpen(false)} title={sel ? (sel.human_id || sel.id) : undefined}>
-        {sel ? <ShipmentDetail f={toFMap(sel)} /> : null}
+        {sel ? <ShipmentDetail f={sel} /> : null}
       </Drawer>
     </>
   );
