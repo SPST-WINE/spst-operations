@@ -2,12 +2,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+// --- Helpers -----------------------------------------------------
+
+function makeSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    console.error("[API/impostazioni] Missing Supabase env", {
+      hasUrl: !!url,
+      hasKey: !!key,
+    });
+    return null;
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
+}
 
 function jsonError(
   status: number,
@@ -45,13 +64,22 @@ function mapRowToMittente(row: any | null) {
   };
 }
 
-/* ---------------------- GET: leggi impostazioni ---------------------- */
+// --- GET: leggi impostazioni -------------------------------------
+
 export async function GET(req: NextRequest) {
   const emailNorm = getEmailNorm(req);
   if (!emailNorm) {
     console.warn("[API/impostazioni:GET] NO_EMAIL");
     return jsonError(401, "NO_EMAIL", {
       message: "Email mancante. Passa ?email= nella query string.",
+    });
+  }
+
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "MISSING_SUPABASE_ENV", {
+      message:
+        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
     });
   }
 
@@ -69,10 +97,14 @@ export async function GET(req: NextRequest) {
       return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
+    const mittente = mapRowToMittente(data);
+
+    // body.shipper per la pagina React, mittente per chiarezza futura
     return NextResponse.json({
       ok: true,
       email: emailNorm,
-      mittente: mapRowToMittente(data),
+      shipper: mittente,
+      mittente,
     });
   } catch (err: any) {
     console.error("[API/impostazioni:GET] unexpected", err);
@@ -80,7 +112,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/* ---------------------- POST: salva impostazioni ---------------------- */
+// --- POST: salva impostazioni -----------------------------------
+
 export async function POST(req: NextRequest) {
   const emailNorm = getEmailNorm(req);
   if (!emailNorm) {
@@ -94,10 +127,11 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) ?? {};
   } catch {
-    // ignore, body vuoto
+    // body vuoto = ok, gestiamo sotto
   }
 
-  const m = body?.mittente ?? {};
+  // Accetta sia { mittente: {...} } che il form piatto
+  const m = body?.mittente ?? body ?? {};
 
   const payload = {
     email_norm: emailNorm,
@@ -109,6 +143,14 @@ export async function POST(req: NextRequest) {
     mittente_telefono: (m.telefono || "").trim() || null,
     mittente_piva: (m.piva || "").trim() || null,
   };
+
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "MISSING_SUPABASE_ENV", {
+      message:
+        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
+    });
+  }
 
   try {
     const { data, error } = await supabase
@@ -124,10 +166,13 @@ export async function POST(req: NextRequest) {
       return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
+    const mittente = mapRowToMittente(data);
+
     return NextResponse.json({
       ok: true,
       email: emailNorm,
-      mittente: mapRowToMittente(data),
+      shipper: mittente,
+      mittente,
     });
   } catch (err: any) {
     console.error("[API/impostazioni:POST] unexpected", err);
