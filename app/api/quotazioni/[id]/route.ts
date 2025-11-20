@@ -1,23 +1,73 @@
-import { NextResponse } from 'next/server';
-import { getPreventivo } from '@/lib/airtable.quotes';
+// app/api/quotazioni/[id]/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const id = decodeURIComponent((params?.id || '').trim());
-  const wantDebug = new URL(req.url).searchParams.get('debug') === '1';
-  const debug: any[] = [];
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
+
+function jsonError(status: number, error: string, extra?: Record<string, any>) {
+  return NextResponse.json({ ok: false, error, ...extra }, { status });
+}
+
+export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
+  const id = decodeURIComponent((ctx.params?.id || "").trim());
+
+  if (!id) return jsonError(400, "MISSING_ID");
 
   try {
-    const data = await getPreventivo(id, wantDebug ? debug : undefined);
+    const { data, error } = await supabase
+      .from("quotes")
+      .select("id, status, fields, created_at, incoterm")
+      .eq("id", id)
+      .single();
 
-    if (!data) {
-      if (wantDebug) console.warn('[api GET /quotazioni/:id] NOT_FOUND', { id, debug });
-      return NextResponse.json({ error: 'NOT_FOUND', id, debug: wantDebug ? debug : undefined }, { status: 404 });
+    if (error) {
+      console.error("[API/quotazioni/:id] DB_ERROR", error);
+      if (error.code === "PGRST116") {
+        // not found
+        return jsonError(404, "NOT_FOUND");
+      }
+      return jsonError(500, "DB_ERROR", { details: error.message });
     }
 
-    if (wantDebug) console.log('[api GET /quotazioni/:id] OK', { id, recId: data.id, debug });
-    return NextResponse.json(wantDebug ? { ...data, debug } : data);
+    if (!data) return jsonError(404, "NOT_FOUND");
+
+    const f: any = data.fields || {};
+    const mitt = f.mittente || {};
+    const dest = f.destinatario || {};
+    const colli = Array.isArray(f.colli) ? f.colli : [];
+
+    const fields = {
+      ...f,
+      Stato: data.status || "In lavorazione",
+      "Destinatario_Nome": dest.ragioneSociale,
+      "Destinatario_Citta": dest.citta,
+      "Destinatario_Paese": dest.paese,
+      "Mittente_Nome": mitt.ragioneSociale,
+      "Creato il": data.created_at,
+      "Creato da Email": f.createdByEmail,
+      Slug_Pubblico: data.id,
+      Incoterm: data.incoterm,
+    };
+
+    const row = {
+      id: data.id,
+      displayId: data.id,
+      fields,
+      colli,
+    };
+
+    return NextResponse.json({ ok: true, row }, { status: 200 });
   } catch (e: any) {
-    console.error('[api GET /quotazioni/:id] ERROR', id, e?.message || e);
-    return NextResponse.json({ error: 'SERVER_ERROR', message: e?.message }, { status: 500 });
+    console.error("[API/quotazioni/:id] ERROR", e?.message || e);
+    return jsonError(500, "SERVER_ERROR", { message: e?.message });
   }
 }
