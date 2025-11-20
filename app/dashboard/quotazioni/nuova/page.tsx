@@ -382,14 +382,10 @@ export default function NuovaQuotazionePage() {
             Ritiro
           </h2>
           <RitiroCard
-  value={{
-    data: ritiroData ?? null,
-    note: ritiroNote ?? '',
-  }}
-  onChange={(v) => {
-    setRitiroData(v.data ?? undefined);
-    setRitiroNote(v.note ?? '');
-  }}
+  date={ritiroData}
+  setDate={setRitiroData}
+  note={ritiroNote}
+  setNote={setRitiroNote}
 />
         </div>
         <div className="rounded-2xl border bg-white p-4">
