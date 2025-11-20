@@ -240,10 +240,60 @@ export default function NuovaVinoPage() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // Prefill mittente da profilo: TODO (Supabase)
-  useEffect(() => {
-    // in futuro: supabase.auth.getUser + tabella profilo
-  }, []);
+// Prefill mittente da /api/impostazioni (Supabase)
+useEffect(() => {
+  let cancelled = false;
+
+  (async () => {
+    try {
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const email = user?.email || "info@spst.it";
+      if (!email) return;
+
+      const res = await fetch(
+        `/api/impostazioni?email=${encodeURIComponent(email)}`,
+        {
+          headers: { "x-spst-email": email },
+          cache: "no-store",
+        }
+      );
+
+      const json = await res.json().catch(() => null);
+
+      console.log("SPST[nuova-vino] impostazioni:", json);
+
+      if (!json?.ok || !json?.mittente || cancelled) return;
+
+      const m = json.mittente;
+
+      setMittente((prev) => ({
+        ...prev,
+        ragioneSociale: m.mittente || prev.ragioneSociale || "",
+        indirizzo: m.indirizzo || prev.indirizzo || "",
+        cap: m.cap || prev.cap || "",
+        citta: m.citta || prev.citta || "",
+        paese: m.paese || prev.paese || "",
+        telefono: m.telefono || prev.telefono || "",
+        piva: m.piva || prev.piva || "",
+      }));
+    } catch (e) {
+      console.error("[nuova/vino] errore prefill mittente", e);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
 
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
