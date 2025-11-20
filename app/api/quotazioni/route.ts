@@ -6,15 +6,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// ---------- Helpers -------------------------------------------------
 
-// client service-role (solo lato server)
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+function makeSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Tipi minimi allineati a lib/api.ts
+  if (!url || !key) {
+    console.error("[API/quotazioni] Missing Supabase env", {
+      hasUrl: !!url,
+      hasKey: !!key,
+    });
+    return null;
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    db: { schema: "spst" },
+  });
+}
+
+function jsonError(status: number, error: string, extra?: Record<string, any>) {
+  return NextResponse.json({ ok: false, error, ...extra }, { status });
+}
+
 type QuoteParty = {
   ragioneSociale?: string;
   paese?: string;
@@ -46,12 +64,17 @@ type QuoteCreatePayload = {
   customerEmail?: string;
 };
 
-function jsonError(status: number, error: string, extra?: Record<string, any>) {
-  return NextResponse.json({ ok: false, error, ...extra }, { status });
-}
+// ---------- POST: crea preventivo -----------------------------------
 
-// POST /api/quotazioni  → crea record in spst.quotes
 export async function POST(req: NextRequest) {
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "MISSING_SUPABASE_ENV", {
+      message:
+        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
+    });
+  }
+
   try {
     const body = (await req.json().catch(() => ({}))) as QuoteCreatePayload;
 
@@ -61,12 +84,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Per ora non abbiamo l'email reale dall'auth, mettiamo un fallback
     const createdByEmail =
-      body.createdByEmail ||
-      body.customerEmail ||
-      "info@spst.it";
-
+      body.createdByEmail || body.customerEmail || "info@spst.it";
     const customerEmail = body.customerEmail || createdByEmail;
 
     const fields = {
@@ -80,7 +99,7 @@ export async function POST(req: NextRequest) {
       .insert({
         status: "In lavorazione",
         incoterm: body.incoterm,
-        // declared_value per ora null
+        declared_value: null,
         fields,
       })
       .select("id")
@@ -101,20 +120,28 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET /api/quotazioni  → lista (per ora non filtrata per utente)
+// ---------- GET: lista preventivi -----------------------------------
+
 export async function GET(req: NextRequest) {
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "MISSING_SUPABASE_ENV", {
+      message:
+        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
+    });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const email = searchParams.get("email") || undefined;
 
     let query = supabase
       .from("quotes")
-      .select("id, status, fields, created_at")
+      .select("id, status, fields, created_at, incoterm")
       .order("created_at", { ascending: false })
       .limit(100);
 
     if (email) {
-      // filtra su fields.createdByEmail se presente
       query = query.contains("fields", { createdByEmail: email });
     }
 
@@ -131,7 +158,6 @@ export async function GET(req: NextRequest) {
         const mitt = f.mittente || {};
         const dest = f.destinatario || {};
 
-        // alias in stile vecchio Airtable, così la UI attuale non esplode
         const aliasedFields = {
           ...f,
           Stato: row.status || "In lavorazione",
@@ -142,6 +168,7 @@ export async function GET(req: NextRequest) {
           "Creato il": row.created_at,
           "Creato da Email": f.createdByEmail,
           Slug_Pubblico: row.id,
+          Incoterm: row.incoterm,
         };
 
         return { id: row.id, fields: aliasedFields };
