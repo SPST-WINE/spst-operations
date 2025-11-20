@@ -240,7 +240,7 @@ export default function NuovaVinoPage() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-// Prefill mittente da /api/impostazioni (Supabase)
+// Prefill mittente da /api/impostazioni (Supabase friendly)
 useEffect(() => {
   let cancelled = false;
 
