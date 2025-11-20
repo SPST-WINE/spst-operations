@@ -6,21 +6,46 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// ---------- Helpers -------------------------------------------------
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+function makeSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    console.error("[API/quotazioni/:id] Missing Supabase env", {
+      hasUrl: !!url,
+      hasKey: !!key,
+    });
+    return null;
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    db: { schema: "spst" },
+  });
+}
 
 function jsonError(status: number, error: string, extra?: Record<string, any>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
 }
 
+// ---------- GET: dettaglio preventivo -------------------------------
+
 export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   const id = decodeURIComponent((ctx.params?.id || "").trim());
-
   if (!id) return jsonError(400, "MISSING_ID");
+
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "MISSING_SUPABASE_ENV", {
+      message:
+        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
+    });
+  }
 
   try {
     const { data, error } = await supabase
@@ -31,8 +56,7 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
 
     if (error) {
       console.error("[API/quotazioni/:id] DB_ERROR", error);
-      if (error.code === "PGRST116") {
-        // not found
+      if ((error as any).code === "PGRST116") {
         return jsonError(404, "NOT_FOUND");
       }
       return jsonError(500, "DB_ERROR", { details: error.message });
