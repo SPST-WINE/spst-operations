@@ -148,19 +148,37 @@ export default function DashboardOverview() {
 
   // KPI
   const { inCorso, inConsegnaOggi } = useMemo(() => {
-    const inCorso = rows.filter((r) =>
-      ACTIVE_STATES.has(norm(r.fields["Stato"] || r.fields["Tracking Status"]))
-    ).length;
+  const inCorso = rows.filter((r) =>
+    ACTIVE_STATES.has(
+      norm(
+        (r.fields?.["Stato"] as string) ||
+          (r.fields?.["Tracking Status"] as string) ||
+          ""
+      )
+    )
+  ).length;
 
-    const inConsegnaOggi = rows.filter((r) => {
-      const stato = norm(r.fields["Stato"] || r.fields["Tracking Status"]);
-      const etaStr = r.fields["ETA"];
-      const eta = etaStr ? new Date(etaStr) : null;
-      return stato === "In consegna" || (eta && isToday(eta));
-    }).length;
+  const inConsegnaOggi = rows.filter((r) => {
+    const stato = norm(
+      (r.fields?.["Stato"] as string) ||
+        (r.fields?.["Tracking Status"] as string) ||
+        ""
+    );
 
-    return { inCorso, inConsegnaOggi };
-  }, [rows]);
+    const etaStr = r.fields?.["ETA"] as string | undefined;
+    const eta = etaStr ? new Date(etaStr) : null;
+
+    // consideriamo "in consegna" oppure ETA oggi
+    if (stato.includes("in consegna") || stato.toLowerCase().includes("outfordelivery")) {
+      return true;
+    }
+    if (!eta || Number.isNaN(eta.getTime())) return false;
+    return isToday(eta);
+  }).length;
+
+  return { inCorso, inConsegnaOggi };
+}, [rows]);
+
 
   const kpi = [
     { label: "Spedizioni in corso", value: String(inCorso), icon: Truck },
@@ -170,32 +188,57 @@ export default function DashboardOverview() {
 
   // Tracking items
   const trackingItems = useMemo(() => {
-    return rows
-      .filter((r) => ACTIVE_STATES.has(norm(r.fields["Stato"] || r.fields["Tracking Status"])))
-      .slice(0, 10)
-      .map((r) => {
-        const ref = r.fields["ID Spedizione"] || r.id;
-        const city = r.fields["Destinatario - Città"] || "";
-        const country = r.fields["Destinatario - Paese"] || "";
-        const stato = r.fields["Tracking Status"] || r.fields["Stato"] || "—";
+  const items = rows
+    .filter((r) =>
+      ACTIVE_STATES.has(
+        norm(
+          (r.fields?.["Stato"] as string) ||
+            (r.fields?.["Tracking Status"] as string) ||
+            ""
+        )
+      )
+    )
+    .slice(0, 10)
+    .map((r) => {
+      const f = (r.fields || {}) as Record<string, any>;
 
-        const carrier =
-          (typeof r.fields[F.Corriere] === "object" && (r.fields as any)[F.Corriere]?.name) ||
-          r.fields[F.Corriere] ||
-          null;
+      const destCity = (f[F.D_CITTA] as string) || f["Destinatario - Città"] || "";
+      const destCountry =
+        (f[F.D_PAESE] as string) || f["Destinatario - Paese"] || "";
+      const stato = (f[F.Stato] as string) || f["Stato"] || "—";
 
-        const code = r.fields[F.TrackingNumber] || null;
-        const url = r.fields[F.TrackingURL] || buildTrackingUrl(carrier, code);
+      const carrier =
+        (typeof f[F.Corriere] === "string" && f[F.Corriere]) || undefined;
+      const code =
+        (typeof f[F.TrackingNumber] === "string" && f[F.TrackingNumber]) ||
+        undefined;
+      const url =
+        (f[F.TrackingURL] as string) || buildTrackingUrl(carrier, code);
 
-        return {
-          id: r.id,
-          ref,
-          dest: [city, country].filter(Boolean).join(" (") + (country ? ")" : ""),
-          stato,
-          url,
-        };
-      });
-  }, [rows]);
+      const labelDest = [destCity, destCountry]
+        .filter(Boolean)
+        .join(" (")
+        .concat(destCountry ? ")" : "");
+
+      const ref =
+        (f[F.ID_Spedizione] as string) ||
+        (f["ID Spedizione"] as string) ||
+        (f["ID SPST"] as string) ||
+        (f["ID Spedizione (custom)"] as string) ||
+        r.id;
+
+      return {
+        id: r.id,
+        ref,
+        dest: labelDest,
+        stato,
+        url,
+      };
+    });
+
+  return items;
+}, [rows]);
+
 
   // Ritiri programmati
   const ritiri = useMemo(() => {
