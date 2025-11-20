@@ -1,21 +1,14 @@
 // app/dashboard/nuova/altro/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import PartyCard, { Party } from '@/components/nuova/PartyCard';
-import ColliCard, { Collo } from '@/components/nuova/ColliCard';
-import RitiroCard from '@/components/nuova/RitiroCard';
-import FatturaCard from '@/components/nuova/FatturaCard';
-import { Select } from '@/components/nuova/Field';
-import {
-  postSpedizione,
-  postSpedizioneAttachments,
-  postSpedizioneNotify,
-  getUserProfile,
-} from '@/lib/api';
-import { getIdToken } from '@/lib/firebase-client-auth';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import PartyCard, { Party } from "@/components/nuova/PartyCard";
+import ColliCard, { Collo } from "@/components/nuova/ColliCard";
+import RitiroCard from "@/components/nuova/RitiroCard";
+import FatturaCard from "@/components/nuova/FatturaCard";
+import { Select } from "@/components/nuova/Field";
+import { createClient } from "@supabase/supabase-js";
 
 // ------------------------------------------------------------
 // Costanti / tipi
@@ -23,45 +16,48 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 type SuccessInfo = {
   recId: string;
   idSped: string; // ID Spedizione "umano"
-  tipoSped: 'B2B' | 'B2C' | 'Sample';
-  incoterm: 'DAP' | 'DDP' | 'EXW';
+  tipoSped: "B2B" | "B2C" | "Sample";
+  incoterm: "DAP" | "DDP" | "EXW";
   dataRitiro?: string;
   colli: number;
-  formato: 'Pacco' | 'Pallet';
+  formato: "Pacco" | "Pallet";
   destinatario: Party;
 };
 
 type Suggestion = { id: string; main: string; secondary?: string };
 
-const GMAPS_LANG = process.env.NEXT_PUBLIC_GOOGLE_MAPS_LANGUAGE || 'it';
-const GMAPS_REGION = process.env.NEXT_PUBLIC_GOOGLE_MAPS_REGION || 'IT';
+const GMAPS_LANG = process.env.NEXT_PUBLIC_GOOGLE_MAPS_LANGUAGE || "it";
+const GMAPS_REGION = process.env.NEXT_PUBLIC_GOOGLE_MAPS_REGION || "IT";
 
 const blankParty: Party = {
-  ragioneSociale: '',
-  referente: '',
-  paese: '',
-  citta: '',
-  cap: '',
-  indirizzo: '',
-  telefono: '',
-  piva: '',
+  ragioneSociale: "",
+  referente: "",
+  paese: "",
+  citta: "",
+  cap: "",
+  indirizzo: "",
+  telefono: "",
+  piva: "",
 };
 
 const log = {
-  info: (...a: any[]) => console.log('%c[AC]', 'color:#1c3e5e', ...a),
-  warn: (...a: any[]) => console.warn('[AC]', ...a),
-  error: (...a: any[]) => console.error('[AC]', ...a),
-  group: (label: string) => console.groupCollapsed(`%c${label}`, 'color:#555'),
+  info: (...a: any[]) => console.log("%c[AC]", "color:#1c3e5e", ...a),
+  warn: (...a: any[]) => console.warn("[AC]", ...a),
+  error: (...a: any[]) => console.error("[AC]", ...a),
+  group: (label: string) => console.groupCollapsed(`%c${label}`, "color:#555"),
   groupEnd: () => console.groupEnd(),
 };
 
 // ------------------------------------------------------------
 // Chiamate proxy Places (niente CORS/referrer)
 // ------------------------------------------------------------
-async function fetchSuggestions(input: string, sessionToken: string): Promise<Suggestion[]> {
-  const res = await fetch('/api/places/autocomplete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+async function fetchSuggestions(
+  input: string,
+  sessionToken: string
+): Promise<Suggestion[]> {
+  const res = await fetch("/api/places/autocomplete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       input,
       languageCode: GMAPS_LANG,
@@ -70,20 +66,20 @@ async function fetchSuggestions(input: string, sessionToken: string): Promise<Su
   });
 
   const j = await res.json().catch(() => ({}));
-  if (!res.ok || j?.error) {
-    console.error('[AC] autocomplete proxy error:', j?.error || j);
+  if (!res.ok || (j as any)?.error) {
+    console.error("[AC] autocomplete proxy error:", (j as any)?.error || j);
     return [];
   }
 
-  const arr = (j?.suggestions || []) as any[];
+  const arr = (j as any)?.suggestions || [];
   return arr
     .map((s: any) => {
       const pred = s.placePrediction || {};
       const fmt = pred.structuredFormat || {};
       return {
         id: pred.placeId,
-        main: fmt?.mainText?.text || '',
-        secondary: fmt?.secondaryText?.text || '',
+        main: fmt?.mainText?.text || "",
+        secondary: fmt?.secondaryText?.text || "",
       } as Suggestion;
     })
     .filter((s: Suggestion) => !!s.id && (!!s.main || !!s.secondary));
@@ -95,20 +91,24 @@ async function fetchPlaceDetails(placeId: string, sessionToken?: string) {
     languageCode: GMAPS_LANG,
     regionCode: GMAPS_REGION,
   });
-  if (sessionToken) params.set('sessionToken', sessionToken);
+  if (sessionToken) params.set("sessionToken", sessionToken);
 
   const res = await fetch(`/api/places/details?${params.toString()}`);
   const j = await res.json().catch(() => null);
 
   if (!res.ok || (j as any)?.error) {
-    console.error('[AC] details proxy error:', (j as any)?.error || j);
+    console.error("[AC] details proxy error:", (j as any)?.error || j);
     return null;
   }
   return j;
 }
 
 // Reverse geocoding per fallback CAP
-async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = 'it'): Promise<string> {
+async function fetchPostalCodeByLatLng(
+  lat: number,
+  lng: number,
+  lang = "it"
+): Promise<string> {
   const params = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
@@ -116,19 +116,19 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = 'it'): P
   });
   const res = await fetch(`/api/geo/reverse?${params.toString()}`);
   const j = await res.json().catch(() => null);
-  if (!res.ok || !j) return '';
+  if (!res.ok || !j) return "";
 
   const search = (arr: any[]) => {
     for (const r of arr || []) {
-      const c = (r.address_components || []).find((x: any) =>
-        Array.isArray(x.types) && x.types.includes('postal_code'),
+      const c = (r.address_components || []).find(
+        (x: any) => Array.isArray(x.types) && x.types.includes("postal_code")
       );
-      if (c) return c.long_name || c.short_name || '';
+      if (c) return c.long_name || c.short_name || "";
     }
-    return '';
+    return "";
   };
 
-  return search(j.results) || '';
+  return search((j as any).results) || "";
 }
 
 // ------------------------------------------------------------
@@ -137,39 +137,94 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = 'it'): P
 function parseAddressFromDetails(d: any) {
   const comps: any[] = d?.addressComponents || [];
   const get = (type: string) =>
-    comps.find((c) => Array.isArray(c.types) && c.types.includes(type)) || null;
+    comps.find(
+      (c) => Array.isArray(c.types) && c.types.includes(type)
+    ) || null;
 
-  const country = get('country');
-  const locality = get('locality') || get('postal_town');
-  const admin2 = get('administrative_area_level_2');
-  const admin1 = get('administrative_area_level_1');
-  const postal = get('postal_code');
-  const route = get('route');
-  const streetNr = get('street_number');
-  const premise = get('premise');
+  const country = get("country");
+  const locality = get("locality") || get("postal_town");
+  const admin2 = get("administrative_area_level_2");
+  const admin1 = get("administrative_area_level_1");
+  const postal = get("postal_code");
+  const route = get("route");
+  const streetNr = get("street_number");
+  const premise = get("premise");
 
   // ✅ nome paese esteso (in italiano)
   const countryName =
-    country?.longText || country?.long_name || country?.name || country?.shortText || '';
+    country?.longText ||
+    country?.long_name ||
+    country?.name ||
+    country?.shortText ||
+    "";
 
   const line = [
     route?.shortText || route?.longText || route?.short_name || route?.long_name,
-    streetNr?.shortText || streetNr?.longText || streetNr?.short_name || streetNr?.long_name,
+    streetNr?.shortText ||
+      streetNr?.longText ||
+      streetNr?.short_name ||
+      streetNr?.long_name,
     premise?.longText || premise?.long_name,
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(" ");
 
   return {
-    indirizzo: line || d?.formattedAddress || '',
-    citta: locality?.longText || locality?.long_name || admin2?.longText || admin1?.longText || '',
-    cap: postal?.shortText || postal?.longText || postal?.short_name || postal?.long_name || '',
-    paese: countryName || '',
+    indirizzo: line || d?.formattedAddress || "",
+    citta:
+      locality?.longText ||
+      locality?.long_name ||
+      admin2?.longText ||
+      admin1?.longText ||
+      "",
+    cap:
+      postal?.shortText ||
+      postal?.longText ||
+      postal?.short_name ||
+      postal?.long_name ||
+      "",
+    paese: countryName || "",
   };
 }
 
 function newSessionToken() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ------------------------------------------------------------
+// Small API helper (Supabase Auth) - come pagina vino
+// ------------------------------------------------------------
+async function createShipmentWithAuth(payload: any) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  const [{ data: { user } }, { data: { session } }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.auth.getSession(),
+  ]);
+
+  const email = user?.email ?? null;
+  const token = session?.access_token ?? null;
+
+  const res = await fetch("/api/spedizioni", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "x-user-email": email || "",
+    },
+    body: JSON.stringify({ ...payload, email }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body?.ok) {
+    const details =
+      body?.details || body?.error || `${res.status} ${res.statusText}`;
+    throw new Error(details);
+  }
+  return body.shipment; // { id, human_id, ... }
 }
 
 // ------------------------------------------------------------
@@ -179,24 +234,60 @@ export default function NuovaAltroPage() {
   const router = useRouter();
 
   // Tipologia
-  const [tipoSped, setTipoSped] = useState<'B2B' | 'B2C' | 'Sample'>('B2B');
+  const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
   const [destAbilitato, setDestAbilitato] = useState(false);
 
   // Parti
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // Prefill mittente da UTENTI (Airtable)
+  // Prefill mittente da /api/impostazioni (Supabase friendly, come pagina vino)
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
-        const r = await getUserProfile(getIdToken);
-        if (!cancelled && r?.ok && r?.party) {
-          setMittente((prev) => ({ ...prev, ...r.party }));
-        }
-      } catch {}
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        const email = user?.email || "info@spst.it";
+        if (!email) return;
+
+        const res = await fetch(
+          `/api/impostazioni?email=${encodeURIComponent(email)}`,
+          {
+            headers: { "x-spst-email": email },
+            cache: "no-store",
+          }
+        );
+
+        const json = await res.json().catch(() => null);
+        console.log("SPST[nuova-altro] impostazioni:", json);
+
+        if (!json?.ok || !json?.mittente || cancelled) return;
+
+        const m = json.mittente;
+        setMittente((prev) => ({
+          ...prev,
+          ragioneSociale: m.mittente || prev.ragioneSociale || "",
+          indirizzo: m.indirizzo || prev.indirizzo || "",
+          cap: m.cap || prev.cap || "",
+          citta: m.citta || prev.citta || "",
+          paese: m.paese || prev.paese || "",
+          telefono: m.telefono || prev.telefono || "",
+          piva: m.piva || prev.piva || "",
+        }));
+      } catch (e) {
+        console.error("[nuova/altro] errore prefill mittente", e);
+      }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -206,17 +297,17 @@ export default function NuovaAltroPage() {
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
-  const [formato, setFormato] = useState<'Pacco' | 'Pallet'>('Pacco');
-  const [contenuto, setContenuto] = useState<string>('');
+  const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
+  const [contenuto, setContenuto] = useState<string>("");
 
   // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>(undefined);
-  const [ritiroNote, setRitiroNote] = useState('');
+  const [ritiroNote, setRitiroNote] = useState("");
 
   // Fattura
-  const [incoterm, setIncoterm] = useState<'DAP' | 'DDP' | 'EXW'>('DAP');
-  const [valuta, setValuta] = useState<'EUR' | 'USD' | 'GBP'>('EUR');
-  const [noteFatt, setNoteFatt] = useState('');
+  const [incoterm, setIncoterm] = useState<"DAP" | "DDP" | "EXW">("DAP");
+  const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
+  const [noteFatt, setNoteFatt] = useState("");
   const [delega, setDelega] = useState(false);
   const [fatturazione, setFatturazione] = useState<Party>(blankParty);
   const [sameAsDest, setSameAsDest] = useState(false);
@@ -230,43 +321,16 @@ export default function NuovaAltroPage() {
 
   useEffect(() => {
     if (errors.length && topRef.current) {
-      topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [errors.length]);
 
-  // ID Spedizione "umano" dal meta endpoint
-  async function fetchIdSpedizione(recId: string): Promise<string> {
-    try {
-      const t = await getIdToken();
-      const r = await fetch(`/api/spedizioni/${recId}/meta`, {
-        headers: t ? { Authorization: `Bearer ${t}` } : undefined,
-      });
-      const j = await r.json();
-      return j?.idSpedizione || recId;
-    } catch {
-      return recId;
-    }
-  }
-
-  // Upload allegati (solo fattura) + attach su Airtable
-  async function uploadAndAttach(spedId: string) {
-    if (!fatturaFile) return;
-    const storage = getStorage();
-    const r = ref(storage, `spedizioni/${spedId}/fattura/${fatturaFile.name}`);
-    await uploadBytes(r, fatturaFile);
-    const url = await getDownloadURL(r);
-    await postSpedizioneAttachments(
-      spedId,
-      { fattura: [{ url, filename: fatturaFile.name }] },
-      getIdToken,
-    );
-  }
-
-  // Validazione client (come prima)
+  // Validazione client (uguale alla vecchia pagina "altro")
   function validate(): string[] {
     const errs: string[] = [];
 
-    if (!mittente.piva?.trim()) errs.push('Partita IVA/Codice Fiscale del mittente mancante.');
+    if (!mittente.piva?.trim())
+      errs.push("Partita IVA/Codice Fiscale del mittente mancante.");
 
     colli.forEach((c, i) => {
       const miss =
@@ -279,23 +343,27 @@ export default function NuovaAltroPage() {
         (c.larghezza_cm ?? 0) <= 0 ||
         (c.altezza_cm ?? 0) <= 0 ||
         (c.peso_kg ?? 0) <= 0;
-      if (miss || nonPos) errs.push(`Collo #${i + 1}: inserire tutte le misure e un peso > 0.`);
+      if (miss || nonPos)
+        errs.push(`Collo #${i + 1}: inserire tutte le misure e un peso > 0.`);
     });
 
-    if (!ritiroData) errs.push('Seleziona il giorno di ritiro.');
+    if (!ritiroData) errs.push("Seleziona il giorno di ritiro.");
 
     if (!fatturaFile) {
       const fatt = sameAsDest ? destinatario : fatturazione;
-      if (!fatt.ragioneSociale?.trim()) errs.push('Dati fattura: ragione sociale mancante.');
-      if ((tipoSped === 'B2B' || tipoSped === 'Sample') && !fatt.piva?.trim()) {
-        errs.push('Dati fattura: P.IVA/CF obbligatoria per B2B e Campionatura.');
+      if (!fatt.ragioneSociale?.trim())
+        errs.push("Dati fattura: ragione sociale mancante.");
+      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
+        errs.push(
+          "Dati fattura: P.IVA/CF obbligatoria per B2B e Campionatura."
+        );
       }
     }
 
     return errs;
   }
 
-  // Salva
+  // Salva (come pagina vino, ma sorgente: "altro", senza packingList)
   const salva = async () => {
     if (saving) return;
 
@@ -310,7 +378,7 @@ export default function NuovaAltroPage() {
     setSaving(true);
     try {
       const payload = {
-        sorgente: 'altro' as const,
+        sorgente: "altro" as const,
         tipoSped,
         destAbilitato,
         contenuto,
@@ -329,24 +397,13 @@ export default function NuovaAltroPage() {
         colli,
       };
 
-      // 1) Crea spedizione
-      const res = await postSpedizione(payload, getIdToken);
+      const created = await createShipmentWithAuth(payload);
+      const id =
+        created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
 
-      // 2) Allegati (solo fattura se presente)
-      await uploadAndAttach(res.id);
-
-      // 3) Email automatica (best-effort)
-      try {
-        await postSpedizioneNotify(res.id, getIdToken);
-      } catch {}
-
-      // 4) Recupera ID Spedizione "umano"
-      const idSped = await fetchIdSpedizione(res.id);
-
-      // 5) Schermata conferma
       setSuccess({
-        recId: res.id,
-        idSped,
+        recId: id,
+        idSped: id,
         tipoSped,
         incoterm,
         dataRitiro: ritiroData?.toLocaleDateString(),
@@ -354,10 +411,19 @@ export default function NuovaAltroPage() {
         formato,
         destinatario,
       });
-      if (topRef.current) topRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch (e) {
-      console.error('Errore salvataggio/allegati', e);
-      setErrors(['Si è verificato un errore durante il salvataggio. Riprova più tardi.']);
+
+      if (topRef.current) {
+        topRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }
+    } catch (e: any) {
+      const msg =
+        e?.message ||
+        "Si è verificato un errore durante il salvataggio. Riprova più tardi.";
+      setErrors([msg]);
+      console.error("Errore salvataggio spedizione (altro)", e);
     } finally {
       setSaving(false);
     }
@@ -367,7 +433,7 @@ export default function NuovaAltroPage() {
   // Autocomplete: menu custom sugli input esistenti
   // ------------------------------------------------------------
   const attachPlacesToInput = useCallback(
-    (input: HTMLInputElement, who: 'mittente' | 'destinatario') => {
+    (input: HTMLInputElement, who: "mittente" | "destinatario") => {
       if (!input || (input as any).__acAttached) return;
       (input as any).__acAttached = true;
 
@@ -377,24 +443,24 @@ export default function NuovaAltroPage() {
       let activeIndex = -1;
 
       // dropdown
-      const dd = document.createElement('div');
-      dd.className = 'spst-ac-dd';
+      const dd = document.createElement("div");
+      dd.className = "spst-ac-dd";
       dd.style.cssText = [
-        'position:absolute',
-        'z-index:9999',
-        'background:#fff',
-        'border:1px solid #e2e8f0',
-        'border-radius:10px',
-        'box-shadow:0 8px 24px rgba(0,0,0,0.08)',
-        'padding:6px',
-        'display:none',
-      ].join(';');
-      const ul = document.createElement('ul');
-      ul.style.listStyle = 'none';
-      ul.style.margin = '0';
-      ul.style.padding = '0';
-      ul.style.maxHeight = '260px';
-      ul.style.overflowY = 'auto';
+        "position:absolute",
+        "z-index:9999",
+        "background:#fff",
+        "border:1px solid #e2e8f0",
+        "border-radius:10px",
+        "box-shadow:0 8px 24px rgba(0,0,0,0.08)",
+        "padding:6px",
+        "display:none",
+      ].join(";");
+      const ul = document.createElement("ul");
+      ul.style.listStyle = "none";
+      ul.style.margin = "0";
+      ul.style.padding = "0";
+      ul.style.maxHeight = "260px";
+      ul.style.overflowY = "auto";
       dd.appendChild(ul);
       document.body.appendChild(dd);
 
@@ -406,40 +472,40 @@ export default function NuovaAltroPage() {
       };
 
       const close = () => {
-        dd.style.display = 'none';
+        dd.style.display = "none";
         open = false;
         activeIndex = -1;
-        ul.innerHTML = '';
+        ul.innerHTML = "";
       };
 
       const render = () => {
-        ul.innerHTML = '';
+        ul.innerHTML = "";
         if (!items.length) {
-          const li = document.createElement('li');
-          li.textContent = 'Nessun suggerimento';
-          li.style.padding = '8px 10px';
-          li.style.color = '#8a8a8a';
+          const li = document.createElement("li");
+          li.textContent = "Nessun suggerimento";
+          li.style.padding = "8px 10px";
+          li.style.color = "#8a8a8a";
           ul.appendChild(li);
           return;
         }
         items.forEach((s, i) => {
-          const li = document.createElement('li');
-          li.style.padding = '8px 10px';
-          li.style.borderRadius = '8px';
-          li.style.cursor = 'pointer';
+          const li = document.createElement("li");
+          li.style.padding = "8px 10px";
+          li.style.borderRadius = "8px";
+          li.style.cursor = "pointer";
           li.onmouseenter = () => {
             activeIndex = i;
             highlight();
           };
           li.onclick = () => choose(i);
-          const main = document.createElement('div');
+          const main = document.createElement("div");
           main.textContent = s.main;
-          main.style.fontWeight = '600';
-          main.style.fontSize = '13px';
-          const sec = document.createElement('div');
-          sec.textContent = s.secondary || '';
-          sec.style.fontSize = '12px';
-          sec.style.color = '#6b7280';
+          main.style.fontWeight = "600";
+          main.style.fontSize = "13px";
+          const sec = document.createElement("div");
+          sec.textContent = s.secondary || "";
+          sec.style.fontSize = "12px";
+          sec.style.color = "#6b7280";
           li.append(main, sec);
           ul.appendChild(li);
         });
@@ -447,13 +513,14 @@ export default function NuovaAltroPage() {
 
       const highlight = () => {
         Array.from(ul.children).forEach((el, i) => {
-          (el as HTMLElement).style.background = i === activeIndex ? '#f1f5f9' : 'transparent';
+          (el as HTMLElement).style.background =
+            i === activeIndex ? "#f1f5f9" : "transparent";
         });
       };
 
       const openMenu = () => {
         positionDD();
-        dd.style.display = 'block';
+        dd.style.display = "block";
         open = true;
         highlight();
       };
@@ -462,7 +529,8 @@ export default function NuovaAltroPage() {
         const sel = items[idx];
         if (!sel) return;
         close();
-        input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : '');
+        input.value =
+          sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
         const details = await fetchPlaceDetails(sel.id, session);
         session = newSessionToken();
         if (!details) return;
@@ -471,17 +539,17 @@ export default function NuovaAltroPage() {
         const addr = parseAddressFromDetails(details);
 
         // fallback CAP via reverse geocoding se mancante ma ho lat/lng
-        const lat = details?.location?.latitude;
-        const lng = details?.location?.longitude;
-        if (!addr.cap && typeof lat === 'number' && typeof lng === 'number') {
+        const lat = (details as any)?.location?.latitude;
+        const lng = (details as any)?.location?.longitude;
+        if (!addr.cap && typeof lat === "number" && typeof lng === "number") {
           try {
             const cap = await fetchPostalCodeByLatLng(lat, lng, GMAPS_LANG);
             if (cap) addr.cap = cap;
           } catch {}
         }
 
-        log.info('fill →', who, addr);
-        if (who === 'mittente') {
+        log.info("fill →", who, addr);
+        if (who === "mittente") {
           setMittente((prev) => ({ ...prev, ...addr }));
         } else {
           setDestinatario((prev) => ({ ...prev, ...addr }));
@@ -494,8 +562,8 @@ export default function NuovaAltroPage() {
           close();
           return;
         }
-        log.group('Autocomplete → request');
-        log.info('query:', q);
+        log.group("Autocomplete → request");
+        log.info("query:", q);
         items = await fetchSuggestions(q, session);
         log.groupEnd();
         render();
@@ -504,18 +572,21 @@ export default function NuovaAltroPage() {
 
       const onKey = (e: KeyboardEvent) => {
         if (!open) return;
-        if (e.key === 'ArrowDown') {
+        if (e.key === "ArrowDown") {
           e.preventDefault();
-          activeIndex = Math.min(activeIndex + 1, Math.max(items.length - 1, 0));
+          activeIndex = Math.min(
+            activeIndex + 1,
+            Math.max(items.length - 1, 0)
+          );
           highlight();
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === "ArrowUp") {
           e.preventDefault();
           activeIndex = Math.max(activeIndex - 1, 0);
           highlight();
-        } else if (e.key === 'Enter' && activeIndex >= 0) {
+        } else if (e.key === "Enter" && activeIndex >= 0) {
           e.preventDefault();
           choose(activeIndex);
-        } else if (e.key === 'Escape') {
+        } else if (e.key === "Escape") {
           close();
         }
       };
@@ -530,36 +601,42 @@ export default function NuovaAltroPage() {
         if (open) positionDD();
       };
 
-      input.addEventListener('input', onInput);
-      input.addEventListener('keydown', onKey);
-      input.addEventListener('blur', onBlur);
-      window.addEventListener('resize', onResizeScroll);
-      window.addEventListener('scroll', onResizeScroll, true);
+      input.addEventListener("input", onInput);
+      input.addEventListener("keydown", onKey);
+      input.addEventListener("blur", onBlur);
+      window.addEventListener("resize", onResizeScroll);
+      window.addEventListener("scroll", onResizeScroll, true);
 
       // cleanup
       (input as any).__acDetach = () => {
-        input.removeEventListener('input', onInput);
-        input.removeEventListener('keydown', onKey);
-        input.removeEventListener('blur', onBlur);
-        window.removeEventListener('resize', onResizeScroll);
-        window.removeEventListener('scroll', onResizeScroll, true);
+        input.removeEventListener("input", onInput);
+        input.removeEventListener("keydown", onKey);
+        input.removeEventListener("blur", onBlur);
+        window.removeEventListener("resize", onResizeScroll);
+        window.removeEventListener("scroll", onResizeScroll, true);
         dd.remove();
       };
 
-      log.info('attach →', who, input);
+      log.info("attach →", who, input);
     },
-    [],
+    []
   );
 
   // Aggancia agli input "Indirizzo" tramite data-gmaps impostato da PartyCard
   useEffect(() => {
-    log.info('🧭 Bootstrap autocomplete');
+    log.info("🧭 Bootstrap autocomplete");
 
     const attachAll = () => {
-      const mitt = document.querySelector<HTMLInputElement>('input[data-gmaps="indirizzo-mittente"]');
-      const dest = document.querySelector<HTMLInputElement>('input[data-gmaps="indirizzo-destinatario"]');
-      if (mitt) attachPlacesToInput(mitt, 'mittente');
-      if (dest) attachPlacesToInput(dest, 'destinatario');
+      const mitt =
+        document.querySelector<HTMLInputElement>(
+          'input[data-gmaps="indirizzo-mittente"]'
+        );
+      const dest =
+        document.querySelector<HTMLInputElement>(
+          'input[data-gmaps="indirizzo-destinatario"]'
+        );
+      if (mitt) attachPlacesToInput(mitt, "mittente");
+      if (dest) attachPlacesToInput(dest, "destinatario");
     };
 
     attachAll();
@@ -570,7 +647,9 @@ export default function NuovaAltroPage() {
     return () => {
       mo.disconnect();
       document
-        .querySelectorAll<HTMLInputElement>('input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]')
+        .querySelectorAll<HTMLInputElement>(
+          'input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]'
+        )
         .forEach((el) => {
           const d: any = el as any;
           if (d.__acDetach) d.__acDetach();
@@ -582,11 +661,13 @@ export default function NuovaAltroPage() {
   // UI success
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || '/dashboard/informazioni-utili';
+    const INFO_URL =
+      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL || 'https://wa.me/message/CP62RMFFDNZPO1';
+      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
+      "https://wa.me/message/CP62RMFFDNZPO1";
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
-      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`,
+      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
     )}`;
 
     return (
@@ -604,25 +685,30 @@ export default function NuovaAltroPage() {
               <span className="text-slate-500">Tipo:</span> {success.tipoSped}
             </div>
             <div>
-              <span className="text-slate-500">Incoterm:</span> {success.incoterm}
+              <span className="text-slate-500">Incoterm:</span>{" "}
+              {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? '—'}
+              <span className="text-slate-500">Data ritiro:</span>{" "}
+              {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} (
+              {success.formato})
             </div>
             <div className="md:col-span-2">
-              <span className="text-slate-500">Destinatario:</span>{' '}
-              {success.destinatario.ragioneSociale || '—'}
-              {success.destinatario.citta ? ` — ${success.destinatario.citta}` : ''}
+              <span className="text-slate-500">Destinatario:</span>{" "}
+              {success.destinatario.ragioneSociale || "—"}
+              {success.destinatario.citta
+                ? ` — ${success.destinatario.citta}`
+                : ""}
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => router.push('/dashboard/spedizioni')}
+              onClick={() => router.push("/dashboard/spedizioni")}
               className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"
             >
               Le mie spedizioni
@@ -640,16 +726,19 @@ export default function NuovaAltroPage() {
               target="_blank"
               rel="noopener noreferrer"
               className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50"
-              style={{ borderColor: '#f7911e' }}
+              style={{ borderColor: "#f7911e" }}
             >
               Supporto WhatsApp
             </a>
 
-            <span className="text-sm text-green-700">Email di conferma inviata ✅</span>
+            <span className="text-sm text-green-700">
+              Email di conferma inviata ✅
+            </span>
           </div>
 
           <div className="mt-6 text-xs text-slate-500">
-            Suggerimento: conserva l’ID per future comunicazioni. Puoi chiudere questa pagina.
+            Suggerimento: conserva l’ID per future comunicazioni. Puoi chiudere
+            questa pagina.
           </div>
         </div>
       </div>
@@ -678,11 +767,11 @@ export default function NuovaAltroPage() {
         <Select
           label="Stai spedendo ad un privato? O ad una azienda?"
           value={tipoSped}
-          onChange={(v) => setTipoSped(v as 'B2B' | 'B2C' | 'Sample')}
+          onChange={(v) => setTipoSped(v as "B2B" | "B2C" | "Sample")}
           options={[
-            { label: 'B2C — privato / cliente', value: 'B2C' },
-            { label: 'B2B — azienda', value: 'B2B' },
-            { label: 'Sample — campionatura', value: 'Sample' },
+            { label: "B2C — privato / cliente", value: "B2C" },
+            { label: "B2B — azienda", value: "B2B" },
+            { label: "Sample — campionatura", value: "Sample" },
           ]}
         />
       </div>
@@ -690,7 +779,12 @@ export default function NuovaAltroPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {/* MITTENTE */}
         <div className="rounded-2xl border bg-white p-4">
-          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
+          <PartyCard
+            title="Mittente"
+            value={mittente}
+            onChange={setMittente}
+            gmapsTag="mittente"
+          />
         </div>
         {/* DESTINATARIO */}
         <div className="rounded-2xl border bg-white p-4">
@@ -700,7 +794,7 @@ export default function NuovaAltroPage() {
             onChange={setDestinatario}
             gmapsTag="destinatario"
             extraSwitch={{
-              label: 'Destinatario abilitato all’import',
+              label: "Destinatario abilitato all’import",
               checked: destAbilitato,
               onChange: setDestAbilitato,
             }}
@@ -719,7 +813,12 @@ export default function NuovaAltroPage() {
         setContenuto={setContenuto}
       />
 
-      <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
+      <RitiroCard
+        date={ritiroData}
+        setDate={setRitiroData}
+        note={ritiroNote}
+        setNote={setRitiroNote}
+      />
 
       <FatturaCard
         incoterm={incoterm}
@@ -750,7 +849,7 @@ export default function NuovaAltroPage() {
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
           )}
-          {saving ? 'Salvataggio…' : 'Salva'}
+          {saving ? "Salvataggio…" : "Salva"}
         </button>
       </div>
     </div>
