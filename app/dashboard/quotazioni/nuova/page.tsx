@@ -126,15 +126,16 @@ export default function NuovaQuotazionePage() {
     if (!ritiroData) errs.push('Seleziona il giorno di ritiro.');
 
     // Almeno un collo completo e valido
-    const invalid = colli.some(c =>
-      c.lunghezza_cm == null ||
-      c.larghezza_cm == null ||
-      c.altezza_cm == null ||
-      c.peso_kg == null ||
-      (c.lunghezza_cm ?? 0) <= 0 ||
-      (c.larghezza_cm ?? 0) <= 0 ||
-      (c.altezza_cm ?? 0) <= 0 ||
-      (c.peso_kg ?? 0) <= 0
+    const invalid = colli.some(
+      c =>
+        c.lunghezza_cm == null ||
+        c.larghezza_cm == null ||
+        c.altezza_cm == null ||
+        c.peso_kg == null ||
+        (c.lunghezza_cm ?? 0) <= 0 ||
+        (c.larghezza_cm ?? 0) <= 0 ||
+        (c.altezza_cm ?? 0) <= 0 ||
+        (c.peso_kg ?? 0) <= 0
     );
     if (invalid) errs.push('Inserisci misure e pesi > 0 per ogni collo.');
 
@@ -271,7 +272,7 @@ export default function NuovaQuotazionePage() {
       </div>
 
       {/* Colli / contenuto */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-4">
         <div className="rounded-2xl border bg-white p-4">
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
             Colli
@@ -285,6 +286,7 @@ export default function NuovaQuotazionePage() {
             setContenuto={setContenuto}
           />
         </div>
+
         <div className="rounded-2xl border bg-white p-4">
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
             Dettagli spedizione
@@ -376,18 +378,19 @@ export default function NuovaQuotazionePage() {
       </div>
 
       {/* Ritiro + note */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-4">
         <div className="rounded-2xl border bg-white p-4">
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
             Ritiro
           </h2>
           <RitiroCard
-  date={ritiroData}
-  setDate={setRitiroData}
-  note={ritiroNote}
-  setNote={setRitiroNote}
-/>
+            date={ritiroData}
+            setDate={setRitiroData}
+            note={ritiroNote}
+            setNote={setRitiroNote}
+          />
         </div>
+
         <div className="rounded-2xl border bg-white p-4">
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
             Note generiche
