@@ -1,15 +1,15 @@
+// app/dashboard/quotazioni/[id]/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { getPreventivo } from '@/lib/api';
-import { getIdToken } from '@/lib/firebase-client-auth';
 import Link from 'next/link';
 
 // alias tolleranti per leggere i campi dei colli
-const QTY_KEYS = ['Quantita', 'Quantità', 'Qty', 'Q.ta'];
-const L_KEYS = ['L_cm', 'Lato 1', 'Lato1', 'Lunghezza', 'L'];
-const W_KEYS = ['W_cm', 'Lato 2', 'Lato2', 'Larghezza', 'W'];
-const H_KEYS = ['H_cm', 'Lato 3', 'Lato3', 'Altezza', 'H'];
+const QTY_KEYS = ['Quantita', 'Quantità', 'Qty', 'Q.ta', 'quantita'];
+const L_KEYS = ['L_cm', 'Lato 1', 'Lato1', 'Lunghezza', 'L', 'lunghezza_cm'];
+const W_KEYS = ['W_cm', 'Lato 2', 'Lato2', 'Larghezza', 'W', 'larghezza_cm'];
+const H_KEYS = ['H_cm', 'Lato 3', 'Lato3', 'Altezza', 'H', 'altezza_cm'];
 
 function pickNumber(f: any, keys: string[]) {
   for (const k of keys) {
@@ -45,7 +45,8 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     (async () => {
       setLoading(true);
       try {
-        const r = await getPreventivo(id, getIdToken);
+        // nuova API Supabase: /api/quotazioni/[id] -> { ok:true, row }
+        const r = await getPreventivo(id); // niente Firebase
         if (!abort) setRow(r);
       } finally {
         if (!abort) setLoading(false);
@@ -66,12 +67,14 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     f['Tipologia'] ||
     f['Tipo'] ||
     f['TipoSped'] ||
+    f['tipoSped'] ||
     '—';
 
   const ritiro =
     f['Ritiro_Data'] ||
     f['Data_Ritiro'] ||
     f['RitiroData'] ||
+    f['ritiroData'] || // nuovo campo nel payload Supabase
     f['PickUp_Date'] ||
     f['Data ritiro'] ||
     f['Data Ritiro'] ||
@@ -111,15 +114,17 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
   };
 
   const colli = useMemo(() => {
+    // con Supabase la API mette già un array "piatto" in row.colli
     const arr: any[] = Array.isArray(row?.colli) ? row!.colli : [];
     return arr.map((c, i) => {
-      const cf = c.fields || {};
+      const cf = c || {};
       const qty = pickNumber(cf, QTY_KEYS) ?? 1;
       const L = pickNumber(cf, L_KEYS);
       const W = pickNumber(cf, W_KEYS);
       const H = pickNumber(cf, H_KEYS);
       const peso =
-        pickNumber(cf, ['Peso', 'Peso (Kg)', 'Peso_Kg', 'Kg', 'Weight']) ?? undefined;
+        pickNumber(cf, ['Peso', 'Peso (Kg)', 'Peso_Kg', 'Kg', 'Weight', 'peso_kg']) ??
+        undefined;
 
       const dimsParts = [L, W, H].map((n) => (n != null ? String(n) : '—'));
       const dims =
