@@ -3,129 +3,136 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { getPreventivi } from '@/lib/api';
 
-type QuoteRow = {
-  id: string;
-  displayId?: string;
-  status?: string;
-  created_at?: string;
-  fields?: Record<string, any>;
-  [key: string]: any;
+type MittenteDestinatario = {
+  ragioneSociale?: string | null;
+  paese?: string | null;
+  citta?: string | null;
 };
 
-function formatDate(iso?: string) {
+type RawRecord = {
+  id: string;
+  fields?: any;
+};
+
+type Preventivo = {
+  id: string;
+  displayId?: string | null;
+  status?: string | null;
+  mittente?: MittenteDestinatario | null;
+  destinatario?: MittenteDestinatario | null;
+  createdAt?: string | null;
+};
+
+function formatCityCountry(p?: MittenteDestinatario | null): string {
+  if (!p) return '—';
+  const city = (p.citta || '').trim();
+  const country = (p.paese || '').trim();
+
+  if (city && country) return `${city}, ${country}`;
+  if (city) return city;
+  if (country) return country;
+  return '—';
+}
+
+function formatDate(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('it-IT');
 }
 
-/**
- * Helper: prende il primo valore stringa non vuoto fra:
- * 1) una lista di chiavi esplicite
- * 2) eventuali chiavi che "conten(g)ono" tutte le parole in containsAll
- */
-function pickString(
-  obj: Record<string, any>,
-  explicitKeys: string[],
-  containsAll: string[] = []
-): string {
-  for (const k of explicitKeys) {
-    const v = obj[k];
-    if (typeof v === 'string' && v.trim().length > 0) return v.trim();
-  }
-
-  if (containsAll.length) {
-    for (const k of Object.keys(obj)) {
-      const lk = k.toLowerCase();
-      if (containsAll.every(c => lk.includes(c.toLowerCase()))) {
-        const v = obj[k];
-        if (typeof v === 'string' && v.trim().length > 0) return v.trim();
-      }
-    }
-  }
-
-  return '—';
-}
-
 export default function QuotazioniPage() {
-  const [rows, setRows] = useState<QuoteRow[]>([]);
+  const [items, setItems] = useState<Preventivo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setLoading(true);
-      setError(null);
+    (async () => {
       try {
-        const data = (await getPreventivi()) as any;
+        const emailNorm = 'info@spst.it';
 
-        console.log('SPST[quotazioni] getPreventivi raw response:', data);
+        const res = await fetch(
+          `/api/quotazioni?email=${encodeURIComponent(emailNorm)}`,
+          { method: 'GET', cache: 'no-store' }
+        );
+
+        const data = (await res.json().catch(() => null)) as
+          | RawRecord[]
+          | { items?: RawRecord[] }
+          | null;
+
+        const rawArray: RawRecord[] = Array.isArray(data)
+          ? data
+          : Array.isArray((data as any)?.items)
+          ? (data as any).items
+          : [];
+
+        console.log('SPST[quotazioni] getPreventivi raw response:', rawArray);
 
         if (cancelled) return;
 
-        // l’API potrebbe restituire { ok, data }, oppure direttamente un array
-        const arr: QuoteRow[] = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.data)
-          ? data.data
-          : [];
+        const normalized: Preventivo[] = rawArray.map((r) => {
+          const f = r.fields || {};
+          const mittente: MittenteDestinatario | null =
+            f.mittente ?? f.mittente_json ?? null;
+          const destinatario: MittenteDestinatario | null =
+            f.destinatario ?? f.destinatario_json ?? null;
 
-        setRows(arr);
+          return {
+            id: r.id,
+            displayId: f.display_id ?? f.displayId ?? r.id,
+            status: f.status ?? f.stato ?? 'IN_PROGRESS',
+            mittente,
+            destinatario,
+            createdAt: f.created_at ?? f.createdAt ?? null,
+          };
+        });
+
+        setItems(normalized);
       } catch (e) {
         console.error('SPST[quotazioni] errore getPreventivi', e);
-        if (!cancelled) {
-          setError('Errore nel caricamento delle quotazioni.');
-        }
+        setItems([]);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
-    }
+    })();
 
-    load();
     return () => {
       cancelled = true;
     };
   }, []);
 
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return rows;
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
 
-    return rows.filter(row => {
-      const flat = { ...(row.fields || {}), ...row };
-
-      const pieces: string[] = [
-        flat.displayId,
-        flat.id,
-        flat.status,
-        flat.destinatario_ragioneSociale,
-        flat.destinatario_ragione_sociale,
-        flat.destinatario_nome,
-        flat.mittente_ragioneSociale,
-        flat.mittente_ragione_sociale,
-        flat.mittente_nome,
-        flat.destinatario_citta,
-        flat.destinatario_city,
-        flat.destinatario_paese,
-        flat.destinatario_country,
+    return items.filter((p) => {
+      const m = p.mittente || {};
+      const d = p.destinatario || {};
+      const haystack = [
+        p.displayId,
+        p.id,
+        m.ragioneSociale,
+        m.citta,
+        m.paese,
+        d.ragioneSociale,
+        d.citta,
+        d.paese,
       ]
         .filter(Boolean)
-        .map((x: any) => String(x).toLowerCase());
+        .join(' ')
+        .toLowerCase();
 
-      return pieces.some(p => p.includes(term));
+      return haystack.includes(q);
     });
-  }, [rows, search]);
+  }, [items, search]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-800">Quotazioni</h1>
         <Link
           href="/dashboard/quotazioni/nuova"
@@ -135,135 +142,67 @@ export default function QuotazioniPage() {
         </Link>
       </div>
 
-      <div className="max-w-md">
+      <div>
         <input
           type="text"
+          className="w-full max-w-md rounded-lg border px-3 py-2 text-sm"
+          placeholder="Cerca per destinatario, città, paese, ID..."
           value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Cerca per destinatario, città, paese, ID…"
-          className="w-full rounded-xl border px-3 py-2 text-sm"
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-
-      {error && (
-        <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
-          {error}
-        </div>
-      )}
 
       {loading && (
         <div className="text-sm text-slate-500">Caricamento quotazioni…</div>
       )}
 
-      {!loading && !filtered.length && !error && (
+      {!loading && filtered.length === 0 && (
         <div className="text-sm text-slate-500">
-          Nessuna quotazione trovata.
+          Nessuna quotazione trovata. Crea la prima dalla voce “Nuova
+          quotazione”.
         </div>
       )}
 
       <div className="space-y-3">
-        {filtered.map(row => {
-          const flat: Record<string, any> = { ...(row.fields || {}), ...row };
-
-          // Destinatario
-          const destNome = pickString(
-            flat,
-            [
-              'destinatario_ragioneSociale',
-              'destinatario_ragione_sociale',
-              'destinatario_nome',
-              'destinatario_name',
-              'to_name',
-            ],
-            ['destinatario', 'ragione']
-          );
-
-          const destCitta = pickString(
-            flat,
-            ['destinatario_citta', 'destinatario_city'],
-            ['destinatario', 'citt']
-          );
-
-          const destPaese = pickString(
-            flat,
-            ['destinatario_paese', 'destinatario_country'],
-            ['destinatario', 'paese']
-          );
-
-          // Mittente
-          const mittenteNome = pickString(
-            flat,
-            [
-              'mittente_ragioneSociale',
-              'mittente_ragione_sociale',
-              'mittente_nome',
-              'mittente_name',
-              'from_name',
-            ],
-            ['mittente', 'ragione']
-          );
-
-          // Status
-          const statusVal =
-            flat.status ||
-            flat.stato ||
-            pickString(flat, ['status', 'stato'], ['status']) ||
-            'In lavorazione';
-
-          // ID visualizzato
-          const displayId =
-            flat.displayId ||
-            flat['ID preventivo'] ||
-            flat.id?.toString() ||
-            '';
+        {filtered.map((p) => {
+          const title = formatCityCountry(p.destinatario || p.mittente || null);
+          const mittenteNome = p.mittente?.ragioneSociale || '—';
+          const created = formatDate(p.createdAt);
 
           return (
             <div
-              key={flat.id || displayId}
-              className="flex flex-col gap-3 rounded-2xl border bg-white p-4 text-sm md:flex-row md:items-center md:justify-between"
+              key={p.id}
+              className="flex flex-col justify-between rounded-2xl border bg-white p-4 text-sm md:flex-row md:items-center"
             >
-              <div>
-                <div className="font-semibold">
-                  {destNome}{' '}
-                  {destPaese !== '—'
-                    ? `• ${destCitta !== '—' ? destCitta : '—'}, ${destPaese}`
-                    : destCitta !== '—'
-                    ? `• ${destCitta}`
-                    : ''}
+              <div className="space-y-1">
+                <div className="font-semibold text-slate-800">
+                  {title}
                 </div>
-                <div className="mt-1 text-xs text-slate-500">
+                <div className="text-xs text-slate-500">
                   Mittente:{' '}
                   <span className="font-medium text-slate-700">
                     {mittenteNome}
                   </span>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">
-                  Creata il {formatDate(flat.created_at)}
+                <div className="text-xs text-slate-500">
+                  Creata il:{' '}
+                  <span className="font-medium text-slate-700">
+                    {created}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex flex-col items-start gap-2 md:items-end">
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                    {statusVal}
-                  </span>
+              <div className="mt-3 flex flex-col items-end gap-2 md:mt-0">
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  ID: {p.displayId || p.id}
                 </div>
-                <div className="text-xs text-slate-400">
-                  ID:{' '}
-                  <span className="font-mono">
-                    {displayId || flat.id || '—'}
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/dashboard/quotazioni/${encodeURIComponent(
-                      flat.id || displayId || ''
-                    )}`}
-                    className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-slate-50"
-                  >
-                    Dettagli
-                  </Link>
-                </div>
+
+                <Link
+                  href={`/dashboard/quotazioni/${p.id}`}
+                  className="rounded-lg border bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Dettagli
+                </Link>
               </div>
             </div>
           );
