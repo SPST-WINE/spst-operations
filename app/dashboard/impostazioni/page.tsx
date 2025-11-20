@@ -13,13 +13,10 @@ type ShipperDefaults = {
   piva: string;
 };
 
+type Status = "idle" | "loading" | "saving";
+
 export default function ImpostazioniPage() {
   const [email, setEmail] = useState<string>("-");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
   const [form, setForm] = useState<ShipperDefaults>({
     paese: "",
     mittente: "",
@@ -30,7 +27,13 @@ export default function ImpostazioniPage() {
     piva: "",
   });
 
-  // comodo per costruire la query ?email=
+  const [status, setStatus] = useState<Status>("loading");
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const loading = status === "loading";
+  const saving = status === "saving";
+
   const getEmailNorm = () => {
     const raw = (email || "").trim();
     return raw ? raw.toLowerCase() : "";
@@ -40,34 +43,32 @@ export default function ImpostazioniPage() {
     let alive = true;
 
     async function load() {
-      setLoading(true);
-      setErrorMsg(null);
+      setStatus("loading");
       setStatusMsg(null);
+      setErrorMsg(null);
 
       try {
-        // 1) prendo l’email dal profilo (stub per ora: info@spst.it)
+        // 1) prendo l’email dal profilo (per ora stub: info@spst.it)
         const profRes = await fetch("/api/profile", { cache: "no-store" });
         const profBody = await profRes.json().catch(() => ({}));
-        const emailFromProfile: string =
-          profBody?.profile?.email?.toString?.() || "";
-
-        if (!emailFromProfile) {
-          console.warn("SPST[impostazioni] profile senza email:", profBody);
-          if (alive) {
-            setErrorMsg(
-              "Impossibile recuperare l'email del profilo. Contatta SPST."
-            );
-          }
-          return;
-        }
+        const profileEmail: string =
+          profBody?.profile?.email?.toString?.() || "info@spst.it";
 
         if (!alive) return;
 
-        setEmail(emailFromProfile);
+        if (!profileEmail) {
+          setErrorMsg(
+            "Impossibile recuperare l'email del profilo. Contatta SPST."
+          );
+          setStatus("idle");
+          return;
+        }
 
-        const emailNorm = emailFromProfile.trim().toLowerCase();
+        setEmail(profileEmail);
 
-        // 2) chiamo /api/impostazioni con ?email=
+        const emailNorm = profileEmail.trim().toLowerCase();
+
+        // 2) leggo le impostazioni mittente
         const res = await fetch(
           `/api/impostazioni?email=${encodeURIComponent(emailNorm)}`,
           {
@@ -75,7 +76,6 @@ export default function ImpostazioniPage() {
             cache: "no-store",
           }
         );
-
         const body = await res.json().catch(() => ({}));
 
         console.log("SPST[impostazioni] GET response:", {
@@ -98,7 +98,9 @@ export default function ImpostazioniPage() {
           });
         } else {
           setErrorMsg(
-            body?.error || "Errore nel caricamento delle impostazioni."
+            body?.message ||
+              body?.error ||
+              "Errore nel caricamento delle impostazioni."
           );
         }
       } catch (e: any) {
@@ -106,7 +108,7 @@ export default function ImpostazioniPage() {
         if (alive)
           setErrorMsg("Errore di rete nel caricamento delle impostazioni.");
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setStatus("idle");
       }
     }
 
@@ -122,7 +124,7 @@ export default function ImpostazioniPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
+    setStatus("saving");
     setStatusMsg(null);
     setErrorMsg(null);
 
@@ -132,7 +134,7 @@ export default function ImpostazioniPage() {
         setErrorMsg(
           "Email non disponibile. Ricarica la pagina o contatta SPST."
         );
-        setSaving(false);
+        setStatus("idle");
         return;
       }
 
@@ -144,7 +146,6 @@ export default function ImpostazioniPage() {
           body: JSON.stringify({ mittente: form }),
         }
       );
-
       const body = await res.json().catch(() => ({}));
 
       console.log("SPST[impostazioni] POST response:", {
@@ -155,33 +156,170 @@ export default function ImpostazioniPage() {
       if (res.ok && body?.ok) {
         setStatusMsg("Impostazioni salvate correttamente.");
       } else {
-        setErrorMsg(body?.error || "Errore durante il salvataggio.");
+        setErrorMsg(
+          body?.message || body?.error || "Errore durante il salvataggio."
+        );
       }
     } catch (e: any) {
       console.error("SPST[impostazioni] POST error:", e);
       setErrorMsg("Errore di rete durante il salvataggio.");
     } finally {
-      setSaving(false);
+      setStatus("idle");
     }
   };
-
-  // qui sotto immagino tu abbia già il JSX (form) – lo lascio invariato
-  // ...
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Impostazioni</h1>
+        <h1 className="text-xl font-semibold text-slate-800">Impostazioni</h1>
         <p className="mt-1 text-sm text-slate-500">
           Configura i dati predefiniti del mittente per le tue spedizioni.
         </p>
       </div>
 
-      {/* Card email + form, come avevi già strutturato */}
-      {/* Usa `email`, `form`, `updateField`, `onSubmit`, `loading`, `saving`,
-          `statusMsg` ed `errorMsg` nella UI esistente */}
-      {/* ... */}
+      {/* Email account */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-3 text-sm font-semibold text-slate-800">
+          Email account
+        </h2>
+        <label className="mb-1 block text-xs font-medium text-slate-500">
+          Email
+        </label>
+        <input
+          type="email"
+          value={email}
+          disabled
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+        />
+        <p className="mt-1 text-xs text-slate-400">
+          L&apos;email identifica il tuo profilo e non è modificabile da questa
+          pagina.
+        </p>
+      </div>
+
+      {/* Impostazioni mittente */}
+      <form
+        onSubmit={onSubmit}
+        className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <h2 className="mb-1 text-sm font-semibold text-slate-800">
+          Impostazioni mittente
+        </h2>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Paese
+            </label>
+            <input
+              type="text"
+              placeholder="IT, FR, ES…"
+              value={form.paese}
+              onChange={(e) => updateField("paese", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Mittente
+            </label>
+            <input
+              type="text"
+              placeholder="Ragione sociale / Nome"
+              value={form.mittente}
+              onChange={(e) => updateField("mittente", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Città
+            </label>
+            <input
+              type="text"
+              value={form.citta}
+              onChange={(e) => updateField("citta", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              CAP
+            </label>
+            <input
+              type="text"
+              value={form.cap}
+              onChange={(e) => updateField("cap", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Indirizzo
+            </label>
+            <input
+              type="text"
+              placeholder="Via / Piazza e numero civico"
+              value={form.indirizzo}
+              onChange={(e) => updateField("indirizzo", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Telefono
+            </label>
+            <input
+              type="text"
+              placeholder="+39 320 000 0000"
+              value={form.telefono}
+              onChange={(e) => updateField("telefono", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">
+              Partita IVA / CF
+            </label>
+            <input
+              type="text"
+              placeholder="IT01234567890"
+              value={form.piva}
+              onChange={(e) => updateField("piva", e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center rounded-lg bg-[#1c3e5e] px-4 py-2 text-sm font-medium text-white hover:opacity-95 disabled:opacity-60"
+          >
+            {saving ? "Salvataggio..." : "Salva"}
+          </button>
+
+          {loading && (
+            <span className="text-xs text-slate-400">
+              Caricamento impostazioni…
+            </span>
+          )}
+          {statusMsg && !errorMsg && (
+            <span className="text-xs text-emerald-600">{statusMsg}</span>
+          )}
+          {errorMsg && (
+            <span className="text-xs text-rose-600">{errorMsg}</span>
+          )}
+        </div>
+      </form>
     </div>
   );
 }
