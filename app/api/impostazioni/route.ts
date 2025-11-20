@@ -6,7 +6,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// --- Helpers -----------------------------------------------------
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -25,6 +27,7 @@ function makeSupabase() {
 
   return createClient(url, key, {
     auth: { persistSession: false },
+    db: { schema: "spst" }, // <── usiamo lo schema spst
   });
 }
 
@@ -51,20 +54,46 @@ function getEmailNorm(req: NextRequest): string | null {
   return null;
 }
 
-function mapRowToMittente(row: any | null) {
-  if (!row) return null;
-  return {
-    paese: row.mittente_paese ?? "",
-    mittente: row.mittente_rs ?? "",
-    citta: row.mittente_citta ?? "",
-    cap: row.mittente_cap ?? "",
-    indirizzo: row.mittente_indirizzo ?? "",
-    telefono: row.mittente_telefono ?? "",
-    piva: row.mittente_piva ?? "",
-  };
+type CustomerRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  company_name: string | null;
+  vat_number: string | null;
+};
+
+type AddressRow = {
+  country: string | null;
+  company: string | null;
+  full_name: string | null;
+  phone: string | null;
+  street: string | null;
+  city: string | null;
+  postal_code: string | null;
+  tax_id: string | null;
+};
+
+function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
+  const paese = addr?.country ?? "";
+  const mittente =
+    addr?.company ||
+    addr?.full_name ||
+    cust?.company_name ||
+    cust?.name ||
+    "";
+  const citta = addr?.city ?? "";
+  const cap = addr?.postal_code ?? "";
+  const indirizzo = addr?.street ?? "";
+  const telefono = addr?.phone || cust?.phone || "";
+  const piva = addr?.tax_id || cust?.vat_number || "";
+
+  return { paese, mittente, citta, cap, indirizzo, telefono, piva };
 }
 
-// --- GET: leggi impostazioni -------------------------------------
+/* ------------------------------------------------------------------ */
+/* GET: leggi impostazioni                                            */
+/* ------------------------------------------------------------------ */
 
 export async function GET(req: NextRequest) {
   const emailNorm = getEmailNorm(req);
@@ -84,26 +113,54 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("shipper_defaults")
+    // 1) Trova il customer per email
+    const { data: customer, error: custErr } = await supabase
+      .from("customers")
       .select(
-        "email_norm, mittente_paese, mittente_rs, mittente_citta, mittente_cap, mittente_indirizzo, mittente_telefono, mittente_piva"
+        "id, email, name, phone, company_name, vat_number"
       )
-      .eq("email_norm", emailNorm)
+      .eq("email", emailNorm)
       .maybeSingle();
 
-    if (error) {
-      console.error("[API/impostazioni:GET] db error", error);
-      return jsonError(500, "DB_ERROR", { message: error.message });
+    if (custErr) {
+      console.error("[API/impostazioni:GET] customer db error", custErr);
+      return jsonError(500, "DB_ERROR", { message: custErr.message });
     }
 
-    const mittente = mapRowToMittente(data);
+    if (!customer) {
+      // Nessun customer ancora → ritorno ok ma campi vuoti
+      return NextResponse.json({
+        ok: true,
+        email: emailNorm,
+        mittente: mapToMittente(null, null),
+      });
+    }
 
-    // body.shipper per la pagina React, mittente per chiarezza futura
+    // 2) Trova l'indirizzo shipper per quel customer
+    const { data: address, error: addrErr } = await supabase
+      .from("addresses")
+      .select(
+        "country, company, full_name, phone, street, city, postal_code, tax_id"
+      )
+      .eq("customer_id", customer.id)
+      .eq("kind", "shipper")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (addrErr) {
+      console.error("[API/impostazioni:GET] address db error", addrErr);
+      return jsonError(500, "DB_ERROR", { message: addrErr.message });
+    }
+
+    const mittente = mapToMittente(
+      (address as AddressRow | null) ?? null,
+      customer as CustomerRow
+    );
+
     return NextResponse.json({
       ok: true,
       email: emailNorm,
-      shipper: mittente,
       mittente,
     });
   } catch (err: any) {
@@ -112,7 +169,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// --- POST: salva impostazioni -----------------------------------
+/* ------------------------------------------------------------------ */
+/* POST: salva impostazioni                                           */
+/* ------------------------------------------------------------------ */
 
 export async function POST(req: NextRequest) {
   const emailNorm = getEmailNorm(req);
@@ -123,27 +182,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  let body: any = {};
-  try {
-    body = (await req.json()) ?? {};
-  } catch {
-    // body vuoto = ok, gestiamo sotto
-  }
-
-  // Accetta sia { mittente: {...} } che il form piatto
-  const m = body?.mittente ?? body ?? {};
-
-  const payload = {
-    email_norm: emailNorm,
-    mittente_paese: (m.paese || "").trim() || null,
-    mittente_rs: (m.mittente || "").trim() || null,
-    mittente_citta: (m.citta || "").trim() || null,
-    mittente_cap: (m.cap || "").trim() || null,
-    mittente_indirizzo: (m.indirizzo || "").trim() || null,
-    mittente_telefono: (m.telefono || "").trim() || null,
-    mittente_piva: (m.piva || "").trim() || null,
-  };
-
   const supabase = makeSupabase();
   if (!supabase) {
     return jsonError(500, "MISSING_SUPABASE_ENV", {
@@ -152,26 +190,159 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  let body: any = {};
   try {
-    const { data, error } = await supabase
-      .from("shipper_defaults")
-      .upsert(payload, { onConflict: "email_norm" })
-      .select(
-        "email_norm, mittente_paese, mittente_rs, mittente_citta, mittente_cap, mittente_indirizzo, mittente_telefono, mittente_piva"
-      )
+    body = (await req.json()) ?? {};
+  } catch {
+    // body vuoto -> gestiamo comunque
+  }
+
+  const m = body?.mittente ?? body ?? {};
+
+  const mittentePayload = {
+    paese: (m.paese || "").trim() || null,
+    mittente: (m.mittente || "").trim() || null,
+    citta: (m.citta || "").trim() || null,
+    cap: (m.cap || "").trim() || null,
+    indirizzo: (m.indirizzo || "").trim() || null,
+    telefono: (m.telefono || "").trim() || null,
+    piva: (m.piva || "").trim() || null,
+  };
+
+  try {
+    // 1) Trova o crea il customer
+    const { data: existingCust, error: custErr } = await supabase
+      .from("customers")
+      .select("id, email, name, phone, company_name, vat_number")
+      .eq("email", emailNorm)
       .maybeSingle();
 
-    if (error) {
-      console.error("[API/impostazioni:POST] db error", error);
-      return jsonError(500, "DB_ERROR", { message: error.message });
+    if (custErr) {
+      console.error("[API/impostazioni:POST] customer select error", custErr);
+      return jsonError(500, "DB_ERROR", { message: custErr.message });
     }
 
-    const mittente = mapRowToMittente(data);
+    let customer: CustomerRow;
+
+    if (!existingCust) {
+      const { data: insertedCust, error: insErr } = await supabase
+        .from("customers")
+        .insert({
+          email: emailNorm,
+          name: mittentePayload.mittente,
+          company_name: mittentePayload.mittente,
+          phone: mittentePayload.telefono,
+          vat_number: mittentePayload.piva,
+          fields: {},
+        })
+        .select(
+          "id, email, name, phone, company_name, vat_number"
+        )
+        .single();
+
+      if (insErr) {
+        console.error("[API/impostazioni:POST] customer insert error", insErr);
+        return jsonError(500, "DB_ERROR", { message: insErr.message });
+      }
+
+      customer = insertedCust as CustomerRow;
+    } else {
+      customer = existingCust as CustomerRow;
+
+      // Optional: aggiorniamo anche i dati base del customer
+      const { error: updCustErr } = await supabase
+        .from("customers")
+        .update({
+          name: mittentePayload.mittente,
+          company_name: mittentePayload.mittente,
+          phone: mittentePayload.telefono,
+          vat_number: mittentePayload.piva,
+        })
+        .eq("id", customer.id);
+
+      if (updCustErr) {
+        console.warn(
+          "[API/impostazioni:POST] customer update warn",
+          updCustErr
+        );
+      }
+    }
+
+    // 2) Trova o crea l'indirizzo shipper
+    const { data: existingAddr, error: addrSelErr } = await supabase
+      .from("addresses")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .eq("kind", "shipper")
+      .maybeSingle();
+
+    const addrBase = {
+      customer_id: customer.id,
+      kind: "shipper",
+      country: mittentePayload.paese,
+      company: mittentePayload.mittente,
+      full_name: mittentePayload.mittente,
+      phone: mittentePayload.telefono,
+      street: mittentePayload.indirizzo,
+      city: mittentePayload.citta,
+      postal_code: mittentePayload.cap,
+      tax_id: mittentePayload.piva,
+    };
+
+    let address: AddressRow | null = null;
+
+    if (addrSelErr) {
+      console.error(
+        "[API/impostazioni:POST] address select error",
+        addrSelErr
+      );
+      return jsonError(500, "DB_ERROR", { message: addrSelErr.message });
+    }
+
+    if (!existingAddr) {
+      const { data: insAddr, error: insAddrErr } = await supabase
+        .from("addresses")
+        .insert(addrBase)
+        .select(
+          "country, company, full_name, phone, street, city, postal_code, tax_id"
+        )
+        .single();
+
+      if (insAddrErr) {
+        console.error(
+          "[API/impostazioni:POST] address insert error",
+          insAddrErr
+        );
+        return jsonError(500, "DB_ERROR", { message: insAddrErr.message });
+      }
+
+      address = insAddr as AddressRow;
+    } else {
+      const { data: updAddr, error: updAddrErr } = await supabase
+        .from("addresses")
+        .update(addrBase)
+        .eq("id", existingAddr.id)
+        .select(
+          "country, company, full_name, phone, street, city, postal_code, tax_id"
+        )
+        .single();
+
+      if (updAddrErr) {
+        console.error(
+          "[API/impostazioni:POST] address update error",
+          updAddrErr
+        );
+        return jsonError(500, "DB_ERROR", { message: updAddrErr.message });
+      }
+
+      address = updAddr as AddressRow;
+    }
+
+    const mittente = mapToMittente(address, customer);
 
     return NextResponse.json({
       ok: true,
       email: emailNorm,
-      shipper: mittente,
       mittente,
     });
   } catch (err: any) {
