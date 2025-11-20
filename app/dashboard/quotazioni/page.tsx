@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { getPreventivi } from '@/lib/api'; // <-- usa il client generico, niente Firebase
 
 type MittenteDestinatario = {
   ragioneSociale?: string | null;
@@ -52,29 +53,14 @@ export default function QuotazioniPage() {
 
     (async () => {
       try {
-        const emailNorm = 'info@spst.it';
+        // Chiede alla API /api/quotazioni e si aspetta { ok, rows }
+        const rows = (await getPreventivi()) as RawRecord[];
 
-        const res = await fetch(
-          `/api/quotazioni?email=${encodeURIComponent(emailNorm)}`,
-          { method: 'GET', cache: 'no-store' }
-        );
-
-        const data = (await res.json().catch(() => null)) as
-          | RawRecord[]
-          | { items?: RawRecord[] }
-          | null;
-
-        const rawArray: RawRecord[] = Array.isArray(data)
-          ? data
-          : Array.isArray((data as any)?.items)
-          ? (data as any).items
-          : [];
-
-        console.log('SPST[quotazioni] getPreventivi raw response:', rawArray);
+        console.log('SPST[quotazioni] getPreventivi raw response:', rows);
 
         if (cancelled) return;
 
-        const normalized: Preventivo[] = rawArray.map((r) => {
+        const normalized: Preventivo[] = rows.map((r) => {
           const f = r.fields || {};
           const mittente: MittenteDestinatario | null =
             f.mittente ?? f.mittente_json ?? null;
@@ -83,11 +69,19 @@ export default function QuotazioniPage() {
 
           return {
             id: r.id,
-            displayId: f.display_id ?? f.displayId ?? r.id,
-            status: f.status ?? f.stato ?? 'IN_PROGRESS',
+            displayId:
+              f.Slug_Pubblico ??
+              f.display_id ??
+              f.displayId ??
+              r.id,
+            status: f.Stato ?? f.status ?? 'In lavorazione',
             mittente,
             destinatario,
-            createdAt: f.created_at ?? f.createdAt ?? null,
+            createdAt:
+              f['Creato il'] ??
+              f.created_at ??
+              f.createdAt ??
+              null,
           };
         });
 
