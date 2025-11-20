@@ -4,124 +4,89 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getPreventivi } from '@/lib/api';
-import { getIdToken } from '@/lib/firebase-client-auth';
 
-const STATUS_COLORS: Record<string, string> = {
-  Accettato: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Convertito: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  Pubblicato: 'bg-blue-100 text-blue-700 border-blue-200',
-  'Bozza (cliente)': 'bg-amber-100 text-amber-700 border-amber-200',
-  Scaduto: 'bg-slate-200 text-slate-600 border-slate-300',
-  'In lavorazione': 'bg-amber-100 text-amber-700 border-amber-200',
-};
-
-function StatusBadge({ value }: { value?: string }) {
-  const v = value || 'In lavorazione';
-  const cls =
-    STATUS_COLORS[v] || 'bg-slate-100 text-slate-700 border-slate-200';
-  return (
-    <span
-      className={`inline-block rounded-full border px-2 py-0.5 text-xs ${cls}`}
-    >
-      {v}
-    </span>
-  );
-}
-
-type PreventivoRow = {
+type QuoteRow = {
   id: string;
   displayId?: string;
+  status?: string;
+  created_at?: string;
   fields?: Record<string, any>;
-  [key: string]: any;
 };
 
-export default function QuotazioniListPage() {
-  const [rows, setRows] = useState<PreventivoRow[]>([]);
+function formatDate(iso?: string) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('it-IT');
+}
+
+function getField(row: QuoteRow, key: string): string {
+  const v = row.fields?.[key];
+  return typeof v === 'string' && v.trim().length > 0 ? v : '—';
+}
+
+export default function QuotazioniPage() {
+  const [rows, setRows] = useState<QuoteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
+    async function load() {
+      setLoading(true);
+      setError(null);
       try {
-        setLoading(true);
-        setError(null);
-
-        const data = await getPreventivi(getIdToken);
-
+        // ⚠️ niente Firebase: non passiamo getIdToken
+        const data = (await getPreventivi()) as any[];
         if (!cancelled) {
-          setRows(Array.isArray(data) ? (data as PreventivoRow[]) : []);
+          setRows(Array.isArray(data) ? (data as QuoteRow[]) : []);
         }
-      } catch (e: any) {
+        console.log('SPST[quotazioni] getPreventivi response:', data);
+      } catch (e) {
         console.error('SPST[quotazioni] errore getPreventivi', e);
         if (!cancelled) {
-          setError('Errore nel recupero delle quotazioni.');
-          setRows([]);
+          setError('Errore nel caricamento delle quotazioni.');
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    })();
+    }
 
+    load();
     return () => {
       cancelled = true;
     };
   }, []);
 
   const filtered = useMemo(() => {
-    const term = query.trim().toLowerCase();
+    const term = search.trim().toLowerCase();
     if (!term) return rows;
 
-    return rows.filter((r) => {
-      const f = (r as any).fields || (r as any) || {};
-      const displayId = (
-        r.displayId ||
-        (f['ID preventivo'] as string) ||
-        r.id
-      )
-        ?.toString()
-        .toLowerCase();
+    return rows.filter(row => {
+      const f = row.fields || {};
+      const parts = [
+        row.displayId,
+        row.id,
+        row.status,
+        f.destinatario_ragioneSociale,
+        f.destinatario_citta,
+        f.destinatario_paese,
+        f.mittente_ragioneSociale,
+      ]
+        .filter(Boolean)
+        .map((x: any) => String(x).toLowerCase());
 
-      const dest =
-        (f['Destinatario_Nome'] as string) ||
-        (f['Destinatario'] as string) ||
-        (f['Ragione sociale Destinatario'] as string) ||
-        '';
-      const mitt =
-        (f['Mittente_Nome'] as string) ||
-        (f['Mittente'] as string) ||
-        (f['Ragione sociale Mittente'] as string) ||
-        '';
-      const city =
-        (f['Destinatario_Citta'] as string) ||
-        (f['Destinatario Citta'] as string) ||
-        (f['Città Destinatario'] as string) ||
-        '';
-      const country =
-        (f['Destinatario_Paese'] as string) ||
-        (f['Destinatario Paese'] as string) ||
-        '';
-      const loc = `${city} ${country}`.toLowerCase();
-
-      const haystack = [
-        displayId,
-        dest.toLowerCase(),
-        mitt.toLowerCase(),
-        loc,
-      ];
-
-      return haystack.some(
-        (v) => v && v.length > 0 && v.includes(term)
-      );
+      return parts.some(p => p.includes(term));
     });
-  }, [rows, query]);
+  }, [rows, search]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold text-slate-800">Quotazioni</h1>
         <Link
           href="/dashboard/quotazioni/nuova"
@@ -131,115 +96,86 @@ export default function QuotazioniListPage() {
         </Link>
       </div>
 
-      {/* Search */}
-      <div>
+      <div className="max-w-md">
         <input
           type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
           placeholder="Cerca per destinatario, città, paese, ID…"
           className="w-full rounded-xl border px-3 py-2 text-sm"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
         />
       </div>
 
-      {/* Stato caricamento / errore */}
-      {loading && (
-        <div className="text-sm text-slate-500">Caricamento in corso…</div>
-      )}
-      {error && !loading && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+      {error && (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
           {error}
         </div>
       )}
-      {!loading && !error && filtered.length === 0 && (
+
+      {loading && (
+        <div className="text-sm text-slate-500">Caricamento quotazioni…</div>
+      )}
+
+      {!loading && !filtered.length && (
         <div className="text-sm text-slate-500">
           Nessuna quotazione trovata.
         </div>
       )}
 
-      {/* Lista card */}
       <div className="space-y-3">
-        {filtered.map((row) => {
-          const f = (row as any).fields || (row as any) || {};
+        {filtered.map(row => {
+          const f = row.fields || {};
+          const destNome =
+            (f.destinatario_ragioneSociale as string) || '—';
+          const destCitta = (f.destinatario_citta as string) || '—';
+          const destPaese = (f.destinatario_paese as string) || '';
+          const mittenteNome =
+            (f.mittente_ragioneSociale as string) || '—';
 
-          const id = (row.id || f.id || f.ID)?.toString();
-          const displayId =
-            (row.displayId as string) ||
-            (f['ID preventivo'] as string) ||
-            id ||
-            '';
-
-          const stato =
-            (row as any).stato ||
-            (row as any).status ||
-            (f['Stato'] as string) ||
-            (f['Status'] as string) ||
-            'In lavorazione';
-
-          const dest =
-            (f['Destinatario_Nome'] as string) ||
-            (f['Destinatario'] as string) ||
-            (f['Ragione sociale Destinatario'] as string) ||
-            '—';
-
-          const city =
-            (f['Destinatario_Citta'] as string) ||
-            (f['Destinatario Citta'] as string) ||
-            (f['Città Destinatario'] as string) ||
-            '';
-          const country =
-            (f['Destinatario_Paese'] as string) ||
-            (f['Destinatario Paese'] as string) ||
-            '';
-          const loc = [city, country].filter(Boolean).join(', ');
-
-          const mitt =
-            (f['Mittente_Nome'] as string) ||
-            (f['Mittente'] as string) ||
-            (f['Ragione sociale Mittente'] as string) ||
-            '';
+          const status = row.status || (f.status as string) || 'In lavorazione';
+          const displayId = row.displayId || (f.displayId as string) || row.id;
 
           return (
             <div
-              key={id || displayId}
-              className="rounded-2xl border bg-white p-4"
+              key={row.id}
+              className="flex flex-col gap-3 rounded-2xl border bg-white p-4 text-sm md:flex-row md:items-center md:justify-between"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">{dest}</div>
-                  <div className="text-xs text-slate-500">
-                    {loc || '—'}
-                  </div>
-                  {mitt && (
-                    <div className="mt-1 text-xs text-slate-500">
-                      Mittente:{' '}
-                      <span className="font-medium text-slate-700">
-                        {mitt}
-                      </span>
-                    </div>
-                  )}
+              <div>
+                <div className="font-semibold">
+                  {destNome}{' '}
+                  {destPaese
+                    ? `• ${destCitta || '—'}, ${destPaese}`
+                    : destCitta
+                    ? `• ${destCitta}`
+                    : ''}
                 </div>
-
-                <div className="flex flex-col items-end gap-1 text-right">
-                  <div className="text-xs uppercase text-slate-500">
-                    ID preventivo
-                  </div>
-                  <div className="text-sm font-medium">
-                    {displayId || '—'}
-                  </div>
-                  <StatusBadge value={stato} />
+                <div className="mt-1 text-xs text-slate-500">
+                  Mittente: {mittenteNome}
+                </div>
+                <div className="mt-1 text-xs text-slate-400">
+                  Creata il {formatDate(row.created_at)}
                 </div>
               </div>
 
-              <div className="mt-3 flex justify-end">
-                <Link
-                  href={`/dashboard/quotazioni/${encodeURIComponent(
-                    displayId || id || ''
-                  )}`}
-                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50"
-                >
-                  Dettagli
-                </Link>
+              <div className="flex flex-col items-start gap-2 md:items-end">
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                    {status || 'In lavorazione'}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400">
+                  ID: <span className="font-mono">{displayId}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/dashboard/quotazioni/${encodeURIComponent(
+                      row.id
+                    )}`}
+                    className="rounded-lg border bg-white px-3 py-1.5 text-xs hover:bg-slate-50"
+                  >
+                    Dettagli
+                  </Link>
+                </div>
               </div>
             </div>
           );
