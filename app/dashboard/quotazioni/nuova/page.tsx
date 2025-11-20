@@ -26,7 +26,7 @@ export default function NuovaQuotazionePage() {
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
 
-  // email (dal profilo / impostazioni)
+  // email (per ora stub, stessa delle impostazioni)
   const [email, setEmail] = useState<string>('');
 
   // Parti
@@ -57,30 +57,38 @@ export default function NuovaQuotazionePage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [ok, setOk] = useState<{ id: string; displayId?: string } | null>(null);
 
-  // Prefill mittente dai dati di /api/impostazioni (niente più Firebase)
+  // Prefill mittente dai dati di /api/impostazioni (stessa email di impostazioni)
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const res = await fetch('/api/impostazioni', {
-          method: 'GET',
-          cache: 'no-store',
-        });
+        const emailNorm = 'info@spst.it';
+        setEmail(emailNorm);
+
+        const res = await fetch(
+          `/api/impostazioni?email=${encodeURIComponent(emailNorm)}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        );
 
         const body = (await res.json().catch(() => null)) as
           | { ok?: boolean; email?: string; mittente?: any }
           | null;
 
-        console.log('SPST[quotazioni-nuova] GET /api/impostazioni response:', {
-          status: res.status,
-          body,
-        });
+        console.log(
+          'SPST[quotazioni-nuova] GET /api/impostazioni response:',
+          {
+            status: res.status,
+            body,
+          }
+        );
 
         if (!res.ok || !body?.ok || cancelled) return;
 
-        if (body.email) setEmail(body.email);
-
+        // aggiorno mittente con i dati salvati nelle impostazioni
         if (body.mittente) {
           const m = body.mittente;
           setMittente(prev => ({
@@ -95,8 +103,11 @@ export default function NuovaQuotazionePage() {
           }));
         }
       } catch (e) {
-        console.error('SPST[quotazioni-nuova] errore prefill impostazioni', e);
-        // se fallisce, l’utente compila a mano
+        console.error(
+          'SPST[quotazioni-nuova] errore prefill impostazioni',
+          e
+        );
+        // se fallisce, l’utente compila a mano il mittente
       }
     })();
 
@@ -175,7 +186,7 @@ export default function NuovaQuotazionePage() {
         tipoSped, // 'B2B' | 'B2C' | 'Sample'
         incoterm, // 'DAP' | 'DDP' | 'EXW'
         createdByEmail: email || undefined,
-        // customerEmail lo potrai aggiungere in futuro se inserirai un campo email cliente
+        // customerEmail lo potremo gestire in futuro se aggiungi un campo email cliente
       });
 
       setOk({ id: res?.id, displayId: res?.displayId });
@@ -217,7 +228,7 @@ export default function NuovaQuotazionePage() {
     );
   }
 
-  // FORM (layout “di prima” + titoli blu)
+  // FORM
   return (
     <div ref={topRef} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -234,7 +245,7 @@ export default function NuovaQuotazionePage() {
 
       {!!errors.length && (
         <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
-          <div className="font-medium mb-1">Controlla questi campi:</div>
+          <div className="mb-1 font-medium">Controlla questi campi:</div>
           <ul className="ml-5 list-disc space-y-1">
             {errors.map((e, i) => (
               <li key={i}>{e}</li>
@@ -265,7 +276,14 @@ export default function NuovaQuotazionePage() {
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
             Colli
           </h2>
-          <ColliCard value={colli} onChange={setColli} formato={formato} />
+          <ColliCard
+            colli={colli}
+            onChange={setColli}
+            formato={formato}
+            setFormato={setFormato}
+            contenuto={contenuto}
+            setContenuto={setContenuto}
+          />
         </div>
         <div className="rounded-2xl border bg-white p-4">
           <h2 className="mb-3 text-base font-semibold text-spst-blue">
