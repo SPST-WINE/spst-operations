@@ -11,6 +11,63 @@ import PackingListVino, { RigaPL } from "@/components/nuova/PackingListVino";
 import { Select } from "@/components/nuova/Field";
 import { createClient } from "@supabase/supabase-js";
 
+// --------------------
+// UPLOAD DOCUMENTI
+// --------------------
+async function uploadShipmentDocument(
+  shipmentId: string,
+  file: File,
+  docType:
+    | "ldv"
+    | "fattura_commerciale"
+    | "fattura_proforma"
+    | "dle"
+    | "packing_list"
+    | "allegato1"
+    | "allegato2"
+    | "allegato3"
+    | "allegato4"
+) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
+  const path = `${shipmentId}/${docType}/${file.name}`;
+
+  // upload su bucket
+  const { error: uploadErr } = await supabase.storage
+    .from("shipment-docs")
+    .upload(path, file, { upsert: true });
+
+  if (uploadErr) {
+    console.error("[uploadShipmentDocument] upload error:", uploadErr);
+    throw new Error("Errore upload file");
+  }
+
+  // public URL
+  const { data: urlData } = supabase.storage
+    .from("shipment-docs")
+    .getPublicUrl(path);
+
+  const url = urlData?.publicUrl || null;
+
+  // inserimento nel DB
+  const { error: dbErr } = await supabase.from("shipment_documents").insert({
+    shipment_id: shipmentId,
+    doc_type: docType,
+    storage_path: path,
+    file_url: url,
+  });
+
+  if (dbErr) {
+    console.error("[uploadShipmentDocument] db insert error:", dbErr);
+    throw new Error("Errore salvataggio documento");
+  }
+
+  return { url, path };
+}
+
 // ------------------------------------------------------------
 // Types & helpers
 // ------------------------------------------------------------
@@ -222,10 +279,11 @@ async function createShipmentWithAuth(payload: any) {
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body?.ok) {
-    const details = body?.details || body?.error || `${res.status} ${res.statusText}`;
+    const details =
+      body?.details || body?.error || `${res.status} ${res.statusText}`;
     throw new Error(details);
   }
-  return body.shipment; // { id, ... }
+  return body.shipment; // { id, human_id, ... }
 }
 
 // ------------------------------------------------------------
@@ -240,60 +298,59 @@ export default function NuovaVinoPage() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-// Prefill mittente da /api/impostazioni (Supabase friendly)
-useEffect(() => {
-  let cancelled = false;
+  // Prefill mittente da /api/impostazioni (Supabase friendly)
+  useEffect(() => {
+    let cancelled = false;
 
-  (async () => {
-    try {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+    (async () => {
+      try {
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-      const email = user?.email || "info@spst.it";
-      if (!email) return;
+        const email = user?.email || "info@spst.it";
+        if (!email) return;
 
-      const res = await fetch(
-        `/api/impostazioni?email=${encodeURIComponent(email)}`,
-        {
-          headers: { "x-spst-email": email },
-          cache: "no-store",
-        }
-      );
+        const res = await fetch(
+          `/api/impostazioni?email=${encodeURIComponent(email)}`,
+          {
+            headers: { "x-spst-email": email },
+            cache: "no-store",
+          }
+        );
 
-      const json = await res.json().catch(() => null);
+        const json = await res.json().catch(() => null);
 
-      console.log("SPST[nuova-vino] impostazioni:", json);
+        console.log("SPST[nuova-vino] impostazioni:", json);
 
-      if (!json?.ok || !json?.mittente || cancelled) return;
+        if (!json?.ok || !json?.mittente || cancelled) return;
 
-      const m = json.mittente;
+        const m = json.mittente;
 
-      setMittente((prev) => ({
-        ...prev,
-        ragioneSociale: m.mittente || prev.ragioneSociale || "",
-        indirizzo: m.indirizzo || prev.indirizzo || "",
-        cap: m.cap || prev.cap || "",
-        citta: m.citta || prev.citta || "",
-        paese: m.paese || prev.paese || "",
-        telefono: m.telefono || prev.telefono || "",
-        piva: m.piva || prev.piva || "",
-      }));
-    } catch (e) {
-      console.error("[nuova/vino] errore prefill mittente", e);
-    }
-  })();
+        setMittente((prev) => ({
+          ...prev,
+          ragioneSociale: m.mittente || prev.ragioneSociale || "",
+          indirizzo: m.indirizzo || prev.indirizzo || "",
+          cap: m.cap || prev.cap || "",
+          citta: m.citta || prev.citta || "",
+          paese: m.paese || prev.paese || "",
+          telefono: m.telefono || prev.telefono || "",
+          piva: m.piva || prev.piva || "",
+        }));
+      } catch (e) {
+        console.error("[nuova/vino] errore prefill mittente", e);
+      }
+    })();
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
-
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
@@ -477,9 +534,32 @@ useEffect(() => {
         packingList: pl,
       };
 
-      // chiamata API con Supabase Auth (email + bearer)
+      // 1) Crea spedizione (Supabase Auth)
       const created = await createShipmentWithAuth(payload);
 
+      // 2) Upload documenti (fattura + packing list) su bucket + tabella shipment_documents
+      try {
+        // FATTURA: la consideriamo come PROFORMA di default
+        if (fatturaFile) {
+          await uploadShipmentDocument(
+            created.id,
+            fatturaFile,
+            "fattura_proforma"
+          );
+        }
+
+        // PACKING LIST (eventuali file caricati dal componente)
+        for (const file of plFiles) {
+          await uploadShipmentDocument(created.id, file, "packing_list");
+        }
+      } catch (err) {
+        console.error("Errore upload documenti:", err);
+        setErrors([
+          "Spedizione creata, ma si è verificato un errore durante il caricamento dei documenti.",
+        ]);
+      }
+
+      // 3) Success UI
       const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
       setSuccess({
         recId: id,
