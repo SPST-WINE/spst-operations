@@ -36,9 +36,11 @@ async function uploadShipmentDocument(
     | "allegato3"
     | "allegato4"
 ) {
-  const path = `${shipmentId}/${docType}/${file.name}`;
+  // Sanitize filename
+  const safeName = file.name.replace(/\s+/g, "_");
+  const path = `${shipmentId}/${docType}/${safeName}`;
 
-  // upload su bucket
+  // 1) UPLOAD
   const { error: uploadErr } = await supabase.storage
     .from("shipment-docs")
     .upload(path, file, { upsert: true });
@@ -48,19 +50,23 @@ async function uploadShipmentDocument(
     throw new Error("Errore upload file");
   }
 
-  // public URL
+  // 2) PUBLIC URL
   const { data: urlData } = supabase.storage
     .from("shipment-docs")
     .getPublicUrl(path);
 
-  const url = urlData?.publicUrl || null;
+  const publicUrl = urlData?.publicUrl ?? null;
 
-  // inserimento nel DB
+  // 3) INSERT NEL DB (colonne REALI!)
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
     shipment_id: shipmentId,
     doc_type: docType,
     storage_path: path,
-    file_url: url,
+    file_name: file.name,
+    mime_type: file.type,
+    file_size: file.size,
+    storage_bucket: "shipment-docs",
+    url: publicUrl, // <--- NOTA: questa è la colonna corretta
   });
 
   if (dbErr) {
@@ -68,8 +74,9 @@ async function uploadShipmentDocument(
     throw new Error("Errore salvataggio documento");
   }
 
-  return { url, path };
+  return { url: publicUrl, path };
 }
+
 
 // ------------------------------------------------------------
 // Types & helpers
