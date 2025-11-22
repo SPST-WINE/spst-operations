@@ -150,7 +150,6 @@ function parseAddressFromDetails(d: any) {
   const streetNr = get("street_number");
   const premise = get("premise");
 
-  // ✅ nome paese esteso (in italiano)
   const countryName =
     country?.longText ||
     country?.long_name ||
@@ -225,6 +224,57 @@ async function createShipmentWithAuth(payload: any) {
     throw new Error(details);
   }
   return body.shipment; // { id, human_id, ... }
+}
+
+// ------------------------------------------------------------
+// Upload fattura commerciale su Supabase Storage + insert shipment_documents
+// ------------------------------------------------------------
+async function uploadFatturaCommerciale(
+  shipmentId: string,
+  file: File
+): Promise<void> {
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+
+    const safeName = file.name.replace(/\s+/g, "-");
+    const path = `shipments/${shipmentId}/fattura_commerciale/${Date.now()}-${safeName}`;
+
+    // 1) Upload su bucket shipment-docs
+    const { error: storageError } = await supabase.storage
+      .from("shipment-docs")
+      .upload(path, file, {
+        cacheControl: "3600",
+        upsert: true,
+      });
+
+    if (storageError) {
+      console.error("[shipment-docs] upload fattura_commerciale error:", storageError);
+      return; // non blocchiamo il flow principale
+    }
+
+    // 2) Insert su tabella shipment_documents
+    const { error: insertError } = await supabase.from("shipment_documents").insert({
+      shipment_id: shipmentId,
+      doc_type: "fattura_commerciale",
+      file_name: file.name,
+      storage_path: path,
+    });
+
+    if (insertError) {
+      console.error("[shipment_documents] insert fattura_commerciale error:", insertError);
+      return;
+    }
+
+    console.log(
+      "[shipment-docs] Fattura commerciale caricata e registrata per spedizione",
+      shipmentId
+    );
+  } catch (e) {
+    console.error("[shipment-docs] errore upload fattura_commerciale", e);
+  }
 }
 
 // ------------------------------------------------------------
@@ -325,7 +375,7 @@ export default function NuovaAltroPage() {
     }
   }, [errors.length]);
 
-  // Validazione client (uguale alla vecchia pagina "altro")
+  // Validazione client
   function validate(): string[] {
     const errs: string[] = [];
 
@@ -397,7 +447,17 @@ export default function NuovaAltroPage() {
         colli,
       };
 
+      // 1) Crea spedizione
       const created = await createShipmentWithAuth(payload);
+      const shipmentId: string =
+        created?.id || created?.recId || created?.human_id;
+
+      // 2) Upload fattura commerciale su shipment-docs + insert shipment_documents
+      if (shipmentId && fatturaFile) {
+        await uploadFatturaCommerciale(shipmentId, fatturaFile);
+      }
+
+      // 3) ID "umano" per conferma
       const id =
         created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
 
