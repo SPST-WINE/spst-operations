@@ -19,68 +19,20 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// --------------------
-// UPLOAD DOCUMENTI
-// --------------------
-async function uploadShipmentDocument(
-  shipmentId: string,
-  file: File,
-  docType:
-    | "ldv"
-    | "fattura_commerciale"
-    | "fattura_proforma"
-    | "dle"
-    | "packing_list"
-    | "allegato1"
-    | "allegato2"
-    | "allegato3"
-    | "allegato4"
-) {
-  // Sanitize filename
-  const safeName = file.name.replace(/\s+/g, "_");
-  const path = `${shipmentId}/${docType}/${safeName}`;
-
-  // 1) UPLOAD
-  const { error: uploadErr } = await supabase.storage
-    .from("shipment-docs")
-    .upload(path, file, { upsert: true });
-
-  if (uploadErr) {
-    console.error("[uploadShipmentDocument] upload error:", uploadErr);
-    throw new Error("Errore upload file");
-  }
-
-  // 2) PUBLIC URL
-  const { data: urlData } = supabase.storage
-    .from("shipment-docs")
-    .getPublicUrl(path);
-
-  const publicUrl = urlData?.publicUrl ?? null;
-
-  // 3) INSERT NEL DB (colonne REALI!)
-  const { error: dbErr } = await supabase.from("shipment_documents").insert({
-    shipment_id: shipmentId,
-    doc_type: docType,
-    storage_path: path,
-    file_name: file.name,
-    mime_type: file.type,
-    file_size: file.size,
-    storage_bucket: "shipment-docs",
-    url: publicUrl, // <--- NOTA: questa è la colonna corretta
-  });
-
-  if (dbErr) {
-    console.error("[uploadShipmentDocument] db insert error:", dbErr);
-    throw new Error("Errore salvataggio documento");
-  }
-
-  return { url: publicUrl, path };
-}
-
-
 // ------------------------------------------------------------
-// Types & helpers
+// Types
 // ------------------------------------------------------------
+type DocType =
+  | "ldv"
+  | "fattura_commerciale"
+  | "fattura_proforma"
+  | "dle"
+  | "packing_list"
+  | "allegato1"
+  | "allegato2"
+  | "allegato3"
+  | "allegato4";
+
 type SuccessInfo = {
   recId: string;
   idSped: string;
@@ -94,6 +46,9 @@ type SuccessInfo = {
 
 type Suggestion = { id: string; main: string; secondary?: string };
 
+// ------------------------------------------------------------
+// Costanti
+// ------------------------------------------------------------
 const GMAPS_LANG = process.env.NEXT_PUBLIC_GOOGLE_MAPS_LANGUAGE || "it";
 const GMAPS_REGION = process.env.NEXT_PUBLIC_GOOGLE_MAPS_REGION || "IT";
 
@@ -261,7 +216,7 @@ function newSessionToken() {
 }
 
 // ------------------------------------------------------------
-// Small API helper (local) - usa Supabase Auth
+// API helper (usa Supabase Auth per creare la spedizione)
 // ------------------------------------------------------------
 async function createShipmentWithAuth(payload: any) {
   const [{ data: { user } }, { data: { session } }] = await Promise.all([
@@ -289,6 +244,62 @@ async function createShipmentWithAuth(payload: any) {
     throw new Error(details);
   }
   return body.shipment; // { id, human_id, ... }
+}
+
+// ------------------------------------------------------------
+// UPLOAD DOCUMENTI → storage + public.shipment_documents
+// ------------------------------------------------------------
+async function uploadShipmentDocument(
+  shipmentId: string,
+  file: File,
+  docType: DocType
+) {
+  // Sanitize filename (no spazi)
+  const safeName = file.name.replace(/\s+/g, "_");
+  const path = `${shipmentId}/${docType}/${safeName}`;
+
+  // 1) Upload su bucket "shipment-docs"
+  const { error: uploadErr } = await supabase.storage
+    .from("shipment-docs")
+    .upload(path, file, { upsert: true });
+
+  if (uploadErr) {
+    console.error("[uploadShipmentDocument] upload error:", uploadErr);
+    throw new Error("Errore upload file");
+  }
+
+  // 2) Public URL
+  const { data: urlData } = supabase.storage
+    .from("shipment-docs")
+    .getPublicUrl(path);
+
+  const publicUrl = urlData?.publicUrl ?? null;
+
+  // 3) User per uploaded_by
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const uploadedBy = user?.id ?? null;
+
+  // 4) Insert nel DB (VIEW public.shipment_documents → tabella spst.shipment_documents)
+  const { error: dbErr } = await supabase.from("shipment_documents").insert({
+    shipment_id: shipmentId,
+    doc_type: docType,
+    storage_path: path,
+    file_name: file.name,
+    mime_type: file.type,
+    file_size: file.size,
+    storage_bucket: "shipment-docs",
+    url: publicUrl,
+    uploaded_by: uploadedBy,
+  });
+
+  if (dbErr) {
+    console.error("[uploadShipmentDocument] db insert error:", dbErr);
+    throw new Error("Errore salvataggio documento");
+  }
+
+  return { url: publicUrl, path };
 }
 
 // ------------------------------------------------------------
@@ -465,7 +476,10 @@ export default function NuovaVinoPage() {
       );
     if (!isPhoneValid(destinatario.telefono))
       errs.push("Telefono destinatario obbligatorio in formato internazionale.");
-    if ((tipoSped === "B2B" || tipoSped === "Sample") && !destinatario.piva?.trim()) {
+    if (
+      (tipoSped === "B2B" || tipoSped === "Sample") &&
+      !destinatario.piva?.trim()
+    ) {
       errs.push(DEST_PIVA_MSG);
     }
     if (!mittente.piva?.trim())
