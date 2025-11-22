@@ -14,45 +14,60 @@ import { createClient } from "@supabase/supabase-js";
 // --------------------
 // UPLOAD DOCUMENTI
 // --------------------
+const STORAGE_BUCKET = "shipment-docs";
+
+type ShipmentDocType =
+  | "ldv"
+  | "fattura_commerciale"
+  | "fattura_proforma"
+  | "dle"
+  | "packing_list"
+  | "allegato1"
+  | "allegato2"
+  | "allegato3"
+  | "allegato4";
+
+// Sanitize di ogni segmento del path (id, tipo doc, nome file)
+function sanitizeStorageSegment(str: string) {
+  return (str || "")
+    .normalize("NFKD") // rimuove accenti / caratteri strani
+    .replace(/[^\w.\-]+/g, "_") // tiene solo lettere/numeri/_/./-
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 async function uploadShipmentDocument(
   shipmentId: string,
   file: File,
-  docType:
-    | "ldv"
-    | "fattura_commerciale"
-    | "fattura_proforma"
-    | "dle"
-    | "packing_list"
-    | "allegato1"
-    | "allegato2"
-    | "allegato3"
-    | "allegato4"
+  docType: ShipmentDocType
 ) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  const path = `${shipmentId}/${docType}/${file.name}`;
+  const safeShipmentId = sanitizeStorageSegment(shipmentId);
+  const safeDocType = sanitizeStorageSegment(docType);
+  const safeFileName = sanitizeStorageSegment(file.name || "documento.pdf");
 
-  // upload su bucket
+  // timestamp per evitare collisioni
+  const path = `${safeShipmentId}/${safeDocType}/${Date.now()}_${safeFileName}`;
+
   const { error: uploadErr } = await supabase.storage
-    .from("shipment-docs")
-    .upload(path, file, { upsert: true });
+    .from(STORAGE_BUCKET)
+    .upload(path, file, { upsert: true, cacheControl: "3600" });
 
   if (uploadErr) {
     console.error("[uploadShipmentDocument] upload error:", uploadErr);
     throw new Error("Errore upload file");
   }
 
-  // public URL
   const { data: urlData } = supabase.storage
-    .from("shipment-docs")
+    .from(STORAGE_BUCKET)
     .getPublicUrl(path);
 
   const url = urlData?.publicUrl || null;
 
-  // inserimento nel DB
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
     shipment_id: shipmentId,
     doc_type: docType,
