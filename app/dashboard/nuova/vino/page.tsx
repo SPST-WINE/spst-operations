@@ -11,63 +11,51 @@ import PackingListVino, { RigaPL } from "@/components/nuova/PackingListVino";
 import { Select } from "@/components/nuova/Field";
 import { createClient } from "@supabase/supabase-js";
 
+// ------------------------------------------------------------
+// Supabase client (riusiamo sempre lo stesso)
+// ------------------------------------------------------------
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 // --------------------
 // UPLOAD DOCUMENTI
 // --------------------
-const STORAGE_BUCKET = "shipment-docs";
-
-type ShipmentDocType =
-  | "ldv"
-  | "fattura_commerciale"
-  | "fattura_proforma"
-  | "dle"
-  | "packing_list"
-  | "allegato1"
-  | "allegato2"
-  | "allegato3"
-  | "allegato4";
-
-// Sanitize di ogni segmento del path (id, tipo doc, nome file)
-function sanitizeStorageSegment(str: string) {
-  return (str || "")
-    .normalize("NFKD") // rimuove accenti / caratteri strani
-    .replace(/[^\w.\-]+/g, "_") // tiene solo lettere/numeri/_/./-
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
 async function uploadShipmentDocument(
   shipmentId: string,
   file: File,
-  docType: ShipmentDocType
+  docType:
+    | "ldv"
+    | "fattura_commerciale"
+    | "fattura_proforma"
+    | "dle"
+    | "packing_list"
+    | "allegato1"
+    | "allegato2"
+    | "allegato3"
+    | "allegato4"
 ) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const path = `${shipmentId}/${docType}/${file.name}`;
 
-  const safeShipmentId = sanitizeStorageSegment(shipmentId);
-  const safeDocType = sanitizeStorageSegment(docType);
-  const safeFileName = sanitizeStorageSegment(file.name || "documento.pdf");
-
-  // timestamp per evitare collisioni
-  const path = `${safeShipmentId}/${safeDocType}/${Date.now()}_${safeFileName}`;
-
+  // upload su bucket
   const { error: uploadErr } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(path, file, { upsert: true, cacheControl: "3600" });
+    .from("shipment-docs")
+    .upload(path, file, { upsert: true });
 
   if (uploadErr) {
     console.error("[uploadShipmentDocument] upload error:", uploadErr);
     throw new Error("Errore upload file");
   }
 
+  // public URL
   const { data: urlData } = supabase.storage
-    .from(STORAGE_BUCKET)
+    .from("shipment-docs")
     .getPublicUrl(path);
 
   const url = urlData?.publicUrl || null;
 
+  // inserimento nel DB
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
     shipment_id: shipmentId,
     doc_type: docType,
@@ -269,11 +257,6 @@ function newSessionToken() {
 // Small API helper (local) - usa Supabase Auth
 // ------------------------------------------------------------
 async function createShipmentWithAuth(payload: any) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
   const [{ data: { user } }, { data: { session } }] = await Promise.all([
     supabase.auth.getUser(),
     supabase.auth.getSession(),
@@ -319,11 +302,6 @@ export default function NuovaVinoPage() {
 
     (async () => {
       try {
-        const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        );
-
         const {
           data: { user },
         } = await supabase.auth.getUser();
@@ -552,9 +530,8 @@ export default function NuovaVinoPage() {
       // 1) Crea spedizione (Supabase Auth)
       const created = await createShipmentWithAuth(payload);
 
-      // 2) Upload documenti (fattura + packing list) su bucket + tabella shipment_documents
+      // 2) Upload documenti (fattura + eventuali PL) su bucket + tabella shipment_documents
       try {
-        // FATTURA: la consideriamo come PROFORMA di default
         if (fatturaFile) {
           await uploadShipmentDocument(
             created.id,
@@ -563,7 +540,6 @@ export default function NuovaVinoPage() {
           );
         }
 
-        // PACKING LIST (eventuali file caricati dal componente)
         for (const file of plFiles) {
           await uploadShipmentDocument(created.id, file, "packing_list");
         }
@@ -924,7 +900,7 @@ export default function NuovaVinoPage() {
 
       {!!errors.length && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          <div className="font-medium mb-1">Controlla questi campi:</div>
+          <div className="font-medium mb-1">Controlla questi errori:</div>
           <ul className="list-disc ml-5 space-y-1">
             {errors.map((e, i) => (
               <li key={i}>{e}</li>
