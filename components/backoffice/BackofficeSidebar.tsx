@@ -4,7 +4,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Package, FileText } from "lucide-react";
+import {
+  Home,
+  Package,
+  FileText,
+  FileCheck,
+  Wrench,
+  Truck,
+} from "lucide-react";
 
 type NavItem = {
   href: string;
@@ -30,6 +37,21 @@ const navItems: NavItem[] = [
     label: "Quotazioni",
     icon: FileText,
   },
+  {
+    href: "/back-office/edas",
+    label: "e-DAS",
+    icon: FileCheck,
+  },
+  {
+    href: "/back-office/utility-documenti",
+    label: "Utility documenti",
+    icon: Wrench,
+  },
+  {
+    href: "/back-office/pallet",
+    label: "SPST Pallet",
+    icon: Truck,
+  },
 ];
 
 function cn(...a: Array<string | false | null | undefined>) {
@@ -49,11 +71,12 @@ export default function BackofficeSidebar() {
   return (
     <aside className="border-r bg-white">
       <div className="flex h-16 items-center gap-3 border-b px-4">
-        <div className="relative h-8 w-8 overflow-hidden rounded-lg bg-slate-100">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100">
           <Image
             src="/spst-logo.png"
             alt="SPST"
-            fill
+            width={22}
+            height={22}
             className="object-contain"
           />
         </div>
