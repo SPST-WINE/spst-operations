@@ -39,7 +39,6 @@ export default function LoginPage() {
       }
 
       setStatus("success");
-      // dopo login vai in dashboard → spedizioni
       router.push("/dashboard/spedizioni");
     } catch (err: any) {
       setStatus("error");
@@ -56,7 +55,7 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-6">
           <div className="mb-3">
             <Image
-              src="/logo/png-spst-logo.png"
+              src="/spst-logo.png"
               alt="SPST"
               width={64}
               height={64}
@@ -126,7 +125,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Forgot password */}
         <div className="mt-4 flex items-center justify-between text-xs">
           <a
             href="/reset-password"
