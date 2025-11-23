@@ -3,6 +3,10 @@ import type { ReactNode } from "react";
 import BackofficeSidebar from "@/components/backoffice/BackofficeSidebar";
 import BackofficeTopbar from "@/components/backoffice/BackofficeTopbar";
 
+export const metadata = {
+  title: "SPST Back Office",
+};
+
 export default function BackofficeLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen grid grid-cols-[260px_1fr]">
