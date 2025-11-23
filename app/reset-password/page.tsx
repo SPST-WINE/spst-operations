@@ -58,7 +58,7 @@ export default function ResetPasswordPage() {
         <div className="flex flex-col items-center mb-6">
           <div className="mb-3">
             <Image
-              src="/logo/png-spst-logo.png"
+              src="/spst-logo.png"
               alt="SPST"
               width={48}
               height={48}
