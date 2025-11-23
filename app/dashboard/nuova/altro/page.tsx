@@ -216,7 +216,7 @@ async function uploadShipmentDocument(
   );
 
   const safeName = file.name.replace(/\s+/g, "-");
-  const path = `shipments/${shipmentId}/${docType}/${Date.now()}-${safeName}`;
+  const path = `${shipmentId}/${docType}/${Date.now()}-${safeName}`;
 
   // Upload
   const { error: uploadErr } = await supabase.storage
@@ -226,11 +226,12 @@ async function uploadShipmentDocument(
   if (uploadErr) throw new Error("Errore upload file");
 
   // Public URL
-  const { data: urlData } = supabase.storage
+  const { data: urlData } = await supabase.storage
     .from("shipment-docs")
     .getPublicUrl(path);
 
   const url = urlData?.publicUrl || null;
+
 
   // Insert DB
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
