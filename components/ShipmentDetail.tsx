@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 
 type Pkg = {
-  id: string;
+  id?: string;
   l1: number | null;
   l2: number | null;
   l3: number | null;
@@ -52,9 +52,9 @@ type ShipRow = {
   formato_sped?: string | null;
   contenuto_generale?: string | null;
 
-  // anteprima colli (server)
+  // colli lato server
+  packages?: Pkg[];
   packages_count?: number;
-  packages_preview?: Pkg[];
 
   // blob originale
   fields?: any;
@@ -72,19 +72,40 @@ type DocAttachment = {
 };
 
 function L({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-medium text-slate-500">{children}</div>;
+  return (
+    <div className="text-[11px] font-medium text-slate-500">
+      {children}
+    </div>
+  );
 }
 function V({ children }: { children: React.ReactNode }) {
-  return <div className="text-[13px] text-slate-800">{children ?? "—"}</div>;
+  return (
+    <div className="text-[13px] text-slate-800">
+      {children ?? "—"}
+    </div>
+  );
 }
 
 export default function ShipmentDetail({ f }: { f: ShipRow }) {
-  const mittAddr = [f.mittente_indirizzo, f.mittente_cap, f.mittente_citta, f.mittente_paese]
+  const mittAddr = [
+    f.mittente_indirizzo,
+    f.mittente_cap,
+    f.mittente_citta,
+    f.mittente_paese,
+  ]
     .filter(Boolean)
     .join(", ");
-  const destAddr = [f.dest_cap, f.dest_citta, f.dest_paese].filter(Boolean).join(", ");
 
-  const colli = Array.isArray(f.packages_preview) ? f.packages_preview : [];
+  const destAddr = [f.dest_cap, f.dest_citta, f.dest_paese]
+    .filter(Boolean)
+    .join(", ");
+
+  const rawPackages: any = (f as any).packages;
+  const colli: Pkg[] = Array.isArray(rawPackages)
+    ? rawPackages
+    : Array.isArray((f as any).packages_preview)
+    ? (f as any).packages_preview
+    : [];
 
   const [attachments, setAttachments] = useState<DocAttachment[]>([]);
   const [attLoading, setAttLoading] = useState(false);
@@ -103,6 +124,7 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
             cache: "no-store",
           }
         );
+
         const json = await res.json().catch(() => null);
 
         if (cancelled) return;
@@ -186,7 +208,8 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
         </div>
         <div className="mt-2 text-[11px] text-slate-500">
           Uguale a Destinatario: {f?.fields?.fattSameAsDest ? "Sì" : "No"} •
-          {" "}Delega fattura a SPST:
+          {" "}
+          Delega fattura a SPST:
           {f?.fields?.fattDelega ? " Sì" : " No"}
         </div>
       </div>
