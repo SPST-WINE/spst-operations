@@ -9,6 +9,10 @@ function getPageTitle(pathname: string): string {
   if (pathname === "/back-office") return "Riepilogo operativo";
   if (pathname.startsWith("/back-office/spedizioni")) return "Gestione spedizioni";
   if (pathname.startsWith("/back-office/quotazioni")) return "Preventivi & quotazioni";
+  if (pathname.startsWith("/back-office/edas")) return "Gestione e-DAS";
+  if (pathname.startsWith("/back-office/utility-documenti"))
+    return "Utility documenti";
+  if (pathname.startsWith("/back-office/pallet")) return "SPST Pallet";
   return "Back office";
 }
 
@@ -17,7 +21,7 @@ export default function BackofficeTopbar() {
   const title = getPageTitle(pathname);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-white px-6">
+    <header className="flex h-16 items-center justify-between border-b bg-white px-6">
       <div className="flex flex-col">
         <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
           SPST • Back office
