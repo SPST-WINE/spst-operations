@@ -11,6 +11,8 @@ import {
   FileCheck,
   Wrench,
   Truck,
+  PlusCircle,
+  Link2,
 } from "lucide-react";
 
 type NavItem = {
@@ -29,8 +31,13 @@ const navItems: NavItem[] = [
   },
   {
     href: "/back-office/spedizioni",
-    label: "Spedizioni",
+    label: "Spedizioni clienti",
     icon: Package,
+  },
+  {
+    href: "/back-office/nuova-spedizione",
+    label: "Crea spedizione",
+    icon: PlusCircle,
   },
   {
     href: "/back-office/quotazioni",
@@ -51,6 +58,11 @@ const navItems: NavItem[] = [
     href: "/back-office/pallet",
     label: "SPST Pallet",
     icon: Truck,
+  },
+  {
+    href: "/back-office/link-utili",
+    label: "Link utili",
+    icon: Link2,
   },
 ];
 
