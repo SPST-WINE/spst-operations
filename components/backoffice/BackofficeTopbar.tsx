@@ -7,12 +7,16 @@ import { LogOut, LayoutDashboard } from "lucide-react";
 
 function getPageTitle(pathname: string): string {
   if (pathname === "/back-office") return "Riepilogo operativo";
-  if (pathname.startsWith("/back-office/spedizioni")) return "Gestione spedizioni";
-  if (pathname.startsWith("/back-office/quotazioni")) return "Preventivi & quotazioni";
+  if (pathname.startsWith("/back-office/spedizioni")) return "Spedizioni clienti";
+  if (pathname.startsWith("/back-office/nuova-spedizione"))
+    return "Crea spedizione";
+  if (pathname.startsWith("/back-office/quotazioni"))
+    return "Preventivi & quotazioni";
   if (pathname.startsWith("/back-office/edas")) return "Gestione e-DAS";
   if (pathname.startsWith("/back-office/utility-documenti"))
     return "Utility documenti";
   if (pathname.startsWith("/back-office/pallet")) return "SPST Pallet";
+  if (pathname.startsWith("/back-office/link-utili")) return "Link utili";
   return "Back office";
 }
 
