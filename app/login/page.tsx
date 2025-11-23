@@ -1,101 +1,141 @@
+// app/login/page.tsx
 "use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+type Status = "idle" | "loading" | "success" | "error";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("next") || "/dashboard";
 
-  const [email, setEmail] = useState("info@spst.it");
-  const [password, setPassword] = useState("spst2025");
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
+    setStatus("loading");
     setError(null);
 
     try {
-      const { error: signError } = await supabase.auth.signInWithPassword({
-        email,
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
         password,
       });
 
-      if (signError) {
-        // errore direttamente da Supabase (tipo "Invalid login credentials")
-        setError(signError.message);
-        setLoading(false);
+      if (error) {
+        setStatus("error");
+        setError(error.message || "Credenziali non valide.");
         return;
       }
 
-      router.push(redirectTo);
+      setStatus("success");
+      // dopo login vai in dashboard → spedizioni
+      router.push("/dashboard/spedizioni");
     } catch (err: any) {
-      setError(err?.message || "Errore sconosciuto");
-    } finally {
-      setLoading(false);
+      setStatus("error");
+      setError(err?.message || "Errore imprevisto durante il login.");
     }
-  };
+  }
+
+  const isLoading = status === "loading";
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <form
-        onSubmit={handleSubmit}
-        className="w-[420px] rounded-xl bg-white shadow p-8 space-y-4 border border-slate-100"
-      >
-        <div className="flex flex-col items-center gap-2 mb-2">
-          <div className="h-10 w-10 rounded-xl bg-amber-500 flex items-center justify-center text-white text-xl font-bold">
-            S
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-sm border border-slate-200 p-8">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-6">
+          <div className="mb-3">
+            <Image
+              src="/logo/png-spst-logo.png"
+              alt="SPST"
+              width={64}
+              height={64}
+              className="h-16 w-16 object-contain"
+              priority
+            />
           </div>
-          <div className="text-lg font-semibold">Benvenuto in SPST</div>
-          <div className="text-xs text-slate-500">
+          <h1 className="text-xl font-semibold text-slate-900">
+            Benvenuto in SPST
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
             Accedi con le tue credenziali
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium text-slate-700"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#1c3e5e] focus:ring-1 focus:ring-[#1c3e5e]"
+              placeholder="info@spst.it"
+            />
           </div>
-        </div>
 
-        <div className="space-y-2">
-          <label className="block text-xs font-medium text-slate-700">
-            Email
-          </label>
-          <input
-            type="email"
-            className="w-full rounded border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/50"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <label className="block text-xs font-medium text-slate-700">
-            Password
-          </label>
-          <input
-            type="password"
-            className="w-full rounded border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500/50"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-        </div>
-
-        {error && (
-          <div className="text-xs text-red-600">
-            {error}
+          <div className="space-y-2">
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-slate-700"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#1c3e5e] focus:ring-1 focus:ring-[#1c3e5e]"
+              placeholder="••••••••"
+            />
           </div>
-        )}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded bg-slate-900 text-white py-2 text-sm font-semibold hover:bg-slate-800 disabled:opacity-60"
-        >
-          {loading ? "Accesso in corso..." : "Entra"}
-        </button>
-      </form>
+          {error && (
+            <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full rounded-lg bg-[#1c3e5e] text-white text-sm font-medium py-2.5 mt-2 hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isLoading ? "Accesso in corso…" : "Entra"}
+          </button>
+        </form>
+
+        {/* Forgot password */}
+        <div className="mt-4 flex items-center justify-between text-xs">
+          <a
+            href="/reset-password"
+            className="text-[#1c3e5e] hover:underline"
+          >
+            Hai dimenticato la password?
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
