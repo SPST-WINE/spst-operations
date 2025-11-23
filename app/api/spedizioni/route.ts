@@ -1,18 +1,318 @@
+// app/api/spedizioni/route.ts
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { cookies, headers as nextHeaders } from "next/headers";
+
+/* ───────────── Helpers ───────────── */
+type Party = {
+  ragioneSociale?: string;
+  referente?: string;
+  paese?: string;
+  citta?: string;
+  cap?: string;
+  indirizzo?: string;
+  telefono?: string;
+  piva?: string;
+  email?: string;
+};
+
+type Collo = {
+  l1?: number | string | null;
+  l2?: number | string | null;
+  l3?: number | string | null;
+  peso?: number | string | null;
+  contenuto?: string | null;
+  [k: string]: any;
+};
+
+const toNum = (x: any): number | null => {
+  if (x === null || x === undefined) return null;
+  const n = Number(String(x).replace(",", ".").trim());
+  return Number.isFinite(n) ? n : null;
+};
+
+function firstNonEmpty(...vals: (string | undefined | null)[]) {
+  for (const v of vals) if (v && String(v).trim() !== "") return String(v).trim();
+  return "";
+}
+
+function normalizeEmail(x?: string | null) {
+  const v = (x ?? "").trim();
+  return v ? v.toLowerCase() : null;
+}
+
+function toISODate(d?: string | null): string | null {
+  if (!d) return null;
+  const s = d.trim();
+  const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s);
+  if (m1) {
+    const [_, dd, mm, yyyy] = m1;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s);
+  if (m2) return s.substring(0, 10);
+  const t = Date.parse(s);
+  if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10);
+  return null;
+}
+
+function getAccessTokenFromRequest() {
+  const hdrs = nextHeaders();
+  const auth = hdrs.get("authorization") || hdrs.get("Authorization") || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
+
+  const jar = cookies();
+  const sb = jar.get("sb-access-token")?.value;
+  if (sb) return sb;
+
+  const supaCookie = jar.get("supabase-auth-token")?.value;
+  if (supaCookie) {
+    try {
+      const arr = JSON.parse(supaCookie);
+      if (Array.isArray(arr) && arr[0]) return arr[0];
+    } catch {}
+  }
+  return null;
+}
+
+const att = (x: any) => {
+  if (!x) return null;
+  if (typeof x === "string") return { url: x };
+  if (typeof x.url === "string" && x.url.trim()) {
+    const o: any = { url: String(x.url).trim() };
+    if (x.filename) o.filename = String(x.filename);
+    if (x.mime) o.mime = String(x.mime);
+    return o;
+  }
+  return null;
+};
+
+/* ───────────── Next config ───────────── */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/* ───────────── CORS preflight ───────────── */
+export function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
+
+/* ───────────── human_id generator ───────────── */
+function formatHumanId(d: Date, n: number) {
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
+}
+
+async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
+  const now = new Date();
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = now.getUTCFullYear();
+  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
+  const supaAny = supabaseSrv as any;
+  const { count, error } = await supaAny
+    .schema("spst")
+    .from("shipments")
+    .select("human_id", { count: "exact", head: true })
+    .ilike("human_id", `${pattern}%`);
+  if (error) return formatHumanId(now, Date.now() % 100000);
+  return formatHumanId(now, (count ?? 0) + 1);
+}
+
+/* ───────────── GET /api/spedizioni ───────────── */
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const q = (url.searchParams.get("q") || "").trim();
+    const sort = url.searchParams.get("sort") || "created_desc";
+    const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+    const emailParam = url.searchParams.get("email");
+
+    const SUPABASE_URL =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "Missing Supabase env" },
+        { status: 500 }
+      );
+    }
+    const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    }) as any;
+
+    let emailNorm: string | null = normalizeEmail(emailParam);
+    if (!emailNorm) {
+      const token = getAccessTokenFromRequest();
+      if (token) {
+        const { data } = await auth.auth.getUser(token);
+        emailNorm = normalizeEmail(data?.user?.email ?? null);
+      }
+      if (!emailNorm) {
+        const hdrs = nextHeaders();
+        emailNorm = normalizeEmail(
+          hdrs.get("x-user-email") ||
+            hdrs.get("x-client-email") ||
+            hdrs.get("x-auth-email")
+        );
+      }
+    }
+
+    const srvKey =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supa = createClient(SUPABASE_URL, srvKey || SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    }) as any;
+
+    let query = supa
+      .schema("spst")
+      .from("shipments")
+      .select(
+        `
+        id,created_at,human_id,email_norm,
+        tipo_spedizione,incoterm,giorno_ritiro,
+        mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+        dest_paese,dest_citta,dest_cap,
+        colli_n,peso_reale_kg,status,
+        mittente_rs,mittente_telefono,mittente_piva,
+        dest_rs,dest_telefono,dest_piva,
+        fatt_rs,fatt_piva,fatt_valuta,
+        formato_sped,contenuto_generale,dest_abilitato_import,
+        ldv,fattura_proforma,fattura_commerciale,dle,
+        allegato1,allegato2,allegato3,allegato4,
+        packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
+      `,
+        { count: "exact" }
+      );
+
+    if (emailNorm) query = query.eq("email_norm", emailNorm);
+
+    if (q) {
+      query = query.or(
+        [
+          `human_id.ilike.%${q}%`,
+          `dest_citta.ilike.%${q}%`,
+          `dest_paese.ilike.%${q}%`,
+          `mittente_citta.ilike.%${q}%`,
+          `mittente_paese.ilike.%${q}%`,
+        ].join(",")
+      );
+    }
+
+    if (sort === "ritiro_desc")
+      query = query.order("giorno_ritiro", {
+        ascending: false,
+        nullsFirst: true,
+      });
+    else if (sort === "dest_az")
+      query = query
+        .order("dest_citta", { ascending: true, nullsFirst: true })
+        .order("dest_paese", { ascending: true, nullsFirst: true });
+    else if (sort === "status")
+      query = query.order("status", { ascending: true, nullsFirst: true });
+    else
+      query = query.order("created_at", {
+        ascending: false,
+        nullsFirst: true,
+      });
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const { data, error, count } = await query.range(from, to);
+    if (error) throw error;
+
+    const normAtt = (j: any) => (j && typeof j.url === "string" ? j : null);
+
+    const rows = (data || []).map((r: any) => ({
+      id: r.id,
+      created_at: r.created_at,
+      human_id: r.human_id,
+      email_norm: r.email_norm,
+      tipo_spedizione: r.tipo_spedizione,
+      incoterm: r.incoterm,
+      giorno_ritiro: r.giorno_ritiro,
+      mittente_paese: r.mittente_paese,
+      mittente_citta: r.mittente_citta,
+      mittente_cap: r.mittente_cap,
+      mittente_indirizzo: r.mittente_indirizzo,
+      dest_paese: r.dest_paese,
+      dest_citta: r.dest_citta,
+      dest_cap: r.dest_cap,
+      colli_n: r.colli_n,
+      peso_reale_kg: r.peso_reale_kg,
+      status: r.status,
+      mittente_rs: r.mittente_rs,
+      mittente_telefono: r.mittente_telefono,
+      mittente_piva: r.mittente_piva,
+      dest_rs: r.dest_rs,
+      dest_telefono: r.dest_telefono,
+      dest_piva: r.dest_piva,
+      fatt_rs: r.fatt_rs,
+      fatt_piva: r.fatt_piva,
+      fatt_valuta: r.fatt_valuta,
+      formato_sped: r.formato_sped,
+      contenuto_generale: r.contenuto_generale,
+      dest_abilitato_import: r.dest_abilitato_import,
+      attachments: {
+        ldv: normAtt(r.ldv),
+        fattura_proforma: normAtt(r.fattura_proforma),
+        fattura_commerciale: normAtt(r.fattura_commerciale),
+        dle: normAtt(r.dle),
+        allegato1: normAtt(r.allegato1),
+        allegato2: normAtt(r.allegato2),
+        allegato3: normAtt(r.allegato3),
+        allegato4: normAtt(r.allegato4),
+      },
+      packages: Array.isArray(r.packages) ? r.packages : [],
+    }));
+
+    return NextResponse.json({
+      ok: true,
+      page,
+      limit,
+      total: count ?? rows.length,
+      rows,
+    });
+  } catch (e: any) {
+    console.error("[API/spedizioni:GET] unexpected:", e);
+    return NextResponse.json(
+      { ok: false, error: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
 /* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_URL =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const SUPABASE_SERVICE_ROLE_KEY =
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      throw new Error(
+        "Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY."
+      );
     }
     if (!SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY).");
+      throw new Error(
+        "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY)."
+      );
     }
 
     const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -68,7 +368,10 @@ export async function POST(req: Request) {
     }));
 
     const colli_n: number | null = Array.isArray(colli) ? colli.length : null;
-    const pesoTot = colli.reduce((sum, c) => sum + (toNum(c?.peso) || 0), 0);
+    const pesoTot = colli.reduce(
+      (sum, c) => sum + (toNum(c?.peso) || 0),
+      0
+    );
     const peso_reale_kg =
       pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
 
