@@ -41,7 +41,7 @@ export default function AppSidebar() {
       {/* Header con logo */}
       <div className="flex items-center gap-3 px-4 py-4">
         <Image
-          src="/logo/png-spst-logo.png"
+          src="/spst-logo.png"
           alt="SPST"
           width={24}
           height={24}
