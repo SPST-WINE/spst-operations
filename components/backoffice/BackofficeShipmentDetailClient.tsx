@@ -614,51 +614,83 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
       </section>
 
       {/* Documenti */}
-      <section className="space-y-3 rounded-2xl border bg-white p-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Documenti spedizione
-        </div>
-        <p className="text-[11px] text-slate-500">
-          Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4. I
-          pulsanti &quot;Carica&quot; sono placeholder in attesa di collegare
-          l&apos;upload ai bucket di storage.
-        </p>
+<section className="space-y-3 rounded-2xl border bg-white p-4">
+  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    Documenti spedizione
+  </div>
+  <p className="text-[11px] text-slate-500">
+    Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4. 
+    I pulsanti "Carica" permettono ora l’upload diretto nel bucket.
+  </p>
 
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <AttachmentRow
-            label="Lettera di vettura (LDV)"
-            att={data.attachments?.ldv}
-          />
-          <AttachmentRow
-            label="Fattura commerciale"
-            att={data.attachments?.fattura_commerciale}
-          />
-          <AttachmentRow
-            label="Fattura proforma"
-            att={data.attachments?.fattura_proforma}
-          />
-          <AttachmentRow
-            label="Documento DLE"
-            att={data.attachments?.dle}
-          />
-          <AttachmentRow
-            label="Allegato 1"
-            att={data.attachments?.allegato1}
-          />
-          <AttachmentRow
-            label="Allegato 2"
-            att={data.attachments?.allegato2}
-          />
-          <AttachmentRow
-            label="Allegato 3"
-            att={data.attachments?.allegato3}
-          />
-          <AttachmentRow
-            label="Allegato 4"
-            att={data.attachments?.allegato4}
-          />
-        </div>
-      </section>
+  <div className="mt-3 grid gap-3 md:grid-cols-2">
+
+    <AttachmentRow
+      label="Lettera di vettura (LDV)"
+      att={data.attachments?.ldv}
+      type="ldv"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Fattura commerciale"
+      att={data.attachments?.fattura_commerciale}
+      type="fattura_commerciale"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Fattura proforma"
+      att={data.attachments?.fattura_proforma}
+      type="fattura_proforma"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Documento DLE"
+      att={data.attachments?.dle}
+      type="dle"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Allegato 1"
+      att={data.attachments?.allegato1}
+      type="allegato1"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Allegato 2"
+      att={data.attachments?.allegato2}
+      type="allegato2"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Allegato 3"
+      att={data.attachments?.allegato3}
+      type="allegato3"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+    <AttachmentRow
+      label="Allegato 4"
+      att={data.attachments?.allegato4}
+      type="allegato4"
+      shipmentId={data.id}
+      onUploaded={() => window.location.reload()}
+    />
+
+  </div>
+</section>
 
       {/* Corriere / tracking + azioni */}
       <section className="space-y-4 rounded-2xl border bg-white p-4">
