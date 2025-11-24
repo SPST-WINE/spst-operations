@@ -101,7 +101,7 @@ export async function GET(
       );
     }
 
-    // fields jsonb (vedi screenshot)
+    // fields jsonb
     const fields: any = (data as any).fields || {};
     const mittente = fields.mittente || {};
     const destinatario = fields.destinatario || {};
@@ -190,6 +190,63 @@ export async function GET(
     return NextResponse.json({ ok: true, shipment });
   } catch (e) {
     console.error("[API/spedizioni/:id] unexpected error:", e);
+    return NextResponse.json(
+      { ok: false, error: "Errore interno" },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH: aggiorna corriere + tracking
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const id = params.id;
+
+  if (!id) {
+    return NextResponse.json(
+      { ok: false, error: "ID spedizione mancante" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const carrier =
+      typeof body.carrier === "string" && body.carrier.trim() !== ""
+        ? body.carrier.trim()
+        : null;
+    const tracking_code =
+      typeof body.tracking_code === "string" && body.tracking_code.trim() !== ""
+        ? body.tracking_code.trim()
+        : null;
+
+    const supa = makeSupabase();
+
+    const { data, error } = await supa
+      .schema("spst")
+      .from("shipments")
+      .update({ carrier, tracking_code })
+      .eq("id", id)
+      .select("carrier,tracking_code")
+      .single();
+
+    if (error) {
+      console.error("[API/spedizioni/:id] PATCH db error:", error);
+      return NextResponse.json(
+        { ok: false, error: "Errore nel salvataggio dei dati" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      carrier: data?.carrier ?? carrier,
+      tracking_code: data?.tracking_code ?? tracking_code,
+    });
+  } catch (e) {
+    console.error("[API/spedizioni/:id] PATCH unexpected error:", e);
     return NextResponse.json(
       { ok: false, error: "Errore interno" },
       { status: 500 }
