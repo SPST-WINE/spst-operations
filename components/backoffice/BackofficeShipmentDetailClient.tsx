@@ -311,26 +311,24 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
       {/* Mittente / Destinatario */}
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Mittente */}
-        <section className="space-y-3 rounded-2xl border bg-white p-4">
+                <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Mittente
           </div>
+
           <div className="space-y-1">
             <div className="text-sm font-semibold text-slate-800">
               {data.mittente_rs || "—"}
             </div>
             <div className="text-xs text-slate-600">
-              {[
-                data.mittente_indirizzo,
-                data.mittente_cap,
-                data.mittente_citta,
-                data.mittente_paese,
-              ]
-                .filter(Boolean)
-                .join(", ") || "—"}
+              {data.mittente_indirizzo || "—"}
             </div>
           </div>
+
           <div className="mt-3 space-y-1.5">
+            <InfoRow label="CAP" value={data.mittente_cap || undefined} />
+            <InfoRow label="Città" value={data.mittente_citta || undefined} />
+            <InfoRow label="Paese" value={data.mittente_paese || undefined} />
             <InfoRow
               label="Telefono"
               value={data.mittente_telefono || undefined}
@@ -343,26 +341,24 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         </section>
 
         {/* Destinatario */}
-        <section className="space-y-3 rounded-2xl border bg-white p-4">
+                <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Destinatario
           </div>
+
           <div className="space-y-1">
             <div className="text-sm font-semibold text-slate-800">
               {data.dest_rs || "—"}
             </div>
             <div className="text-xs text-slate-600">
-              {[
-                data.dest_indirizzo,
-                data.dest_cap,
-                data.dest_citta,
-                data.dest_paese,
-              ]
-                .filter(Boolean)
-                .join(", ") || "—"}
+              {data.dest_indirizzo || "—"}
             </div>
           </div>
+
           <div className="mt-3 space-y-1.5">
+            <InfoRow label="CAP" value={data.dest_cap || undefined} />
+            <InfoRow label="Città" value={data.dest_citta || undefined} />
+            <InfoRow label="Paese" value={data.dest_paese || undefined} />
             <InfoRow
               label="Telefono"
               value={data.dest_telefono || undefined}
@@ -383,6 +379,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
             />
           </div>
         </section>
+
       </div>
 
       {/* Spedizione + Fatturazione */}
@@ -399,7 +396,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <InfoRow
+                        <InfoRow
               label="Numero colli"
               value={
                 typeof data.colli_n === "number"
@@ -426,17 +423,39 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
         </section>
 
-        <section className="space-y-3 rounded-2xl border bg-white p-4">
+                <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Fatturazione
           </div>
-          <div className="mt-2 space-y-1.5">
+
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-slate-800">
+              {data.fatt_rs || "—"}
+            </div>
+            <div className="text-xs text-slate-600">
+              {data.fatt_indirizzo || "—"}
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-1.5">
             <InfoRow
-              label="Ragione sociale fattura"
-              value={data.fatt_rs || undefined}
+              label="CAP"
+              value={data.fatt_cap || undefined}
             />
             <InfoRow
-              label="P.IVA / Tax ID Fattura"
+              label="Città"
+              value={data.fatt_citta || undefined}
+            />
+            <InfoRow
+              label="Paese"
+              value={data.fatt_paese || undefined}
+            />
+            <InfoRow
+              label="Telefono"
+              value={data.fatt_telefono || undefined}
+            />
+            <InfoRow
+              label="P.IVA / Tax ID fattura"
               value={data.fatt_piva || undefined}
             />
             <InfoRow
@@ -445,7 +464,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
             />
           </div>
         </section>
-      </div>
+
 
       {/* Colli */}
       <section className="space-y-3 rounded-2xl border bg-white p-4">
