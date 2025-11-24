@@ -157,11 +157,14 @@ export async function GET(
       peso_reale_kg: data.peso_reale_kg,
       formato_sped: data.formato_sped || fields.formato || null,
       contenuto_generale: data.contenuto_generale || fields.contenuto || null,
-      dest_abilitato_import:
+       dest_abilitato_import:
         data.dest_abilitato_import ??
         (typeof fields.destAbilitato === "boolean"
           ? fields.destAbilitato
           : null),
+
+      // Espongo anche il jsonb completo per packing list & debug
+      fields,
 
       // ATTACHMENTS
       attachments: {
