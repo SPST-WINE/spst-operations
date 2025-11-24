@@ -1,4 +1,3 @@
-// app/api/spedizioni/[id]/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -52,15 +51,16 @@ export async function GET(
         email_cliente, email_norm,
         status, carrier, tracking_code,
         tipo_spedizione, incoterm, giorno_ritiro, note_ritiro,
-        mittente_rs, mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
-        mittente_telefono, mittente_piva,
-        dest_rs, dest_paese, dest_citta, dest_cap,
-        dest_telefono, dest_piva, dest_abilitato_import,
+        mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
+        mittente_rs, mittente_referente, mittente_telefono, mittente_piva,
+        dest_paese, dest_citta, dest_cap,
+        dest_rs, dest_referente, dest_telefono, dest_piva, dest_abilitato_import,
         fatt_rs, fatt_referente, fatt_paese, fatt_citta, fatt_cap,
         fatt_indirizzo, fatt_telefono, fatt_piva, fatt_valuta,
         colli_n, peso_reale_kg, formato_sped, contenuto_generale,
         ldv, fattura_proforma, fattura_commerciale, dle,
         allegato1, allegato2, allegato3, allegato4,
+        fields,
         packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
       `
       )
@@ -88,6 +88,42 @@ export async function GET(
       );
     }
 
+    // --------------------------------------------------
+    // Estrazione e normalizzazione del JSON "fields"
+    // --------------------------------------------------
+    const f: any = (data as any).fields || {};
+    const mittenteJson: any = f.mittente || {};
+    const destJson: any = f.destinatario || {};
+    const fattJson: any = f.fatturazione || {};
+
+    const giorno_ritiro =
+      data.giorno_ritiro || f.ritiroData || null;
+    const note_ritiro =
+      data.note_ritiro || f.ritiroNote || null;
+
+    const mittente_indirizzo =
+      data.mittente_indirizzo || mittenteJson.indirizzo || null;
+
+    const dest_indirizzo =
+      destJson.indirizzo || null;
+
+    const fatt_indirizzo =
+      data.fatt_indirizzo || fattJson.indirizzo || null;
+
+    const dest_abilitato_import =
+      data.dest_abilitato_import ??
+      f.destAbilitato ??
+      null;
+
+    // piccolo helper per gli allegati (jsonb) –
+    // se in futuro decidi di salvarci solo l'URL basterà adattare qui
+    const wrapFile = (v: any) => {
+      if (!v) return null;
+      if (typeof v === "string") return { url: v };
+      if (typeof v === "object" && v !== null) return v;
+      return null;
+    };
+
     const shipment = {
       id: data.id,
       created_at: data.created_at,
@@ -101,14 +137,14 @@ export async function GET(
 
       tipo_spedizione: data.tipo_spedizione,
       incoterm: data.incoterm,
-      giorno_ritiro: data.giorno_ritiro,
-      note_ritiro: data.note_ritiro,
+      giorno_ritiro,
+      note_ritiro,
 
       mittente_rs: data.mittente_rs,
       mittente_paese: data.mittente_paese,
       mittente_citta: data.mittente_citta,
       mittente_cap: data.mittente_cap,
-      mittente_indirizzo: data.mittente_indirizzo,
+      mittente_indirizzo,
       mittente_telefono: data.mittente_telefono,
       mittente_piva: data.mittente_piva,
 
@@ -116,11 +152,17 @@ export async function GET(
       dest_paese: data.dest_paese,
       dest_citta: data.dest_citta,
       dest_cap: data.dest_cap,
+      dest_indirizzo,
       dest_telefono: data.dest_telefono,
       dest_piva: data.dest_piva,
-      dest_abilitato_import: data.dest_abilitato_import,
+      dest_abilitato_import,
 
       fatt_rs: data.fatt_rs,
+      fatt_paese: data.fatt_paese,
+      fatt_citta: data.fatt_citta,
+      fatt_cap: data.fatt_cap,
+      fatt_indirizzo,
+      fatt_telefono: data.fatt_telefono,
       fatt_piva: data.fatt_piva,
       fatt_valuta: data.fatt_valuta,
 
@@ -130,14 +172,14 @@ export async function GET(
       contenuto_generale: data.contenuto_generale,
 
       attachments: {
-        ldv: data.ldv,
-        fattura_proforma: data.fattura_proforma,
-        fattura_commerciale: data.fattura_commerciale,
-        dle: data.dle,
-        allegato1: data.allegato1,
-        allegato2: data.allegato2,
-        allegato3: data.allegato3,
-        allegato4: data.allegato4,
+        ldv: wrapFile(data.ldv),
+        fattura_proforma: wrapFile(data.fattura_proforma),
+        fattura_commerciale: wrapFile(data.fattura_commerciale),
+        dle: wrapFile(data.dle),
+        allegato1: wrapFile(data.allegato1),
+        allegato2: wrapFile(data.allegato2),
+        allegato3: wrapFile(data.allegato3),
+        allegato4: wrapFile(data.allegato4),
       },
 
       packages: data.packages || [],
