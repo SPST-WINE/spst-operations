@@ -59,6 +59,11 @@ type ShipmentDetail = {
   dest_piva?: string | null;
 
   fatt_rs?: string | null;
+  fatt_paese?: string | null;
+  fatt_citta?: string | null;
+  fatt_cap?: string | null;
+  fatt_indirizzo?: string | null;
+  fatt_telefono?: string | null;
   fatt_piva?: string | null;
   fatt_valuta?: string | null;
 
