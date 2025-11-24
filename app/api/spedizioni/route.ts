@@ -176,11 +176,11 @@ export async function GET(req: Request) {
     }) as any;
 
     let query = supa
-      .schema("spst")
+            .schema("spst")
       .from("shipments")
       .select(
         `
-        id,created_at,human_id,email_norm,
+        id,created_at,human_id,email_cliente,email_norm,
         tipo_spedizione,incoterm,giorno_ritiro,
         mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
         dest_paese,dest_citta,dest_cap,
@@ -238,6 +238,7 @@ export async function GET(req: Request) {
       id: r.id,
       created_at: r.created_at,
       human_id: r.human_id,
+      email_cliente: r.email_cliente,
       email_norm: r.email_norm,
       tipo_spedizione: r.tipo_spedizione,
       incoterm: r.incoterm,
