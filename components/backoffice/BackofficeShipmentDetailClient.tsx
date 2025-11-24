@@ -3,20 +3,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Loader2,
-  Mail,
-  CheckCircle2,
-  FileText,
-  Package,
-} from "lucide-react";
+import { Loader2, Mail, CheckCircle2, FileText, Package } from "lucide-react";
 
-type AttachmentInfo = {
-  url: string;
-  file_name?: string | null;
-  mime_type?: string | null;
-  size?: number | null;
-} | null;
+type AttachmentInfo =
+  | {
+      url: string;
+      file_name?: string | null;
+      mime_type?: string | null;
+      size?: number | null;
+    }
+  | null;
 
 type PackageRow = {
   id?: string;
@@ -276,9 +272,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </h1>
           <p className="mt-1 text-sm text-slate-600">
             ID interno:{" "}
-            <span className="font-mono text-xs text-slate-700">
-              {data.id}
-            </span>
+            <span className="font-mono text-xs text-slate-700">{data.id}</span>
           </p>
         </div>
 
@@ -311,7 +305,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
       {/* Mittente / Destinatario */}
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Mittente */}
-                <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Mittente
           </div>
@@ -341,7 +335,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         </section>
 
         {/* Destinatario */}
-                <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Destinatario
           </div>
@@ -379,7 +373,6 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
             />
           </div>
         </section>
-
       </div>
 
       {/* Spedizione + Fatturazione */}
@@ -396,7 +389,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <InfoRow
+            <InfoRow
               label="Numero colli"
               value={
                 typeof data.colli_n === "number"
@@ -423,7 +416,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
         </section>
 
-                <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <section className="space-y-3 rounded-2xl border bg-white p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Fatturazione
           </div>
@@ -438,18 +431,9 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="mt-3 space-y-1.5">
-            <InfoRow
-              label="CAP"
-              value={data.fatt_cap || undefined}
-            />
-            <InfoRow
-              label="Città"
-              value={data.fatt_citta || undefined}
-            />
-            <InfoRow
-              label="Paese"
-              value={data.fatt_paese || undefined}
-            />
+            <InfoRow label="CAP" value={data.fatt_cap || undefined} />
+            <InfoRow label="Città" value={data.fatt_citta || undefined} />
+            <InfoRow label="Paese" value={data.fatt_paese || undefined} />
             <InfoRow
               label="Telefono"
               value={data.fatt_telefono || undefined}
@@ -458,13 +442,10 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
               label="P.IVA / Tax ID fattura"
               value={data.fatt_piva || undefined}
             />
-            <InfoRow
-              label="Valuta"
-              value={data.fatt_valuta || undefined}
-            />
+            <InfoRow label="Valuta" value={data.fatt_valuta || undefined} />
           </div>
         </section>
-
+      </div>
 
       {/* Colli */}
       <section className="space-y-3 rounded-2xl border bg-white p-4">
@@ -525,8 +506,8 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           Documenti spedizione
         </div>
         <p className="text-[11px] text-slate-500">
-          Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4.
-          I pulsanti &quot;Carica&quot; sono placeholder in attesa di collegare
+          Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4. I
+          pulsanti &quot;Carica&quot; sono placeholder in attesa di collegare
           l&apos;upload ai bucket di storage.
         </p>
 
@@ -574,10 +555,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
               Corriere & tracking
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <InfoRow
-                label="Corriere"
-                value={data.carrier || undefined}
-              />
+              <InfoRow label="Corriere" value={data.carrier || undefined} />
               <InfoRow
                 label="Tracking"
                 value={data.tracking_code || undefined}
