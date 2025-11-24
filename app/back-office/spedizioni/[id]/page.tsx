@@ -23,7 +23,7 @@ export async function generateMetadata({
 
     if (!res.ok) {
       return {
-        title: `SPST • Spedizione ${id}`,
+        title: `Spedizione ${id}`,
       };
     }
 
