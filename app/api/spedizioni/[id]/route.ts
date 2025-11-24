@@ -16,7 +16,6 @@ function envOrThrow(name: string): string {
 
 function admin() {
   const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-  // compatibile con entrambe le variabili che hai usato altrove
   const key =
     process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key || key.trim() === "") {
@@ -55,9 +54,10 @@ export async function GET(
         tipo_spedizione, incoterm, giorno_ritiro, note_ritiro,
         mittente_rs, mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
         mittente_telefono, mittente_piva,
-        dest_rs, dest_paese, dest_citta, dest_cap, dest_indirizzo,
+        dest_rs, dest_paese, dest_citta, dest_cap,
         dest_telefono, dest_piva, dest_abilitato_import,
-        fatt_rs, fatt_piva, fatt_valuta,
+        fatt_rs, fatt_referente, fatt_paese, fatt_citta, fatt_cap,
+        fatt_indirizzo, fatt_telefono, fatt_piva, fatt_valuta,
         colli_n, peso_reale_kg, formato_sped, contenuto_generale,
         ldv, fattura_proforma, fattura_commerciale, dle,
         allegato1, allegato2, allegato3, allegato4,
@@ -69,7 +69,6 @@ export async function GET(
 
     if (error) {
       if (error.code === "PGRST116") {
-        // not found
         return NextResponse.json(
           { ok: false, error: "NOT_FOUND" },
           { status: 404 }
@@ -89,7 +88,6 @@ export async function GET(
       );
     }
 
-    // Adattiamo la forma ai tipi usati da BackofficeShipmentDetailClient
     const shipment = {
       id: data.id,
       created_at: data.created_at,
@@ -118,7 +116,6 @@ export async function GET(
       dest_paese: data.dest_paese,
       dest_citta: data.dest_citta,
       dest_cap: data.dest_cap,
-      dest_indirizzo: data.dest_indirizzo,
       dest_telefono: data.dest_telefono,
       dest_piva: data.dest_piva,
       dest_abilitato_import: data.dest_abilitato_import,
