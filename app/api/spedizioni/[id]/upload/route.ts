@@ -30,12 +30,11 @@ export async function POST(
       );
     }
 
-    const ext = file.name.split(".").pop();
-    const safeExt = ext || "bin";
+    // Determina estensione
+    const ext = file.name.split(".").pop() || "bin";
+    const path = `${shipmentId}/${type}.${ext}`;
 
-    const path = `${shipmentId}/${type}.${safeExt}`;
-
-    // Upload file
+    // Upload nel bucket
     const { error: uploadError } = await supa.storage
       .from("shipment-docs")
       .upload(path, file, {
@@ -50,36 +49,47 @@ export async function POST(
       );
     }
 
-    // Public URL
+    // URL pubblico
     const { data: publicData } = supa.storage
       .from("shipment-docs")
       .getPublicUrl(path);
 
     const publicUrl = publicData.publicUrl;
 
-    // Update DB field
-    const field = type as
-      | "ldv"
-      | "fattura_proforma"
-      | "fattura_commerciale"
-      | "dle"
-      | "allegato1"
-      | "allegato2"
-      | "allegato3"
-      | "allegato4";
+    // ---- CARICA ATTACHMENTS ATTUALI ----
+    const { data: row, error: fetchError } = await supa
+      .schema("spst")
+      .from("shipments")
+      .select("attachments")
+      .eq("id", shipmentId)
+      .single();
 
-    const updatePayload = {
-      [field]: {
+    if (fetchError) {
+      return NextResponse.json(
+        { ok: false, error: fetchError.message },
+        { status: 500 }
+      );
+    }
+
+    const oldAtt = row?.attachments || {};
+
+    // Aggiorna solo il campo specifico
+    const newAtt = {
+      ...oldAtt,
+      [type]: {
         url: publicUrl,
         file_name: file.name,
+        mime_type: file.type,
+        size: file.size,
         uploaded_at: new Date().toISOString(),
       },
     };
 
+    // Salva in DB
     const { error: updateError } = await supa
       .schema("spst")
       .from("shipments")
-      .update(updatePayload)
+      .update({ attachments: newAtt })
       .eq("id", shipmentId);
 
     if (updateError) {
@@ -89,7 +99,11 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ ok: true, url: publicUrl });
+    return NextResponse.json({
+      ok: true,
+      url: publicUrl,
+      field: type,
+    });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e.message || "UNKNOWN_ERROR" },
