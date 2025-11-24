@@ -1,66 +1,85 @@
-import { NextResponse } from "next/server";
+// app/api/spedizioni/[id]/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function envOrThrow(name: string): string {
-  const v = process.env[name];
-  if (!v || v.trim() === "") {
-    throw new Error(`Missing env ${name}`);
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_SERVICE_ROLE =
+  process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+function makeSupabase() {
+  if (!SUPABASE_URL || (!SUPABASE_ANON_KEY && !SUPABASE_SERVICE_ROLE)) {
+    throw new Error("Supabase env vars mancanti");
   }
-  return v;
+  return createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE || SUPABASE_ANON_KEY,
+    { auth: { persistSession: false } }
+  );
 }
 
-function admin() {
-  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key || key.trim() === "") {
-    throw new Error("Missing env SUPABASE_SERVICE_ROLE(_KEY)");
+// Normalizza un attachment che può essere string (url puro) o json
+function wrapFile(raw: any) {
+  if (!raw) return null;
+
+  if (typeof raw === "string") {
+    return { url: raw as string };
   }
 
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  if (typeof raw === "object") {
+    const obj = raw as any;
+    return {
+      url: obj.url || obj.path || "",
+      file_name: obj.file_name || obj.name || null,
+      mime_type: obj.mime_type || obj.content_type || null,
+      size: obj.size ?? null,
+    };
+  }
+
+  return null;
 }
 
 export async function GET(
-  req: Request,
-  ctx: { params: { id: string } }
+  _req: NextRequest,
+  { params }: { params: { id: string } }
 ) {
-  const id = ctx.params?.id;
+  const id = params.id;
 
   if (!id) {
     return NextResponse.json(
-      { ok: false, error: "MISSING_ID" },
+      { ok: false, error: "ID spedizione mancante" },
       { status: 400 }
     );
   }
 
   try {
-    const supa = admin();
+    const supa = makeSupabase();
 
-        const { data, error } = await supa
+    const { data, error } = await supa
       .schema("spst")
       .from("shipments")
       .select(
         `
-        id, created_at, human_id,
-        email_cliente, email_norm,
-        status, carrier, tracking_code,
-        tipo_spedizione, incoterm, giorno_ritiro, note_ritiro,
-        mittente_paese, mittente_citta, mittente_cap, mittente_indirizzo,
-        mittente_rs, mittente_referente, mittente_telefono, mittente_piva,
-        dest_paese, dest_citta, dest_cap,
-        dest_rs, dest_referente, dest_telefono, dest_piva, dest_abilitato_import,
-        fatt_rs, fatt_referente, fatt_paese, fatt_citta, fatt_cap,
-        fatt_indirizzo, fatt_telefono, fatt_piva, fatt_valuta,
-        colli_n, peso_reale_kg, formato_sped, contenuto_generale,
-        ldv, fattura_proforma, fattura_commerciale, dle,
-        allegato1, allegato2, allegato3, allegato4,
+        id,created_at,human_id,
+        email_cliente,email_norm,
+        status,carrier,tracking_code,
+        tipo_spedizione,incoterm,giorno_ritiro,note_ritiro,
+        mittente_rs,mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+        mittente_telefono,mittente_piva,
+        dest_rs,dest_paese,dest_citta,dest_cap,
+        dest_telefono,dest_piva,dest_abilitato_import,
+        fatt_rs,fatt_paese,fatt_citta,fatt_cap,fatt_indirizzo,
+        fatt_telefono,fatt_piva,fatt_valuta,
+        colli_n,peso_reale_kg,formato_sped,contenuto_generale,
         fields,
+        ldv,fattura_proforma,fattura_commerciale,dle,
+        allegato1,allegato2,allegato3,allegato4,
         packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
       `
       )
@@ -68,81 +87,27 @@ export async function GET(
       .single();
 
     if (error) {
-      if (error.code === "PGRST116") {
-        return NextResponse.json(
-          { ok: false, error: "NOT_FOUND" },
-          { status: 404 }
-        );
-      }
       console.error("[API/spedizioni/:id] db error:", error);
       return NextResponse.json(
-        { ok: false, error: "DB_ERROR", details: error.message },
+        { ok: false, error: "Errore nel recupero della spedizione" },
         { status: 500 }
       );
     }
 
     if (!data) {
       return NextResponse.json(
-        { ok: false, error: "NOT_FOUND" },
+        { ok: false, error: "Spedizione non trovata" },
         { status: 404 }
       );
     }
 
-    // --------------------------------------------------
-    // Estrazione e normalizzazione del JSON "fields"
-    // --------------------------------------------------
-        const f: any = (data as any).fields || {};
-    const mittenteJson: any = f.mittente || {};
-    const destJson: any = f.destinatario || {};
-    const fattJson: any = f.fatturazione || {};
+    // fields jsonb (vedi screenshot)
+    const fields: any = (data as any).fields || {};
+    const mittente = fields.mittente || {};
+    const destinatario = fields.destinatario || {};
+    const fatturazione = fields.fatturazione || {};
 
-    const giorno_ritiro =
-      data.giorno_ritiro || f.ritiroData || null;
-    const note_ritiro =
-      data.note_ritiro || f.ritiroNote || null;
-
-    const mittente_indirizzo =
-      data.mittente_indirizzo || mittenteJson.indirizzo || null;
-
-    const dest_indirizzo =
-      destJson.indirizzo || null;
-
-    const fatt_indirizzo =
-      data.fatt_indirizzo || fattJson.indirizzo || null;
-
-    const dest_abilitato_import =
-      data.dest_abilitato_import ??
-      f.destAbilitato ??
-      null;
-
-    const formato_sped =
-      data.formato_sped || f.formato || null;
-
-    // fatturazione completa
-    const fatt_rs =
-      data.fatt_rs || fattJson.ragioneSociale || null;
-    const fatt_paese =
-      data.fatt_paese || fattJson.paese || null;
-    const fatt_citta =
-      data.fatt_citta || fattJson.citta || null;
-    const fatt_cap =
-      data.fatt_cap || fattJson.cap || null;
-    const fatt_telefono =
-      data.fatt_telefono || fattJson.telefono || null;
-    const fatt_piva =
-      data.fatt_piva || fattJson.piva || null;
-
-
-    // piccolo helper per gli allegati (jsonb) –
-    // se in futuro decidi di salvarci solo l'URL basterà adattare qui
-    const wrapFile = (v: any) => {
-      if (!v) return null;
-      if (typeof v === "string") return { url: v };
-      if (typeof v === "object" && v !== null) return v;
-      return null;
-    };
-
-        const shipment = {
+    const shipment = {
       id: data.id,
       created_at: data.created_at,
       human_id: data.human_id,
@@ -155,64 +120,78 @@ export async function GET(
 
       tipo_spedizione: data.tipo_spedizione,
       incoterm: data.incoterm,
-      giorno_ritiro,
-      note_ritiro,
+      giorno_ritiro: data.giorno_ritiro,
+      note_ritiro: data.note_ritiro,
 
-      mittente_rs: data.mittente_rs,
-      mittente_paese: data.mittente_paese,
-      mittente_citta: data.mittente_citta,
-      mittente_cap: data.mittente_cap,
-      mittente_indirizzo,
-      mittente_telefono: data.mittente_telefono,
-      mittente_piva: data.mittente_piva,
+      // MITTENTE
+      mittente_rs: data.mittente_rs || mittente.ragioneSociale || null,
+      mittente_paese: data.mittente_paese || mittente.paese || null,
+      mittente_citta: data.mittente_citta || mittente.citta || null,
+      mittente_cap: data.mittente_cap || mittente.cap || null,
+      mittente_indirizzo:
+        data.mittente_indirizzo || mittente.indirizzo || null,
+      mittente_telefono: data.mittente_telefono || mittente.telefono || null,
+      mittente_piva: data.mittente_piva || mittente.piva || null,
 
-      dest_rs: data.dest_rs,
-      dest_paese: data.dest_paese,
-      dest_citta: data.dest_citta,
-      dest_cap: data.dest_cap,
-      dest_indirizzo,
-      dest_telefono: data.dest_telefono,
-      dest_piva: data.dest_piva,
-      dest_abilitato_import,
+      // DESTINATARIO
+      dest_rs: data.dest_rs || destinatario.ragioneSociale || null,
+      dest_paese: data.dest_paese || destinatario.paese || null,
+      dest_citta: data.dest_citta || destinatario.citta || null,
+      dest_cap: data.dest_cap || destinatario.cap || null,
+      dest_indirizzo: destinatario.indirizzo || null,
+      dest_telefono: data.dest_telefono || destinatario.telefono || null,
+      dest_piva: data.dest_piva || destinatario.piva || null,
 
-      fatt_rs,
-      fatt_paese,
-      fatt_citta,
-      fatt_cap,
-      fatt_indirizzo,
-      fatt_telefono,
-      fatt_piva,
-      fatt_valuta: data.fatt_valuta,
+      // FATTURAZIONE
+      fatt_rs: data.fatt_rs || fatturazione.ragioneSociale || null,
+      fatt_paese: data.fatt_paese || fatturazione.paese || null,
+      fatt_citta: data.fatt_citta || fatturazione.citta || null,
+      fatt_cap: data.fatt_cap || fatturazione.cap || null,
+      fatt_indirizzo: data.fatt_indirizzo || fatturazione.indirizzo || null,
+      fatt_telefono: data.fatt_telefono || fatturazione.telefono || null,
+      fatt_piva: data.fatt_piva || fatturazione.piva || null,
+      fatt_valuta: data.fatt_valuta || fields.valuta || null,
 
+      // DETTAGLIO SPEDIZIONE
       colli_n: data.colli_n,
       peso_reale_kg: data.peso_reale_kg,
-      formato_sped,
-      contenuto_generale: data.contenuto_generale,
-      ...
+      formato_sped: data.formato_sped || fields.formato || null,
+      contenuto_generale: data.contenuto_generale || fields.contenuto || null,
+      dest_abilitato_import:
+        data.dest_abilitato_import ??
+        (typeof fields.destAbilitato === "boolean"
+          ? fields.destAbilitato
+          : null),
 
+      // ATTACHMENTS
       attachments: {
-        ldv: wrapFile(data.ldv),
-        fattura_proforma: wrapFile(data.fattura_proforma),
-        fattura_commerciale: wrapFile(data.fattura_commerciale),
-        dle: wrapFile(data.dle),
-        allegato1: wrapFile(data.allegato1),
-        allegato2: wrapFile(data.allegato2),
-        allegato3: wrapFile(data.allegato3),
-        allegato4: wrapFile(data.allegato4),
+        ldv: wrapFile((data as any).ldv),
+        fattura_proforma: wrapFile((data as any).fattura_proforma),
+        fattura_commerciale: wrapFile((data as any).fattura_commerciale),
+        dle: wrapFile((data as any).dle),
+        allegato1: wrapFile((data as any).allegato1),
+        allegato2: wrapFile((data as any).allegato2),
+        allegato3: wrapFile((data as any).allegato3),
+        allegato4: wrapFile((data as any).allegato4),
       },
 
-      packages: data.packages || [],
+      // COLLI
+      packages: Array.isArray((data as any).packages)
+        ? (data as any).packages.map((p: any) => ({
+            id: p.id,
+            l1: p.l1,
+            l2: p.l2,
+            l3: p.l3,
+            weight_kg: p.weight_kg,
+          }))
+        : [],
     };
 
-    return NextResponse.json({ ok: true, shipment }, { status: 200 });
-  } catch (e: any) {
-    console.error("[API/spedizioni/:id] unexpected:", e);
+    return NextResponse.json({ ok: true, shipment });
+  } catch (e) {
+    console.error("[API/spedizioni/:id] unexpected error:", e);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED_ERROR",
-        details: String(e?.message || e),
-      },
+      { ok: false, error: "Errore interno" },
       { status: 500 }
     );
   }
