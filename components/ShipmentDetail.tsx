@@ -12,6 +12,15 @@ type Pkg = {
   contenuto?: string | null;
 };
 
+type AttachmentInfo =
+  | {
+      url: string;
+      file_name?: string | null;
+      mime_type?: string | null;
+      size?: number | null;
+    }
+  | null;
+
 type ShipRow = {
   id: string;
   human_id?: string | null;
@@ -60,15 +69,17 @@ type ShipRow = {
   fields?: any;
 };
 
-type DocAttachment = {
-  id: string;
-  type: string;
-  label: string;
-  url: string | null;
-  fileName: string | null;
-  mimeType?: string | null;
-  size?: number | null;
-  createdAt?: string | null;
+type ShipDetail = ShipRow & {
+  attachments?: {
+    ldv?: AttachmentInfo;
+    fattura_proforma?: AttachmentInfo;
+    fattura_commerciale?: AttachmentInfo;
+    dle?: AttachmentInfo;
+    allegato1?: AttachmentInfo;
+    allegato2?: AttachmentInfo;
+    allegato3?: AttachmentInfo;
+    allegato4?: AttachmentInfo;
+  };
 };
 
 function L({ children }: { children: React.ReactNode }) {
@@ -87,58 +98,35 @@ function V({ children }: { children: React.ReactNode }) {
 }
 
 export default function ShipmentDetail({ f }: { f: ShipRow }) {
-  const mittAddr = [
-    f.mittente_indirizzo,
-    f.mittente_cap,
-    f.mittente_citta,
-    f.mittente_paese,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const [detail, setDetail] = useState<ShipDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
-  const destAddr = [f.dest_cap, f.dest_citta, f.dest_paese]
-    .filter(Boolean)
-    .join(", ");
-
-  const rawPackages: any = (f as any).packages;
-  const colli: Pkg[] = Array.isArray(rawPackages)
-    ? rawPackages
-    : Array.isArray((f as any).packages_preview)
-    ? (f as any).packages_preview
-    : [];
-
-  const [attachments, setAttachments] = useState<DocAttachment[]>([]);
-  const [attLoading, setAttLoading] = useState(false);
-
+  // carico il dettaglio completo (inclusi attachments) dalla stessa API del back office
   useEffect(() => {
     if (!f?.id) return;
     let cancelled = false;
 
     (async () => {
-      setAttLoading(true);
+      setLoadingDetail(true);
       try {
         const res = await fetch(
-          `/api/spedizioni/${encodeURIComponent(f.id)}/attachments`,
-          {
-            method: "GET",
-            cache: "no-store",
-          }
+          `/api/spedizioni/${encodeURIComponent(f.id)}`,
+          { cache: "no-store" }
         );
-
         const json = await res.json().catch(() => null);
 
         if (cancelled) return;
 
-        if (json?.ok && Array.isArray(json.attachments)) {
-          setAttachments(json.attachments as DocAttachment[]);
+        if (json?.ok && json.shipment) {
+          setDetail(json.shipment as ShipDetail);
         } else {
-          setAttachments([]);
+          setDetail(null);
         }
       } catch (err) {
-        console.error("[ShipmentDetail] attachments load error:", err);
-        if (!cancelled) setAttachments([]);
+        console.error("[ShipmentDetail] load detail error:", err);
+        if (!cancelled) setDetail(null);
       } finally {
-        if (!cancelled) setAttLoading(false);
+        if (!cancelled) setLoadingDetail(false);
       }
     })();
 
@@ -147,35 +135,69 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
     };
   }, [f?.id]);
 
+  // uso i dati del dettaglio se disponibili, altrimenti il row di fallback
+  const d = (detail || f) as ShipDetail;
+
+  const mittAddr = [
+    d.mittente_indirizzo,
+    d.mittente_cap,
+    d.mittente_citta,
+    d.mittente_paese,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const destAddr = [d.dest_cap, d.dest_citta, d.dest_paese]
+    .filter(Boolean)
+    .join(", ");
+
+  const rawPackages: any = (d as any).packages;
+  const colli: Pkg[] = Array.isArray(rawPackages)
+    ? rawPackages
+    : Array.isArray((d as any).packages_preview)
+    ? (d as any).packages_preview
+    : [];
+
+  const attachmentDefs = [
+    { key: "ldv", label: "Lettera di vettura (LDV)" },
+    { key: "fattura_commerciale", label: "Fattura commerciale" },
+    { key: "fattura_proforma", label: "Fattura proforma" },
+    { key: "dle", label: "Documento DLE" },
+    { key: "allegato1", label: "Allegato 1" },
+    { key: "allegato2", label: "Allegato 2" },
+    { key: "allegato3", label: "Allegato 3" },
+    { key: "allegato4", label: "Allegato 4" },
+  ] as const;
+
   return (
     <div className="space-y-4">
       {/* ID */}
       <div>
         <L>ID Spedizione</L>
-        <V>{f.human_id || f.id}</V>
+        <V>{d.human_id || d.id}</V>
       </div>
 
       {/* Mittente / Destinatario */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="rounded-lg border p-3">
           <L>Mittente</L>
-          <V>{f.mittente_rs || "—"}</V>
+          <V>{d.mittente_rs || "—"}</V>
           <V>{mittAddr || "—"}</V>
-          <V>Tel: {f.mittente_telefono || "—"}</V>
+          <V>Tel: {d.mittente_telefono || "—"}</V>
           <div className="text-[11px] text-slate-500">
-            P.IVA/CF: {f.mittente_piva || "—"}
+            P.IVA/CF: {d.mittente_piva || "—"}
           </div>
         </div>
         <div className="rounded-lg border p-3">
           <L>Destinatario</L>
-          <V>{f.dest_rs || "—"}</V>
+          <V>{d.dest_rs || "—"}</V>
           <V>{destAddr || "—"}</V>
-          <V>Tel: {f.dest_telefono || "—"}</V>
+          <V>Tel: {d.dest_telefono || "—"}</V>
           <div className="text-[11px] text-slate-500">
-            P.IVA/CF: {f.dest_piva || "—"}
+            P.IVA/CF: {d.dest_piva || "—"}
           </div>
           <div className="text-[11px] text-slate-500">
-            Abilitato import: {f.dest_abilitato_import ? "Sì" : "No"}
+            Abilitato import: {d.dest_abilitato_import ? "Sì" : "No"}
           </div>
         </div>
       </div>
@@ -184,33 +206,32 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded-lg border p-3">
           <L>Data ritiro</L>
-          <V>{f.giorno_ritiro || "—"}</V>
+          <V>{d.giorno_ritiro || "—"}</V>
         </div>
         <div className="rounded-lg border p-3">
           <L>Incoterm</L>
-          <V>{f.incoterm || "—"}</V>
+          <V>{d.incoterm || "—"}</V>
         </div>
         <div className="rounded-lg border p-3">
           <L>Tipo spedizione</L>
-          <V>{f.tipo_spedizione || "—"}</V>
+          <V>{d.tipo_spedizione || "—"}</V>
         </div>
       </div>
 
       {/* Fatturazione */}
       <div className="rounded-lg border p-3">
         <L>Fatturazione</L>
-        <V>{f.fatt_rs || "—"}</V>
+        <V>{d.fatt_rs || "—"}</V>
         <div className="text-[11px] text-slate-500">
-          P.IVA/CF: {f.fatt_piva || "—"}
+          P.IVA/CF: {d.fatt_piva || "—"}
         </div>
         <div className="text-[11px] text-slate-500">
-          Valuta: {f.fatt_valuta || "—"}
+          Valuta: {d.fatt_valuta || "—"}
         </div>
         <div className="mt-2 text-[11px] text-slate-500">
-          Uguale a Destinatario: {f?.fields?.fattSameAsDest ? "Sì" : "No"} •
-          {" "}
+          Uguale a Destinatario: {d?.fields?.fattSameAsDest ? "Sì" : "No"} •{" "}
           Delega fattura a SPST:
-          {f?.fields?.fattDelega ? " Sì" : " No"}
+          {d?.fields?.fattDelega ? " Sì" : " No"}
         </div>
       </div>
 
@@ -231,10 +252,10 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
                 {p.contenuto ? <> — Contenuto: {p.contenuto}</> : null}
               </div>
             ))}
-            {typeof f.packages_count === "number" &&
-              f.packages_count > colli.length && (
+            {typeof d.packages_count === "number" &&
+              d.packages_count > colli.length && (
                 <div className="text-[11px] text-slate-500">
-                  (+{f.packages_count - colli.length} altri colli…)
+                  (+{d.packages_count - colli.length} altri colli…)
                 </div>
               )}
           </div>
@@ -245,32 +266,42 @@ export default function ShipmentDetail({ f }: { f: ShipRow }) {
       <div className="rounded-lg border p-3">
         <L>Allegati</L>
 
-        {attLoading ? (
+        {loadingDetail && !detail ? (
           <div className="mt-2 text-xs text-slate-500">
             Caricamento allegati…
           </div>
-        ) : !attachments.length ? (
+        ) : !d.attachments ? (
           <div className="mt-2 text-xs text-slate-500">
             Nessun allegato disponibile per questa spedizione.
           </div>
         ) : (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {attachments.map((d) => (
-              <a
-                key={d.id}
-                href={d.url || "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-slate-50"
-              >
-                <span>{d.label}</span>
-                {d.fileName ? (
-                  <span className="text-[10px] text-slate-400 max-w-[160px] truncate">
-                    {d.fileName}
-                  </span>
-                ) : null}
-              </a>
-            ))}
+          <div className="mt-2 flex flex-col gap-1 text-xs">
+            {attachmentDefs.map(({ key, label }) => {
+              const att = d.attachments?.[key];
+              const hasFile = !!att && !!att.url;
+              return (
+                <div
+                  key={key}
+                  className="flex items-center justify-between rounded-md border px-2.5 py-1.5"
+                >
+                  <span className="text-slate-700">{label}</span>
+                  {hasFile ? (
+                    <a
+                      href={att!.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-[#1c3e5e] underline"
+                    >
+                      Apri{att?.file_name ? ` (${att.file_name})` : ""}
+                    </a>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">
+                      Nessun file
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
