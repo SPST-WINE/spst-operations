@@ -35,7 +35,7 @@ export async function generateMetadata({
 
     if (human) {
       return {
-        title: `SPST • ${human}`,
+        title: `${human}`,
       };
     }
 
