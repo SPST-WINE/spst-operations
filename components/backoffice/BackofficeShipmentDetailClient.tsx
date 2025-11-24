@@ -178,6 +178,8 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
 
   // stato per verifica email azioni
   const [emailConfirm, setEmailConfirm] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -267,6 +269,35 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     }
   }
 
+  async function handleSendEmail() {
+    if (!data) return;
+    const emailTo = emailConfirm.trim();
+    if (!emailTo) return;
+
+    setSendingEmail(true);
+    setEmailMsg(null);
+    try {
+      const res = await fetch(`/api/spedizioni/${id}/evasa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: emailTo }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+
+      setEmailMsg("Email inviata correttamente.");
+    } catch (e) {
+      console.error("[BackofficeShipmentDetail] send email error:", e);
+      setEmailMsg("Errore nell'invio email. Controlla configurazione o log.");
+    } finally {
+      setSendingEmail(false);
+      setTimeout(() => setEmailMsg(null), 5000);
+    }
+  }
+
   if (loading && !data && !error) {
     return (
       <div className="flex min-h-[200px] items-center justify-center">
@@ -309,6 +340,8 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   const emailMatch =
     emailCliente !== "—" &&
     emailConfirm.trim().toLowerCase() === emailCliente.toLowerCase();
+
+  const disableSendButton = !emailMatch || sendingEmail;
 
   return (
     <div className="space-y-6">
@@ -700,16 +733,23 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
 
             <button
               type="button"
-              disabled={!emailMatch}
+              onClick={disableSendButton ? undefined : handleSendEmail}
+              disabled={disableSendButton}
               className={`inline-flex w-full items-center justify-center gap-1 rounded-lg border px-3 py-2 text-xs ${
-                emailMatch
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-400"
+                disableSendButton
+                  ? "border-slate-200 bg-white text-slate-400"
+                  : "border-slate-900 bg-slate-900 text-white"
               }`}
             >
+              {sendingEmail && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              )}
               <Mail className="h-3.5 w-3.5" />
               Invia mail &quot;Spedizione evasa&quot;
             </button>
+            {emailMsg && (
+              <p className="text-[11px] text-slate-500">{emailMsg}</p>
+            )}
 
             <button
               type="button"
