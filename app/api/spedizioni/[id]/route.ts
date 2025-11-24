@@ -42,7 +42,7 @@ export async function GET(
   try {
     const supa = admin();
 
-    const { data, error } = await supa
+        const { data, error } = await supa
       .schema("spst")
       .from("shipments")
       .select(
@@ -91,7 +91,7 @@ export async function GET(
     // --------------------------------------------------
     // Estrazione e normalizzazione del JSON "fields"
     // --------------------------------------------------
-    const f: any = (data as any).fields || {};
+        const f: any = (data as any).fields || {};
     const mittenteJson: any = f.mittente || {};
     const destJson: any = f.destinatario || {};
     const fattJson: any = f.fatturazione || {};
@@ -115,6 +115,24 @@ export async function GET(
       f.destAbilitato ??
       null;
 
+    const formato_sped =
+      data.formato_sped || f.formato || null;
+
+    // fatturazione completa
+    const fatt_rs =
+      data.fatt_rs || fattJson.ragioneSociale || null;
+    const fatt_paese =
+      data.fatt_paese || fattJson.paese || null;
+    const fatt_citta =
+      data.fatt_citta || fattJson.citta || null;
+    const fatt_cap =
+      data.fatt_cap || fattJson.cap || null;
+    const fatt_telefono =
+      data.fatt_telefono || fattJson.telefono || null;
+    const fatt_piva =
+      data.fatt_piva || fattJson.piva || null;
+
+
     // piccolo helper per gli allegati (jsonb) –
     // se in futuro decidi di salvarci solo l'URL basterà adattare qui
     const wrapFile = (v: any) => {
@@ -124,7 +142,7 @@ export async function GET(
       return null;
     };
 
-    const shipment = {
+        const shipment = {
       id: data.id,
       created_at: data.created_at,
       human_id: data.human_id,
@@ -157,19 +175,20 @@ export async function GET(
       dest_piva: data.dest_piva,
       dest_abilitato_import,
 
-      fatt_rs: data.fatt_rs,
-      fatt_paese: data.fatt_paese,
-      fatt_citta: data.fatt_citta,
-      fatt_cap: data.fatt_cap,
+      fatt_rs,
+      fatt_paese,
+      fatt_citta,
+      fatt_cap,
       fatt_indirizzo,
-      fatt_telefono: data.fatt_telefono,
-      fatt_piva: data.fatt_piva,
+      fatt_telefono,
+      fatt_piva,
       fatt_valuta: data.fatt_valuta,
 
       colli_n: data.colli_n,
       peso_reale_kg: data.peso_reale_kg,
-      formato_sped: data.formato_sped,
+      formato_sped,
       contenuto_generale: data.contenuto_generale,
+      ...
 
       attachments: {
         ldv: wrapFile(data.ldv),
