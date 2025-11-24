@@ -81,6 +81,9 @@ type ShipmentDetail = {
   };
 
   packages?: PackageRow[];
+
+  // jsonb completo lato DB (per packing list e debug)
+  fields?: any;
 };
 
 type Props = {
@@ -192,7 +195,6 @@ function AttachmentRow({
     </div>
   );
 }
-
 
 export default function BackofficeShipmentDetailClient({ id }: Props) {
   const [data, setData] = useState<ShipmentDetail | null>(null);
@@ -371,6 +373,63 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     emailConfirm.trim().toLowerCase() === emailCliente.toLowerCase();
 
   const disableSendButton = !emailMatch || sendingEmail;
+
+  // -------------------------
+  // Packing list: estrazione da fields
+  // -------------------------
+  const fieldsAny: any = (data as any).fields || {};
+  const rawPL =
+    fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
+
+  const plRows: any[] = Array.isArray(rawPL?.rows)
+    ? rawPL.rows
+    : Array.isArray(rawPL)
+    ? rawPL
+    : [];
+
+  const plNote: string | null =
+    (rawPL && (rawPL.note || rawPL.notes || null)) || null;
+
+  const plTotals = {
+    totalItems: 0,
+    totalQty: 0,
+    totalNetKg: 0,
+    totalGrossKg: 0,
+  };
+
+  plRows.forEach((r) => {
+    const qty =
+      Number(
+        r.qta ??
+          r.quantita ??
+          r.qty ??
+          r.quantity ??
+          r.num ??
+          r.numero ??
+          0
+      ) || 0;
+    const net =
+      Number(
+        r.net_kg ??
+          r.peso_netto ??
+          r.netWeight ??
+          r.net_weight ??
+          0
+      ) || 0;
+    const gross =
+      Number(
+        r.gross_kg ??
+          r.peso_lordo ??
+          r.grossWeight ??
+          r.gross_weight ??
+          0
+      ) || 0;
+
+    plTotals.totalItems += 1;
+    plTotals.totalQty += qty;
+    plTotals.totalNetKg += net;
+    plTotals.totalGrossKg += gross;
+  });
 
   return (
     <div className="space-y-6">
@@ -613,84 +672,193 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         </div>
       </section>
 
+      {/* Packing list */}
+      <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Packing list
+          </div>
+          {plRows.length > 0 && (
+            <div className="text-[11px] text-slate-500">
+              {plTotals.totalItems} righe • Q.tà tot: {plTotals.totalQty || "—"} •
+              Netto: {plTotals.totalNetKg.toFixed(2)} kg • Lordo:{" "}
+              {plTotals.totalGrossKg.toFixed(2)} kg
+            </div>
+          )}
+        </div>
+
+        {plRows.length === 0 ? (
+          <>
+            <p className="text-[11px] text-slate-500">
+              Nessuna packing list strutturata trovata nei dati della spedizione.
+            </p>
+            {fieldsAny && (
+              <details className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                <summary className="cursor-pointer font-medium">
+                  Debug dati raw (fields)
+                </summary>
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px]">
+                  {JSON.stringify(fieldsAny, null, 2)}
+                </pre>
+              </details>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-xl border border-slate-100">
+              <table className="min-w-full border-collapse text-xs">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Descrizione</th>
+                    <th className="px-3 py-2 text-left">Q.tà</th>
+                    <th className="px-3 py-2 text-left">Netto (kg)</th>
+                    <th className="px-3 py-2 text-left">Lordo (kg)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {plRows.map((r, idx) => {
+                    const desc =
+                      r.description ||
+                      r.descrizione ||
+                      r.nome ||
+                      r.label ||
+                      r.prodotto ||
+                      `Riga ${idx + 1}`;
+
+                    const qty =
+                      r.qta ??
+                      r.quantita ??
+                      r.qty ??
+                      r.quantity ??
+                      null;
+
+                    const net =
+                      r.net_kg ??
+                      r.peso_netto ??
+                      r.netWeight ??
+                      r.net_weight ??
+                      null;
+
+                    const gross =
+                      r.gross_kg ??
+                      r.peso_lordo ??
+                      r.grossWeight ??
+                      r.gross_weight ??
+                      null;
+
+                    return (
+                      <tr key={r.id || idx} className="hover:bg-slate-50/70">
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {idx + 1}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {desc}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {qty ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {typeof net === "number"
+                            ? net.toFixed(2)
+                            : net ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {typeof gross === "number"
+                            ? gross.toFixed(2)
+                            : gross ?? "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {plNote && (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Note: {plNote}
+              </p>
+            )}
+          </>
+        )}
+      </section>
+
       {/* Documenti */}
-<section className="space-y-3 rounded-2xl border bg-white p-4">
-  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-    Documenti spedizione
-  </div>
-  <p className="text-[11px] text-slate-500">
-    Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4. 
-    I pulsanti "Carica" permettono ora l’upload diretto nel bucket.
-  </p>
+      <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Documenti spedizione
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Qui potrai allegare LDV, fatture, packing list, DLE e allegati 1–4.
+          I pulsanti "Carica" permettono ora l’upload diretto nel bucket.
+        </p>
 
-  <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <AttachmentRow
+            label="Lettera di vettura (LDV)"
+            att={data.attachments?.ldv}
+            type="ldv"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Lettera di vettura (LDV)"
-      att={data.attachments?.ldv}
-      type="ldv"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Fattura commerciale"
+            att={data.attachments?.fattura_commerciale}
+            type="fattura_commerciale"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Fattura commerciale"
-      att={data.attachments?.fattura_commerciale}
-      type="fattura_commerciale"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Fattura proforma"
+            att={data.attachments?.fattura_proforma}
+            type="fattura_proforma"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Fattura proforma"
-      att={data.attachments?.fattura_proforma}
-      type="fattura_proforma"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Documento DLE"
+            att={data.attachments?.dle}
+            type="dle"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Documento DLE"
-      att={data.attachments?.dle}
-      type="dle"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Allegato 1"
+            att={data.attachments?.allegato1}
+            type="allegato1"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Allegato 1"
-      att={data.attachments?.allegato1}
-      type="allegato1"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Allegato 2"
+            att={data.attachments?.allegato2}
+            type="allegato2"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Allegato 2"
-      att={data.attachments?.allegato2}
-      type="allegato2"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
+          <AttachmentRow
+            label="Allegato 3"
+            att={data.attachments?.allegato3}
+            type="allegato3"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
 
-    <AttachmentRow
-      label="Allegato 3"
-      att={data.attachments?.allegato3}
-      type="allegato3"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
-
-    <AttachmentRow
-      label="Allegato 4"
-      att={data.attachments?.allegato4}
-      type="allegato4"
-      shipmentId={data.id}
-      onUploaded={() => window.location.reload()}
-    />
-
-  </div>
-</section>
+          <AttachmentRow
+            label="Allegato 4"
+            att={data.attachments?.allegato4}
+            type="allegato4"
+            shipmentId={data.id}
+            onUploaded={() => window.location.reload()}
+          />
+        </div>
+      </section>
 
       {/* Corriere / tracking + azioni */}
       <section className="space-y-4 rounded-2xl border bg-white p-4">
