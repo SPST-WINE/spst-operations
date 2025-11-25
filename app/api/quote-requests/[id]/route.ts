@@ -125,10 +125,10 @@ export async function GET(
       return jsonError(404, "NOT_FOUND");
     }
 
-    return NextResponse.json(
+        return NextResponse.json(
       {
         ok: true,
-        quote: data as QuoteDetail,
+        quote: data as unknown as QuoteDetail,
       },
       { status: 200 }
     );
