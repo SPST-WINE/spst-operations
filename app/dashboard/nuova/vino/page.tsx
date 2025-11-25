@@ -378,7 +378,7 @@ export default function NuovaVinoPage() {
   const [sameAsDest, setSameAsDest] = useState(false);
   const [fatturaFile, setFatturaFile] = useState<File | undefined>(undefined);
 
-  const [pl, setPl] = useState<RigaPL[]>([
+    const [pl, setPl] = useState<RigaPL[]>([
     {
       etichetta: "",
       tipologia: "vino fermo",
@@ -391,7 +391,8 @@ export default function NuovaVinoPage() {
       peso_lordo_bott: 1.5,
     },
   ]);
-  const [plFiles, setPlFiles] = useState<File[]>([]);
+  // Niente upload file PL lato cliente: la packing list “file” la gestiamo da back office
+
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -551,8 +552,9 @@ export default function NuovaVinoPage() {
       // 1) Crea spedizione (Supabase Auth)
       const created = await createShipmentWithAuth(payload);
 
-      // 2) Upload documenti (fattura + eventuali PL) su bucket + tabella shipment_documents
+      // 2) Upload documenti usando la stessa API del Back Office
       try {
+        // Fattura (qui usiamo sempre "fattura_proforma" come tipo documento)
         if (fatturaFile) {
           await uploadShipmentDocument(
             created.id,
@@ -560,14 +562,10 @@ export default function NuovaVinoPage() {
             "fattura_proforma"
           );
         }
-
-        for (const file of plFiles) {
-          await uploadShipmentDocument(created.id, file, "packing_list");
-        }
       } catch (err) {
         console.error("Errore upload documenti:", err);
         setErrors([
-          "Spedizione creata, ma si è verificato un errore durante il caricamento dei documenti.",
+          "Spedizione creata, ma si è verificato un errore durante il caricamento della fattura.",
         ]);
       }
 
@@ -967,12 +965,11 @@ export default function NuovaVinoPage() {
         </div>
       </div>
 
-      <PackingListVino
+           <PackingListVino
         value={pl}
         onChange={setPl}
-        files={plFiles}
-        onFiles={setPlFiles}
       />
+
 
       <ColliCard
         colli={colli}
