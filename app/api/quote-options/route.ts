@@ -101,12 +101,12 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        rows: (data || []) as QuoteOptionListRow[],
-      },
-      { status: 200 }
-    );
+  {
+    ok: true,
+    rows: (data || []) as unknown as QuoteOptionListRow[],
+  },
+  { status: 200 }
+);
   } catch (e: any) {
     console.error("[API/quote-options:GET] ERROR", e?.message || e);
     return jsonError(500, "SERVER_ERROR", { message: e?.message });
