@@ -1,16 +1,16 @@
 // components/nuova/PackingListVino.tsx
-'use client';
-import * as React from 'react';
+"use client";
+import * as React from "react";
 
-export type Valuta = 'EUR' | 'USD' | 'GBP';
-export type TipologiaPL = 'vino fermo' | 'vino spumante' | 'brochure/depliant';
+export type Valuta = "EUR" | "USD" | "GBP";
+export type TipologiaPL = "vino fermo" | "vino spumante" | "brochure/depliant";
 
 export type RigaPL = {
   etichetta: string;
   bottiglie: number | null;
   formato_litri: number | null;
   gradazione: number | null;
-  prezzo: number | null;          // prezzo unitario (per bott./pezzo)
+  prezzo: number | null; // prezzo unitario (per bott./pezzo)
   valuta: Valuta;
   peso_netto_bott: number | null; // kg per bott./pezzo
   peso_lordo_bott: number | null; // kg per bott./pezzo
@@ -20,56 +20,53 @@ export type RigaPL = {
 type Props = {
   value: RigaPL[];
   onChange: (rows: RigaPL[]) => void;
-  files?: File[];
-  onFiles?: (files: File[]) => void;
 };
 
-const ORANGE = '#f7911e';
+const ORANGE = "#f7911e";
 const inputCls =
-  'w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#1c3e5e]';
+  "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-[#1c3e5e]";
 
 // Layout: Etichetta | Tipologia | Bott. | Formato(L) | Grad% | Prezzo | Valuta | Peso netto | Peso lordo | Azioni
 const COLS =
-  'md:grid-cols-[minmax(160px,1fr)_150px_96px_110px_100px_110px_110px_130px_130px_90px]';
-const GAP = 'gap-3';
+  "md:grid-cols-[minmax(160px,1fr)_150px_96px_110px_100px_110px_110px_130px_130px_90px]";
+const GAP = "gap-3";
 
 // === DEFAULTS ===
 const DEFAULT_PESO_NETTO = 1.2;
 const DEFAULT_PESO_LORDO = 1.5;
 
 const emptyRow: RigaPL = {
-  etichetta: '',
+  etichetta: "",
   bottiglie: null,
   formato_litri: null,
   gradazione: null,
   prezzo: null,
-  valuta: 'EUR',
+  valuta: "EUR",
   peso_netto_bott: DEFAULT_PESO_NETTO,
   peso_lordo_bott: DEFAULT_PESO_LORDO,
-  tipologia: 'vino fermo',
+  tipologia: "vino fermo",
 };
 
 // Campi numerici gestiti in bozza stringa
 type NumKey =
-  | 'bottiglie'
-  | 'formato_litri'
-  | 'gradazione'
-  | 'prezzo'
-  | 'peso_netto_bott'
-  | 'peso_lordo_bott';
+  | "bottiglie"
+  | "formato_litri"
+  | "gradazione"
+  | "prezzo"
+  | "peso_netto_bott"
+  | "peso_lordo_bott";
 
 const NUM_KEYS: NumKey[] = [
-  'bottiglie',
-  'formato_litri',
-  'gradazione',
-  'prezzo',
-  'peso_netto_bott',
-  'peso_lordo_bott',
+  "bottiglie",
+  "formato_litri",
+  "gradazione",
+  "prezzo",
+  "peso_netto_bott",
+  "peso_lordo_bott",
 ];
 
-export default function PackingListVino({ value, onChange, files, onFiles }: Props) {
+export default function PackingListVino({ value, onChange }: Props) {
   const rows = value ?? [];
-  const fileList = files ?? [];
 
   // Normalizza eventuali righe iniziali con vecchi valori
   React.useEffect(() => {
@@ -92,7 +89,9 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
   }, []);
 
   // Stato locale "bozza" per i campi numerici
-  const [draft, setDraft] = React.useState<Array<Partial<Record<NumKey, string>>>>([]);
+  const [draft, setDraft] = React.useState<
+    Array<Partial<Record<NumKey, string>>>
+  >([]);
 
   // Sincronizza bozza quando cambia il numero di righe
   React.useEffect(() => {
@@ -100,14 +99,15 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
       const next = rows.map((r, i) => {
         const old = prev[i] || {};
         const initFromRow = (k: NumKey) =>
-          old[k] ?? (r[k] != null ? String(r[k] as number).replace('.', ',') : '');
+          old[k] ??
+          (r[k] != null ? String(r[k] as number).replace(".", ",") : "");
         return {
-          bottiglie: initFromRow('bottiglie'),
-          formato_litri: initFromRow('formato_litri'),
-          gradazione: initFromRow('gradazione'),
-          prezzo: initFromRow('prezzo'),
-          peso_netto_bott: initFromRow('peso_netto_bott'),
-          peso_lordo_bott: initFromRow('peso_lordo_bott'),
+          bottiglie: initFromRow("bottiglie"),
+          formato_litri: initFromRow("formato_litri"),
+          gradazione: initFromRow("gradazione"),
+          prezzo: initFromRow("prezzo"),
+          peso_netto_bott: initFromRow("peso_netto_bott"),
+          peso_lordo_bott: initFromRow("peso_lordo_bott"),
         };
       });
       return next;
@@ -116,19 +116,19 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
 
   const toNumber = (s: string): number | null => {
     if (!s || !s.trim()) return null;
-    const n = parseFloat(s.replace(/\s+/g, '').replace(',', '.'));
+    const n = parseFloat(s.replace(/\s+/g, "").replace(",", "."));
     return Number.isFinite(n) ? n : null;
   };
 
   const toInt = (s: string): number | null => {
     if (!s || !s.trim()) return null;
-    const n = Math.floor(Number(s.replace(/\s+/g, '').replace(',', '.')));
+    const n = Math.floor(Number(s.replace(/\s+/g, "").replace(",", ".")));
     return Number.isFinite(n) ? n : null;
   };
 
   const commitNumber = (rowIdx: number, key: NumKey) => {
-    const raw = draft[rowIdx]?.[key] ?? '';
-    const n = key === 'bottiglie' ? toInt(raw) : toNumber(raw);
+    const raw = draft[rowIdx]?.[key] ?? "";
+    const n = key === "bottiglie" ? toInt(raw) : toNumber(raw);
     const next = rows.slice();
     (next[rowIdx] as any)[key] = n;
     onChange(next);
@@ -154,25 +154,11 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
     setDraft((d) => d.filter((_, j) => j !== i));
   };
 
-  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!onFiles) return;
-    const picked = Array.from(e.target.files || []);
-    const next = [...fileList];
-    for (const f of picked) {
-      if (!next.some((x) => x.name === f.name && x.size === f.size)) next.push(f);
-    }
-    onFiles(next);
-    e.currentTarget.value = '';
-  };
-
-  const removeFile = (idx: number) => {
-    if (!onFiles) return;
-    const next = fileList.filter((_, i) => i !== idx);
-    onFiles(next);
-  };
-
   const display = (i: number, k: NumKey) =>
-    draft[i]?.[k] ?? (rows[i][k] != null ? String(rows[i][k] as number).replace('.', ',') : '');
+    draft[i]?.[k] ??
+    (rows[i][k] != null
+      ? String(rows[i][k] as number).replace(".", ",")
+      : "");
 
   // ===== RIEPILOGO TOTALE =====
   const { pesoNettoTot, pesoLordoTot, prezzoTotByCur } = React.useMemo(() => {
@@ -188,7 +174,7 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
       const pr = r.prezzo ?? 0;
       res.pesoNettoTot += q * pn;
       res.pesoLordoTot += q * pl;
-      const cur = r.valuta ?? 'EUR';
+      const cur = r.valuta ?? "EUR";
       res.prezzoTotByCur[cur] = (res.prezzoTotByCur[cur] ?? 0) + q * pr;
     }
     return res;
@@ -209,45 +195,13 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
           >
             + Aggiungi riga
           </button>
-
-          {onFiles && (
-            <label className="inline-flex cursor-pointer items-center rounded-lg border px-3 py-1.5 text-sm hover:bg-slate-50">
-              Allega packing list
-              <input
-                type="file"
-                accept="application/pdf,image/*"
-                multiple
-                className="hidden"
-                onChange={onPickFiles}
-              />
-            </label>
-          )}
         </div>
       </div>
 
-      {fileList.length > 0 && (
-        <div className="mb-3 rounded-lg border bg-slate-50 p-2">
-          <div className="mb-1 text-xs font-medium text-slate-600">File allegati</div>
-          <ul className="text-xs">
-            {fileList.map((f, i) => (
-              <li key={i} className="flex items-center justify-between py-1">
-                <span className="truncate">{f.name}</span>
-                <button
-                  type="button"
-                  onClick={() => removeFile(i)}
-                  className="ml-3 rounded border px-2 py-0.5 hover:bg-white"
-                  title="Rimuovi"
-                >
-                  Rimuovi
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* HEADER */}
-      <div className={`hidden md:grid ${COLS} ${GAP} pb-2 text-[11px] font-medium text-slate-500`}>
+      <div
+        className={`hidden md:grid ${COLS} ${GAP} pb-2 text-[11px] font-medium text-slate-500`}
+      >
         <div>Etichetta</div>
         <div>Tipologia</div>
         <div>Quantità</div>
@@ -263,7 +217,7 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
       {/* RIGHE */}
       <div className="space-y-3">
         {rows.map((r, i) => {
-          const isBrochure = r.tipologia === 'brochure/depliant';
+          const isBrochure = r.tipologia === "brochure/depliant";
           return (
             <div key={i} className={`grid ${COLS} ${GAP} items-center`}>
               {/* Etichetta */}
@@ -272,7 +226,7 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 placeholder="Nome etichetta"
                 aria-label="Etichetta"
                 value={r.etichetta}
-                onChange={(e) => update(i, 'etichetta', e.target.value)}
+                onChange={(e) => update(i, "etichetta", e.target.value)}
               />
 
               {/* Tipologia */}
@@ -280,7 +234,9 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 className={inputCls}
                 aria-label="Tipologia"
                 value={r.tipologia}
-                onChange={(e) => update(i, 'tipologia', e.target.value as TipologiaPL)}
+                onChange={(e) =>
+                  update(i, "tipologia", e.target.value as TipologiaPL)
+                }
               >
                 <option value="vino fermo">vino fermo</option>
                 <option value="vino spumante">vino spumante</option>
@@ -290,14 +246,18 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
               {/* Quantità: bottiglie o pezzi */}
               <input
                 className={inputCls}
-                placeholder={isBrochure ? 'pezzi' : 'bott.'}
+                placeholder={isBrochure ? "pezzi" : "bott."}
                 aria-label="Quantità"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                value={display(i, 'bottiglie')}
-                onChange={(e) => setDraftVal(i, 'bottiglie', e.target.value)}
-                onBlur={() => commitNumber(i, 'bottiglie')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'bottiglie')}
+                value={display(i, "bottiglie")}
+                onChange={(e) =>
+                  setDraftVal(i, "bottiglie", e.target.value)
+                }
+                onBlur={() => commitNumber(i, "bottiglie")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "bottiglie")
+                }
               />
 
               {/* Formato (L) — disabilitato per brochure */}
@@ -307,10 +267,14 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 aria-label="Formato in litri"
                 inputMode="decimal"
                 pattern="[0-9]*[.,]?[0-9]*"
-                value={display(i, 'formato_litri')}
-                onChange={(e) => setDraftVal(i, 'formato_litri', e.target.value)}
-                onBlur={() => commitNumber(i, 'formato_litri')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'formato_litri')}
+                value={display(i, "formato_litri")}
+                onChange={(e) =>
+                  setDraftVal(i, "formato_litri", e.target.value)
+                }
+                onBlur={() => commitNumber(i, "formato_litri")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "formato_litri")
+                }
                 disabled={isBrochure}
               />
 
@@ -321,10 +285,14 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 aria-label="Gradazione percentuale"
                 inputMode="decimal"
                 pattern="[0-9]*[.,]?[0-9]*"
-                value={display(i, 'gradazione')}
-                onChange={(e) => setDraftVal(i, 'gradazione', e.target.value)}
-                onBlur={() => commitNumber(i, 'gradazione')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'gradazione')}
+                value={display(i, "gradazione")}
+                onChange={(e) =>
+                  setDraftVal(i, "gradazione", e.target.value)
+                }
+                onBlur={() => commitNumber(i, "gradazione")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "gradazione")
+                }
                 disabled={isBrochure}
               />
 
@@ -335,10 +303,12 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 aria-label="Prezzo unitario"
                 inputMode="decimal"
                 pattern="[0-9]*[.,]?[0-9]*"
-                value={display(i, 'prezzo')}
-                onChange={(e) => setDraftVal(i, 'prezzo', e.target.value)}
-                onBlur={() => commitNumber(i, 'prezzo')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'prezzo')}
+                value={display(i, "prezzo")}
+                onChange={(e) => setDraftVal(i, "prezzo", e.target.value)}
+                onBlur={() => commitNumber(i, "prezzo")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "prezzo")
+                }
               />
 
               {/* Valuta */}
@@ -346,7 +316,9 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
                 className={inputCls}
                 aria-label="Valuta"
                 value={r.valuta}
-                onChange={(e) => update(i, 'valuta', e.target.value as Valuta)}
+                onChange={(e) =>
+                  update(i, "valuta", e.target.value as Valuta)
+                }
               >
                 <option value="EUR">EUR</option>
                 <option value="USD">USD</option>
@@ -356,25 +328,41 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
               {/* Peso netto/lordo (per bottiglia o per pezzo) */}
               <input
                 className={inputCls}
-                placeholder={isBrochure ? 'peso netto/pezzo (kg)' : 'peso netto/bott (kg)'}
+                placeholder={
+                  isBrochure
+                    ? "peso netto/pezzo (kg)"
+                    : "peso netto/bott (kg)"
+                }
                 aria-label="Peso netto"
                 inputMode="decimal"
                 pattern="[0-9]*[.,]?[0-9]*"
-                value={display(i, 'peso_netto_bott')}
-                onChange={(e) => setDraftVal(i, 'peso_netto_bott', e.target.value)}
-                onBlur={() => commitNumber(i, 'peso_netto_bott')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'peso_netto_bott')}
+                value={display(i, "peso_netto_bott")}
+                onChange={(e) =>
+                  setDraftVal(i, "peso_netto_bott", e.target.value)
+                }
+                onBlur={() => commitNumber(i, "peso_netto_bott")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "peso_netto_bott")
+                }
               />
               <input
                 className={inputCls}
-                placeholder={isBrochure ? 'peso lordo/pezzo (kg)' : 'peso lordo/bott (kg)'}
+                placeholder={
+                  isBrochure
+                    ? "peso lordo/pezzo (kg)"
+                    : "peso lordo/bott (kg)"
+                }
                 aria-label="Peso lordo"
                 inputMode="decimal"
                 pattern="[0-9]*[.,]?[0-9]*"
-                value={display(i, 'peso_lordo_bott')}
-                onChange={(e) => setDraftVal(i, 'peso_lordo_bott', e.target.value)}
-                onBlur={() => commitNumber(i, 'peso_lordo_bott')}
-                onKeyDown={(e) => e.key === 'Enter' && commitNumber(i, 'peso_lordo_bott')}
+                value={display(i, "peso_lordo_bott")}
+                onChange={(e) =>
+                  setDraftVal(i, "peso_lordo_bott", e.target.value)
+                }
+                onBlur={() => commitNumber(i, "peso_lordo_bott")}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && commitNumber(i, "peso_lordo_bott")
+                }
               />
 
               {/* Azioni */}
@@ -392,7 +380,9 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
         })}
 
         {rows.length === 0 && (
-          <div className="text-sm text-slate-500">Nessuna riga. Aggiungi una riga per iniziare.</div>
+          <div className="text-sm text-slate-500">
+            Nessuna riga. Aggiungi una riga per iniziare.
+          </div>
         )}
       </div>
 
@@ -400,15 +390,27 @@ export default function PackingListVino({ value, onChange, files, onFiles }: Pro
       <div className="mt-3 flex justify-end">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="rounded-md border border-slate-300 bg-white px-2 py-1">
-            Peso netto totale: <span className="font-semibold">{pesoNettoTot.toFixed(2)} kg</span>
+            Peso netto totale:{" "}
+            <span className="font-semibold">
+              {pesoNettoTot.toFixed(2)} kg
+            </span>
           </span>
           <span className="rounded-md border border-slate-300 bg-white px-2 py-1">
-            Peso lordo totale: <span className="font-semibold">{pesoLordoTot.toFixed(2)} kg</span>
+            Peso lordo totale:{" "}
+            <span className="font-semibold">
+              {pesoLordoTot.toFixed(2)} kg
+            </span>
           </span>
 
           {Object.entries(prezzoTotByCur).map(([cur, tot]) => (
-            <span key={cur} className="rounded-md border border-slate-300 bg-white px-2 py-1">
-              Prezzo totale {cur}: <span className="font-semibold">{tot.toFixed(2)} {cur}</span>
+            <span
+              key={cur}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1"
+            >
+              Prezzo totale {cur}:{" "}
+              <span className="font-semibold">
+                {tot.toFixed(2)} {cur}
+              </span>
             </span>
           ))}
         </div>
