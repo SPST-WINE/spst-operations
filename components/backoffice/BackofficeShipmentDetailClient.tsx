@@ -680,140 +680,174 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         </div>
       </section>
 
-      {/* Packing list */}
-      <section className="space-y-3 rounded-2xl border bg-white p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Packing list
-          </div>
-          {plRows.length > 0 && (
-            <div className="text-[11px] text-slate-500">
-              {plTotals.totalItems} righe • Q.tà tot: {plTotals.totalQty || "—"} •
-              Netto: {plTotals.totalNetKg.toFixed(2)} kg • Lordo:{" "}
-              {plTotals.totalGrossKg.toFixed(2)} kg
-            </div>
-          )}
-        </div>
+   {/* Packing list */}
+<section className="space-y-3 rounded-2xl border bg-white p-4">
+  <div className="flex items-center justify-between gap-2">
+    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      Packing list
+    </div>
+    {plRows.length > 0 && (
+      <div className="text-[11px] text-slate-500">
+        {plTotals.totalItems} righe • Q.tà tot:{" "}
+        {plTotals.totalQty || "—"} • Netto:{" "}
+        {plTotals.totalNetKg.toFixed(2)} kg • Lordo:{" "}
+        {plTotals.totalGrossKg.toFixed(2)} kg
+      </div>
+    )}
+  </div>
 
-        {plRows.length === 0 ? (
-          <>
-            <p className="text-[11px] text-slate-500">
-              Nessuna packing list strutturata trovata nei dati della spedizione.
-            </p>
-            {fieldsAny && (
-              <details className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                <summary className="cursor-pointer font-medium">
-                  Debug dati raw (fields)
-                </summary>
-                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px]">
-                  {JSON.stringify(fieldsAny, null, 2)}
-                </pre>
-              </details>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="overflow-hidden rounded-xl border border-slate-100">
-              <table className="min-w-full border-collapse text-xs">
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 text-left">#</th>
-                    <th className="px-3 py-2 text-left">Descrizione</th>
-                    <th className="px-3 py-2 text-left">Q.tà</th>
-                    <th className="px-3 py-2 text-left">Netto (kg)</th>
-                    <th className="px-3 py-2 text-left">Lordo (kg)</th>
-                  </tr>
-                </thead>
-               <tbody className="divide-y divide-slate-100">
-  {plRows.map((r: any, idx: number) => {
-    const desc =
-      r.etichetta || // nuovo campo PL
-      r.description ||
-      r.descrizione ||
-      r.nome ||
-      r.label ||
-      r.prodotto ||
-      `Riga ${idx + 1}`;
+  {plRows.length === 0 ? (
+    <>
+      <p className="text-[11px] text-slate-500">
+        Nessuna packing list strutturata trovata nei dati della spedizione.
+      </p>
+      {fieldsAny && (
+        <details className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+          <summary className="cursor-pointer font-medium">
+            Debug dati raw (fields)
+          </summary>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px]">
+            {JSON.stringify(fieldsAny, null, 2)}
+          </pre>
+        </details>
+      )}
+    </>
+  ) : (
+    <>
+      <div className="overflow-hidden rounded-xl border border-slate-100">
+        <table className="min-w-full border-collapse text-xs">
+          <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-left">#</th>
+              <th className="px-3 py-2 text-left">Etichetta</th>
+              <th className="px-3 py-2 text-left">Tipologia</th>
+              <th className="px-3 py-2 text-left">Q.tà</th>
+              <th className="px-3 py-2 text-left">Formato (L)</th>
+              <th className="px-3 py-2 text-left">Gradazione</th>
+              <th className="px-3 py-2 text-left">Prezzo</th>
+              <th className="px-3 py-2 text-left">Valuta</th>
+              <th className="px-3 py-2 text-left">Peso netto (kg)</th>
+              <th className="px-3 py-2 text-left">Peso lordo (kg)</th>
+            </tr>
+          </thead>
 
-    const toNum = (v: any): number | null => {
-      if (v === null || v === undefined) return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
+          <tbody className="divide-y divide-slate-100">
+            {plRows.map((r: any, idx: number) => {
+              const toNum = (v: any): number | null => {
+                if (v === null || v === undefined) return null;
+                const n = Number(v);
+                return Number.isFinite(n) ? n : null;
+              };
 
-    const qtyRaw =
-      r.qta ??
-      r.quantita ??
-      r.qty ??
-      r.quantity ??
-      r.num ??
-      r.numero ??
-      r.bottiglie ??
-      null;
+              const qty = toNum(
+                r.bottiglie ??
+                  r.qta ??
+                  r.quantita ??
+                  r.qty ??
+                  r.quantity ??
+                  r.num ??
+                  r.numero ??
+                  null
+              );
 
-    const qty = toNum(qtyRaw);
+              const formato = toNum(r.formato_litri);
+              const grad = toNum(r.gradazione);
+              const prezzo = toNum(r.prezzo);
+              const valuta = r.valuta || "EUR";
 
-    // Netto per riga
-    let net = toNum(
-      r.net_kg ??
-        r.peso_netto ??
-        r.netWeight ??
-        r.net_weight
-    );
+              // peso netto/lordo per bottiglia/pezzo (quello che inserisce il cliente)
+              const pesoNetto = toNum(
+                r.peso_netto_bott ??
+                  r.peso_netto ??
+                  r.net_kg ??
+                  r.netWeight ??
+                  r.net_weight
+              );
 
-    if (net == null && qty != null && r.peso_netto_bott != null) {
-      const per = toNum(r.peso_netto_bott) ?? 0;
-      net = qty * per;
-    }
+              const pesoLordo = toNum(
+                r.peso_lordo_bott ??
+                  r.peso_lordo ??
+                  r.gross_kg ??
+                  r.grossWeight ??
+                  r.gross_weight
+              );
 
-    // Lordo per riga
-    let gross = toNum(
-      r.gross_kg ??
-        r.peso_lordo ??
-        r.grossWeight ??
-        r.gross_weight
-    );
+              return (
+                <tr key={r.id || idx} className="hover:bg-slate-50/70">
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {idx + 1}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {r.etichetta ||
+                      r.description ||
+                      r.descrizione ||
+                      r.nome ||
+                      r.label ||
+                      r.prodotto ||
+                      `Riga ${idx + 1}`}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700 capitalize">
+                    {r.tipologia || "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {qty ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {formato != null ? formato.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {grad != null ? `${grad}%` : "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {prezzo != null ? prezzo.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {valuta}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {pesoNetto != null ? pesoNetto.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-3 py-2 align-middle text-slate-700">
+                    {pesoLordo != null ? pesoLordo.toFixed(2) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
 
-    if (gross == null && qty != null && r.peso_lordo_bott != null) {
-      const per = toNum(r.peso_lordo_bott) ?? 0;
-      gross = qty * per;
-    }
+          {/* Totali a piè di tabella */}
+          <tfoot className="bg-slate-50 text-[11px] text-slate-600">
+            <tr>
+              <td className="px-3 py-2 font-semibold" colSpan={3}>
+                Totali
+              </td>
+              <td className="px-3 py-2 font-semibold">
+                {plTotals.totalQty || "—"}
+              </td>
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 font-semibold">
+                {plTotals.totalNetKg.toFixed(2)} kg
+              </td>
+              <td className="px-3 py-2 font-semibold">
+                {plTotals.totalGrossKg.toFixed(2)} kg
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
 
-    return (
-      <tr key={r.id || idx} className="hover:bg-slate-50/70">
-        <td className="px-3 py-2 align-middle text-slate-700">
-          {idx + 1}
-        </td>
-        <td className="px-3 py-2 align-middle text-slate-700">
-          {desc}
-        </td>
-        <td className="px-3 py-2 align-middle text-slate-700">
-          {qty ?? "—"}
-        </td>
-        <td className="px-3 py-2 align-middle text-slate-700">
-          {typeof net === "number"
-            ? net.toFixed(2)
-            : net ?? "—"}
-        </td>
-        <td className="px-3 py-2 align-middle text-slate-700">
-          {typeof gross === "number"
-            ? gross.toFixed(2)
-            : gross ?? "—"}
-        </td>
-      </tr>
-    );
-  })}
-</tbody>
-              </table>
-            </div>
-            {plNote && (
-              <p className="mt-2 text-[11px] text-slate-500">
-                Note: {plNote}
-              </p>
-            )}
-          </>
-        )}
-      </section>
+      {plNote && (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Note: {plNote}
+        </p>
+      )}
+    </>
+  )}
+</section>
+
 
       {/* Documenti */}
       <section className="space-y-3 rounded-2xl border bg-white p-4">
