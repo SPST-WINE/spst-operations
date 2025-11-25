@@ -27,7 +27,6 @@ type DocType =
   | "fattura_commerciale"
   | "fattura_proforma"
   | "dle"
-  | "packing_list"
   | "allegato1"
   | "allegato2"
   | "allegato3"
@@ -247,59 +246,36 @@ async function createShipmentWithAuth(payload: any) {
 }
 
 // ------------------------------------------------------------
-// UPLOAD DOCUMENTI → storage + public.shipment_documents
+// UPLOAD DOCUMENTI → stessa API del Back Office (/upload)
 // ------------------------------------------------------------
 async function uploadShipmentDocument(
   shipmentId: string,
   file: File,
   docType: DocType
 ) {
-  // Sanitize filename (no spazi)
-  const safeName = file.name.replace(/\s+/g, "_");
-  const path = `${shipmentId}/${docType}/${safeName}`;
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("type", docType);
 
-  // 1) Upload su bucket "shipment-docs"
-  const { error: uploadErr } = await supabase.storage
-    .from("shipment-docs")
-    .upload(path, file, { upsert: true });
+  const res = await fetch(
+    `/api/spedizioni/${encodeURIComponent(shipmentId)}/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
 
-  if (uploadErr) {
-    console.error("[uploadShipmentDocument] upload error:", uploadErr);
-    throw new Error("Errore upload file");
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok || !json?.ok) {
+    const msg =
+      json?.error || `${res.status} ${res.statusText}` || "Errore upload file";
+    console.error("[uploadShipmentDocument] error:", msg, json);
+    throw new Error(msg);
   }
 
-  // 2) Public URL
-  const { data: urlData } = supabase.storage
-    .from("shipment-docs")
-    .getPublicUrl(path);
-
-  const publicUrl = urlData?.publicUrl ?? null;
-
-  // 3) User per uploaded_by
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const uploadedBy = user?.id ?? null;
-
-  // 4) Insert nel DB (VIEW public.shipment_documents → tabella spst.shipment_documents)
-  const { error: dbErr } = await supabase.from("shipment_documents").insert({
-    shipment_id: shipmentId,
-    doc_type: docType,
-    storage_path: path,
-    file_name: file.name,
-    mime_type: file.type,
-    file_size: file.size,
-    storage_bucket: "shipment-docs",
-    url: publicUrl,
-    uploaded_by: uploadedBy,
-  });
-
-  if (dbErr) {
-    console.error("[uploadShipmentDocument] db insert error:", dbErr);
-    throw new Error("Errore salvataggio documento");
-  }
-
-  return { url: publicUrl, path };
+  // json.url contiene la public URL, se serve
+  return { url: json.url as string | undefined };
 }
 
 // ------------------------------------------------------------
@@ -378,7 +354,7 @@ export default function NuovaVinoPage() {
   const [sameAsDest, setSameAsDest] = useState(false);
   const [fatturaFile, setFatturaFile] = useState<File | undefined>(undefined);
 
-    const [pl, setPl] = useState<RigaPL[]>([
+  const [pl, setPl] = useState<RigaPL[]>([
     {
       etichetta: "",
       tipologia: "vino fermo",
@@ -392,7 +368,6 @@ export default function NuovaVinoPage() {
     },
   ]);
   // Niente upload file PL lato cliente: la packing list “file” la gestiamo da back office
-
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -453,9 +428,7 @@ export default function NuovaVinoPage() {
         if (r.gradazione == null || Number.isNaN(r.gradazione))
           out.push(`${idx}: gradazione alcolica (% vol) obbligatoria.`);
         else if (r.gradazione < 4 || r.gradazione > 25)
-          out.push(
-            `${idx}: gradazione fuori range plausibile (4–25% vol).`
-          );
+          out.push(`${idx}: gradazione fuori range plausibile (4–25% vol).`);
         if (r.peso_netto_bott == null || r.peso_netto_bott <= 0)
           out.push(
             `${idx}: peso netto/bottiglia (kg) obbligatorio.`
@@ -570,7 +543,8 @@ export default function NuovaVinoPage() {
       }
 
       // 3) Success UI
-      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
+      const id =
+        created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
@@ -965,11 +939,7 @@ export default function NuovaVinoPage() {
         </div>
       </div>
 
-           <PackingListVino
-        value={pl}
-        onChange={setPl}
-      />
-
+      <PackingListVino value={pl} onChange={setPl} />
 
       <ColliCard
         colli={colli}
