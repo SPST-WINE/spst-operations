@@ -390,46 +390,54 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   const plNote: string | null =
     (rawPL && (rawPL.note || rawPL.notes || null)) || null;
 
-  const plTotals = {
+    const plTotals = {
     totalItems: 0,
     totalQty: 0,
     totalNetKg: 0,
     totalGrossKg: 0,
   };
 
-  plRows.forEach((r) => {
-    const qty =
-      Number(
-        r.qta ??
-          r.quantita ??
-          r.qty ??
-          r.quantity ??
-          r.num ??
-          r.numero ??
-          0
-      ) || 0;
-    const net =
-      Number(
-        r.net_kg ??
-          r.peso_netto ??
-          r.netWeight ??
-          r.net_weight ??
-          0
-      ) || 0;
-    const gross =
-      Number(
-        r.gross_kg ??
-          r.peso_lordo ??
-          r.grossWeight ??
-          r.gross_weight ??
-          0
-      ) || 0;
+  plRows.forEach((r: any) => {
+    // Q.tà: supporta sia vecchi campi che il nuovo "bottiglie"
+    const qtyRaw =
+      r.qta ??
+      r.quantita ??
+      r.qty ??
+      r.quantity ??
+      r.num ??
+      r.numero ??
+      r.bottiglie ??
+      0;
+
+    const qty = Number(qtyRaw) || 0;
+
+    // Netto: usa net_kg/peso_netto se presenti, altrimenti
+    // qty * peso_netto_bott (nuovo formato della PL lato cliente)
+    const netRaw =
+      r.net_kg ??
+      r.peso_netto ??
+      r.netWeight ??
+      r.net_weight ??
+      (r.peso_netto_bott != null ? qty * Number(r.peso_netto_bott) : 0);
+
+    const net = Number(netRaw) || 0;
+
+    // Lordo: stesso discorso per peso_lordo_bott
+    const grossRaw =
+      r.gross_kg ??
+      r.peso_lordo ??
+      r.grossWeight ??
+      r.gross_weight ??
+      (r.peso_lordo_bott != null ? qty * Number(r.peso_lordo_bott) : 0);
+
+    const gross = Number(grossRaw) || 0;
 
     plTotals.totalItems += 1;
     plTotals.totalQty += qty;
     plTotals.totalNetKg += net;
     plTotals.totalGrossKg += gross;
   });
+
 
   return (
     <div className="space-y-6">
@@ -716,62 +724,86 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
                     <th className="px-3 py-2 text-left">Lordo (kg)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {plRows.map((r, idx) => {
-                    const desc =
-                      r.description ||
-                      r.descrizione ||
-                      r.nome ||
-                      r.label ||
-                      r.prodotto ||
-                      `Riga ${idx + 1}`;
+               <tbody className="divide-y divide-slate-100">
+  {plRows.map((r: any, idx: number) => {
+    const desc =
+      r.etichetta || // nuovo campo PL
+      r.description ||
+      r.descrizione ||
+      r.nome ||
+      r.label ||
+      r.prodotto ||
+      `Riga ${idx + 1}`;
 
-                    const qty =
-                      r.qta ??
-                      r.quantita ??
-                      r.qty ??
-                      r.quantity ??
-                      null;
+    const toNum = (v: any): number | null => {
+      if (v === null || v === undefined) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
 
-                    const net =
-                      r.net_kg ??
-                      r.peso_netto ??
-                      r.netWeight ??
-                      r.net_weight ??
-                      null;
+    const qtyRaw =
+      r.qta ??
+      r.quantita ??
+      r.qty ??
+      r.quantity ??
+      r.num ??
+      r.numero ??
+      r.bottiglie ??
+      null;
 
-                    const gross =
-                      r.gross_kg ??
-                      r.peso_lordo ??
-                      r.grossWeight ??
-                      r.gross_weight ??
-                      null;
+    const qty = toNum(qtyRaw);
 
-                    return (
-                      <tr key={r.id || idx} className="hover:bg-slate-50/70">
-                        <td className="px-3 py-2 align-middle text-slate-700">
-                          {idx + 1}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-slate-700">
-                          {desc}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-slate-700">
-                          {qty ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-slate-700">
-                          {typeof net === "number"
-                            ? net.toFixed(2)
-                            : net ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 align-middle text-slate-700">
-                          {typeof gross === "number"
-                            ? gross.toFixed(2)
-                            : gross ?? "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
+    // Netto per riga
+    let net = toNum(
+      r.net_kg ??
+        r.peso_netto ??
+        r.netWeight ??
+        r.net_weight
+    );
+
+    if (net == null && qty != null && r.peso_netto_bott != null) {
+      const per = toNum(r.peso_netto_bott) ?? 0;
+      net = qty * per;
+    }
+
+    // Lordo per riga
+    let gross = toNum(
+      r.gross_kg ??
+        r.peso_lordo ??
+        r.grossWeight ??
+        r.gross_weight
+    );
+
+    if (gross == null && qty != null && r.peso_lordo_bott != null) {
+      const per = toNum(r.peso_lordo_bott) ?? 0;
+      gross = qty * per;
+    }
+
+    return (
+      <tr key={r.id || idx} className="hover:bg-slate-50/70">
+        <td className="px-3 py-2 align-middle text-slate-700">
+          {idx + 1}
+        </td>
+        <td className="px-3 py-2 align-middle text-slate-700">
+          {desc}
+        </td>
+        <td className="px-3 py-2 align-middle text-slate-700">
+          {qty ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-middle text-slate-700">
+          {typeof net === "number"
+            ? net.toFixed(2)
+            : net ?? "—"}
+        </td>
+        <td className="px-3 py-2 align-middle text-slate-700">
+          {typeof gross === "number"
+            ? gross.toFixed(2)
+            : gross ?? "—"}
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
               </table>
             </div>
             {plNote && (
