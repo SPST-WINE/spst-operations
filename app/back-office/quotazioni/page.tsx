@@ -1,4 +1,5 @@
 // app/back-office/quotazioni/page.tsx
+import BackofficeQuotazioniClient from "@/components/backoffice/BackofficeQuotazioniClient";
 
 export const dynamic = "force-dynamic";
 
@@ -10,19 +11,12 @@ export default function BackofficeQuotazioniPage() {
       </h1>
 
       <p className="text-sm text-slate-600 max-w-2xl">
-        Da qui il back office potrà vedere le richieste di quotazione,
-        generare preventivi per i clienti e, quando confermati, trasformarli
-        in spedizioni.
+        Da qui il back office può vedere le richieste di quotazione inviate
+        dai clienti, creare una o più opzioni di preventivo, inviare il link
+        pubblico al cliente e monitorare lo stato (inviata / accettata / rifiutata).
       </p>
 
-      <div className="rounded-2xl border bg-white p-4 text-sm text-slate-500">
-        {/* Placeholder: da collegare a /api/quotazioni */}
-        Lista richieste di quotazione (Airtable / API{" "}
-        <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">
-          /api/quotazioni
-        </code>
-        ) + azioni per creare, modificare e confermare i preventivi.
-      </div>
+      <BackofficeQuotazioniClient />
     </div>
   );
 }
