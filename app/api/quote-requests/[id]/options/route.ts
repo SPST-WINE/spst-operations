@@ -70,7 +70,58 @@ export type QuoteOptionPayload = {
   status?: string | null; // bozza / inviata / vista / accettata / rifiutata / scaduta
 };
 
-// ---------- Handler -------------------------------------------------
+// se vuoi puoi tipizzare meglio, per ora la lasciamo generica
+export type QuoteOptionRow = Record<string, any>;
+
+// ---------- GET: lista opzioni per una richiesta --------------------
+
+export async function GET(
+  _req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const { id: quoteId } = context.params;
+
+  if (!quoteId) {
+    return jsonError(400, "MISSING_QUOTE_ID");
+  }
+
+  const supabase = makeSupabase();
+  if (!supabase) {
+    return jsonError(500, "NO_SUPABASE_CONFIG");
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("quote_options")
+      .select("*")
+      .eq("quote_id", quoteId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error(
+        "[API/quote-requests/:id/options:GET] DB error",
+        error.message
+      );
+      return jsonError(500, "DB_ERROR", { message: error.message });
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        options: (data || []) as QuoteOptionRow[],
+      },
+      { status: 200 }
+    );
+  } catch (e: any) {
+    console.error(
+      "[API/quote-requests/:id/options:GET] ERROR",
+      e?.message || e
+    );
+    return jsonError(500, "SERVER_ERROR", { message: e?.message });
+  }
+}
+
+// ---------- POST: crea / aggiorna opzione ---------------------------
 
 export async function POST(
   req: NextRequest,
@@ -95,7 +146,6 @@ export async function POST(
     return jsonError(400, "INVALID_JSON");
   }
 
-  // estraggo i campi con default sensati
   const {
     optionId,
 
@@ -131,7 +181,6 @@ export async function POST(
     computedTotal = freight + customs + extrasTotal;
   }
 
-  // payload comune per insert/update
   const payload: Record<string, any> = {
     quote_id: quoteId,
     label: label ?? null,
@@ -154,7 +203,7 @@ export async function POST(
   };
 
   try {
-    // prima mi assicuro che la quote esista
+    // verifica che la quote esista
     const { data: quoteRow, error: quoteErr } = await supabase
       .from("quotes")
       .select("id")
@@ -170,8 +219,9 @@ export async function POST(
     }
 
     let result;
+
     if (optionId) {
-      // UPDATE di una opzione esistente
+      // UPDATE opzione esistente
       const { data, error } = await supabase
         .from("quote_options")
         .update(payload)
@@ -190,7 +240,7 @@ export async function POST(
 
       result = data;
     } else {
-      // INSERT di una nuova opzione
+      // INSERT nuova opzione
       const { data, error } = await supabase
         .from("quote_options")
         .insert({
@@ -214,7 +264,7 @@ export async function POST(
     return NextResponse.json(
       {
         ok: true,
-        option: result as unknown, // se vuoi puoi tipizzare come QuoteOptionRow
+        option: result as unknown as QuoteOptionRow,
       },
       { status: 200 }
     );
