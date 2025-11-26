@@ -64,6 +64,7 @@ export type QuoteDetail = {
   mittente: any | null;
   destinatario: any | null;
   colli: any | null;
+  contenuto_colli: string | null;
   public_token: string | null;
   accepted_option_id: string | null;
   updated_at: string | null;
@@ -76,8 +77,6 @@ type QuotePatchPayload = {
   public_token?: string | null;
   generatePublicToken?: boolean;
 };
-
-// ---------- GET: dettaglio richiesta --------------------------------
 
 // ---------- GET: dettaglio richiesta --------------------------------
 
@@ -117,6 +116,7 @@ export async function GET(
           "mittente",
           "destinatario",
           "colli",
+          "contenuto_colli",
           "public_token",
           "accepted_option_id",
           "updated_at",
@@ -135,39 +135,10 @@ export async function GET(
       return jsonError(404, "NOT_FOUND");
     }
 
-    // 🔍 Ricavo i dati da `fields` se le colonne dedicate sono vuote
-    const row: any = data;
-    const fields = row.fields || {};
-
-    const mittente =
-      row.mittente ||
-      fields.mittente ||
-      fields.mittente_json ||
-      null;
-
-    const destinatario =
-      row.destinatario ||
-      fields.destinatario ||
-      fields.destinatario_json ||
-      null;
-
-    const colli =
-      row.colli ||
-      fields.colli ||
-      fields.colli_debug ||
-      null;
-
-    const quotePayload = {
-      ...row,
-      mittente,
-      destinatario,
-      colli,
-    } as QuoteDetail;
-
     return NextResponse.json(
       {
         ok: true,
-        quote: quotePayload,
+        quote: data as unknown as QuoteDetail,
       },
       { status: 200 }
     );
@@ -267,6 +238,7 @@ export async function PATCH(
           "mittente",
           "destinatario",
           "colli",
+          "contenuto_colli",
           "public_token",
           "accepted_option_id",
           "updated_at",
