@@ -6,8 +6,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// ---------- Helpers -------------------------------------------------
-
 function makeSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key =
@@ -44,57 +42,83 @@ function jsonError(
   );
 }
 
-// ---------- Tipi ----------------------------------------------------
+type OptionRow = {
+  id: string;
+  quote_id: string;
+  label: string | null;
+  carrier: string | null;
+  service_name: string | null;
+  transit_time: string | null;
+  freight_price: number | null;
+  customs_price: number | null;
+  total_price: number | null;
+  currency: string | null;
+  public_notes: string | null;
+  internal_cost: number | null;
+  internal_profit: number | null;
+  status: string | null;
+  show_vat: boolean | null;
+  vat_rate: number | null;
+  sent_at: string | null;
+  created_at: string | null;
+};
 
-export type QuoteOptionPayload = {
-  optionId?: string | null; // se presente -> update, altrimenti insert
-
-  label?: string | null; // "Opzione A", "Opzione B", ecc.
+type OptionCreatePayload = {
+  label?: string | null;
   carrier?: string | null;
   service_name?: string | null;
   transit_time?: string | null;
-
   freight_price?: number | null;
   customs_price?: number | null;
-  extras?: { label: string; amount: number }[] | null;
   total_price?: number | null;
   currency?: string | null;
-
   public_notes?: string | null;
-  visible_to_client?: boolean | null;
-
   internal_cost?: number | null;
   internal_profit?: number | null;
-  internal_notes?: string | null;
-
-  status?: string | null; // bozza / inviata / vista / accettata / rifiutata / scaduta
+  visible_to_client?: boolean;
+  status?: string | null;
+  show_vat?: boolean;
+  vat_rate?: number | null;
 };
 
-// se vuoi puoi tipizzare meglio, per ora la lasciamo generica
-export type QuoteOptionRow = Record<string, any>;
-
-// ---------- GET: lista opzioni per una richiesta --------------------
+// ---------------- GET ----------------
 
 export async function GET(
   _req: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { id: quoteId } = context.params;
-
-  if (!quoteId) {
-    return jsonError(400, "MISSING_QUOTE_ID");
-  }
+  const { id } = context.params;
+  if (!id) return jsonError(400, "MISSING_QUOTE_ID");
 
   const supabase = makeSupabase();
-  if (!supabase) {
-    return jsonError(500, "NO_SUPABASE_CONFIG");
-  }
+  if (!supabase) return jsonError(500, "NO_SUPABASE_CONFIG");
 
   try {
     const { data, error } = await supabase
       .from("quote_options")
-      .select("*")
-      .eq("quote_id", quoteId)
+      .select(
+        [
+          "id",
+          "quote_id",
+          "label",
+          "carrier",
+          "service_name",
+          "transit_time",
+          "freight_price",
+          "customs_price",
+          "total_price",
+          "currency",
+          "public_notes",
+          "internal_cost",
+          "internal_profit",
+          "status",
+          "show_vat",
+          "vat_rate",
+          "sent_at",
+          "created_at",
+        ].join(", ")
+      )
+      .eq("quote_id", id)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -108,7 +132,7 @@ export async function GET(
     return NextResponse.json(
       {
         ok: true,
-        options: (data || []) as QuoteOptionRow[],
+        options: (data || []) as unknown as OptionRow[],
       },
       { status: 200 }
     );
@@ -121,155 +145,100 @@ export async function GET(
   }
 }
 
-// ---------- POST: crea / aggiorna opzione ---------------------------
+// ---------------- POST ----------------
 
 export async function POST(
   req: NextRequest,
   context: { params: { id: string } }
 ) {
-  const { id: quoteId } = context.params;
-
-  if (!quoteId) {
-    return jsonError(400, "MISSING_QUOTE_ID");
-  }
+  const { id } = context.params;
+  if (!id) return jsonError(400, "MISSING_QUOTE_ID");
 
   const supabase = makeSupabase();
-  if (!supabase) {
-    return jsonError(500, "NO_SUPABASE_CONFIG");
-  }
+  if (!supabase) return jsonError(500, "NO_SUPABASE_CONFIG");
 
-  let body: QuoteOptionPayload;
+  let body: OptionCreatePayload;
   try {
-    body = (await req.json()) as QuoteOptionPayload;
+    body = (await req.json()) as OptionCreatePayload;
   } catch (e: any) {
-    console.error("[API/quote-requests/:id/options:POST] Invalid JSON", e);
+    console.error(
+      "[API/quote-requests/:id/options:POST] invalid json",
+      e?.message || e
+    );
     return jsonError(400, "INVALID_JSON");
   }
 
-  const {
-    optionId,
+  const now = new Date().toISOString();
 
-    label,
-    carrier,
-    service_name,
-    transit_time,
-
-    freight_price,
-    customs_price,
-    extras,
-    total_price,
-    currency,
-
-    public_notes,
-    visible_to_client,
-
-    internal_cost,
-    internal_profit,
-    internal_notes,
-
-    status,
-  } = body;
-
-  // calcolo totale se non passato, usando freight + customs + extras
-  let computedTotal = total_price ?? null;
-  const freight = freight_price ?? 0;
-  const customs = customs_price ?? 0;
-  const extrasTotal =
-    (extras || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0) || 0;
-
-  if (computedTotal === null && (freight || customs || extrasTotal)) {
-    computedTotal = freight + customs + extrasTotal;
-  }
-
-  const payload: Record<string, any> = {
-    quote_id: quoteId,
-    label: label ?? null,
-    carrier: carrier ?? null,
-    service_name: service_name ?? null,
-    transit_time: transit_time ?? null,
-    freight_price: freight_price ?? null,
-    customs_price: customs_price ?? null,
-    extras: extras ?? null,
-    total_price: computedTotal,
-    currency: currency ?? "EUR",
-    public_notes: public_notes ?? null,
-    visible_to_client:
-      typeof visible_to_client === "boolean" ? visible_to_client : true,
-    internal_cost: internal_cost ?? null,
-    internal_profit: internal_profit ?? null,
-    internal_notes: internal_notes ?? null,
-    status: status ?? "bozza",
-    updated_at: new Date().toISOString(),
+  const insertObj: Record<string, any> = {
+    quote_id: id,
+    label: body.label ?? null,
+    carrier: body.carrier ?? null,
+    service_name: body.service_name ?? null,
+    transit_time: body.transit_time ?? null,
+    freight_price: body.freight_price ?? null,
+    customs_price: body.customs_price ?? null,
+    total_price: body.total_price ?? null,
+    currency: body.currency || "EUR",
+    public_notes: body.public_notes ?? null,
+    internal_cost: body.internal_cost ?? null,
+    internal_profit: body.internal_profit ?? null,
+    visible_to_client: body.visible_to_client ?? true,
+    status: body.status || "bozza",
+    show_vat: body.show_vat ?? false,
+    vat_rate: body.vat_rate ?? null,
+    created_at: now,
+    updated_at: now,
   };
 
   try {
-    // verifica che la quote esista
-    const { data: quoteRow, error: quoteErr } = await supabase
-      .from("quotes")
-      .select("id")
-      .eq("id", quoteId)
+    const { data, error } = await supabase
+      .from("quote_options")
+      .insert(insertObj)
+      .select(
+        [
+          "id",
+          "quote_id",
+          "label",
+          "carrier",
+          "service_name",
+          "transit_time",
+          "freight_price",
+          "customs_price",
+          "total_price",
+          "currency",
+          "public_notes",
+          "internal_cost",
+          "internal_profit",
+          "status",
+          "show_vat",
+          "vat_rate",
+          "sent_at",
+          "created_at",
+        ].join(", ")
+      )
       .single();
 
-    if (quoteErr || !quoteRow) {
+    if (error) {
       console.error(
-        "[API/quote-requests/:id/options:POST] Quote not found",
-        quoteErr
+        "[API/quote-requests/:id/options:POST] DB error",
+        error.message
       );
-      return jsonError(404, "QUOTE_NOT_FOUND");
-    }
-
-    let result;
-
-    if (optionId) {
-      // UPDATE opzione esistente
-      const { data, error } = await supabase
-        .from("quote_options")
-        .update(payload)
-        .eq("id", optionId)
-        .eq("quote_id", quoteId)
-        .select("*")
-        .single();
-
-      if (error) {
-        console.error(
-          "[API/quote-requests/:id/options:POST] UPDATE error",
-          error
-        );
-        return jsonError(500, "DB_UPDATE_ERROR", { message: error.message });
-      }
-
-      result = data;
-    } else {
-      // INSERT nuova opzione
-      const { data, error } = await supabase
-        .from("quote_options")
-        .insert({
-          ...payload,
-          created_at: new Date().toISOString(),
-        })
-        .select("*")
-        .single();
-
-      if (error) {
-        console.error(
-          "[API/quote-requests/:id/options:POST] INSERT error",
-          error
-        );
-        return jsonError(500, "DB_INSERT_ERROR", { message: error.message });
-      }
-
-      result = data;
+      return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
     return NextResponse.json(
       {
         ok: true,
-        option: result as unknown as QuoteOptionRow,
+        option: data as unknown as OptionRow,
       },
-      { status: 200 }
+      { status: 201 }
     );
   } catch (e: any) {
-    console.error("[API/quote-requests/:id/options:POST] ERROR", e?.message);
+    console.error(
+      "[API/quote-requests/:id/options:POST] ERROR",
+      e?.message || e
+    );
     return jsonError(500, "SERVER_ERROR", { message: e?.message });
   }
 }
