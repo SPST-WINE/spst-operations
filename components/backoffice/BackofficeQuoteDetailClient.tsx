@@ -26,6 +26,7 @@ type QuoteDetail = {
   mittente: any | null;
   destinatario: any | null;
   colli: any | null;
+  contenuto_colli: string | null;
   public_token: string | null;
   accepted_option_id: string | null;
   updated_at: string | null;
@@ -137,6 +138,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // stato base "nuova opzione" (form semplice per ora)
   const [newOption, setNewOption] = useState({
     label: "Opzione A",
     carrier: "",
@@ -151,7 +153,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     internal_profit: "",
     visible_to_client: true,
     show_vat: false,
-    vat_rate: "22",
+    vat_rate: "22", // default B2B Italia
   });
   const [optionMsg, setOptionMsg] = useState<string | null>(null);
 
@@ -282,6 +284,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
 
+      // rimuovi l'opzione dallo stato locale
       setOptions((prev) => prev.filter((opt) => opt.id !== optionId));
     } catch (e: any) {
       console.error("Errore durante eliminazione opzione:", e);
@@ -351,6 +354,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
 
+      // aggiorno lista opzioni
       setOptions((prev) => [...prev, json.option as QuoteOptionRow]);
 
       setOptionMsg("Opzione salvata come bozza.");
@@ -378,35 +382,11 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     };
   }, [quote]);
 
-  // array colli “pulito” (da colonna dedicata o da fields)
-  const colliArray = useMemo(() => {
-    if (!quote) return [] as any[];
-    const fromColonna =
-      quote.colli && Array.isArray(quote.colli) ? quote.colli : null;
-    const fromFields =
-      quote.fields?.colli && Array.isArray(quote.fields.colli)
-        ? quote.fields.colli
-        : null;
-    return (fromColonna || fromFields || []) as any[];
-  }, [quote]);
-
-  const colliSummary = useMemo(() => {
-    let pieces = 0;
-    let weight = 0;
-    for (const c of colliArray) {
-      const q =
-        typeof c?.quantita === "number" && !Number.isNaN(c.quantita)
-          ? c.quantita
-          : 1;
-      const w =
-        typeof c?.peso_kg === "number" && !Number.isNaN(c.peso_kg)
-          ? c.peso_kg
-          : 0;
-      pieces += q;
-      weight += q * w;
-    }
-    return { pieces, weight };
-  }, [colliArray]);
+  const contenutoColli: string =
+    quote?.contenuto_colli ??
+    (quote?.fields?.contenutoColli as string | undefined) ??
+    (quote?.fields?.contenuto_colli as string | undefined) ??
+    "";
 
   // ------- Render ----------------------------------------------------------------
 
@@ -506,7 +486,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             )}
           </div>
 
-          {/* Mittente / Destinatario */}
+          {/* Mittente / Destinatario con toggle JSON */}
           <div className="rounded-2xl border bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -601,14 +581,17 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </div>
           </div>
 
-          {/* Colli / dati tecnici */}
+          {/* Colli / contenuto colli / debug JSON con toggle */}
           <div className="rounded-2xl border bg-white p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Colli &amp; dati tecnici
               </h2>
 
-              {colliArray.length > 0 && (
+              {(quote?.colli ||
+                contenutoColli ||
+                quote?.fields?.colli ||
+                quote?.fields?.colli_debug) && (
                 <button
                   type="button"
                   onClick={() => setShowColliJson((v) => !v)}
@@ -621,67 +604,46 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               )}
             </div>
 
-            {colliArray.length > 0 ? (
-              <>
-                <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
-                  <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-600">
-                    <span>
-                      {colliSummary.pieces} colli · Peso totale{" "}
-                      {colliSummary.weight.toLocaleString("it-IT", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      kg
-                    </span>
-                  </div>
+            {/* Contenuto colli */}
+            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
+              <div className="text-[11px] font-medium text-slate-500">
+                Contenuto colli
+              </div>
+              <div className="mt-1 whitespace-pre-wrap">
+                {contenutoColli && contenutoColli.trim() !== ""
+                  ? contenutoColli
+                  : "—"}
+              </div>
+            </div>
 
-                  <div className="mt-2 overflow-x-auto">
-                    <table className="min-w-full border-separate border-spacing-y-1 text-[11px]">
-                      <thead className="text-slate-500">
-                        <tr>
-                          <th className="text-left pr-3">#</th>
-                          <th className="text-left pr-3">Qtà</th>
-                          <th className="text-left pr-3">Dimensioni (cm)</th>
-                          <th className="text-left">Peso (kg)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {colliArray.map((c, idx) => (
-                          <tr key={idx} className="rounded-lg bg-white">
-                            <td className="py-1 pr-3 align-top text-slate-500">
-                              {idx + 1}
-                            </td>
-                            <td className="py-1 pr-3 align-top">
-                              {c?.quantita ?? 1}
-                            </td>
-                            <td className="py-1 pr-3 align-top">
-                              {(c?.lunghezza_cm ?? "—") +
-                                " × " +
-                                (c?.larghezza_cm ?? "—") +
-                                " × " +
-                                (c?.altezza_cm ?? "—")}
-                            </td>
-                            <td className="py-1 align-top">
-                              {c?.peso_kg != null ? c.peso_kg : "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+            {/* Colli JSON "leggibile" */}
+            {quote.colli ? (
+              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
+                <div className="text-[11px] font-medium text-slate-500">
+                  Colli
                 </div>
-
-                {showColliJson && (
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
-                    {JSON.stringify(colliArray, null, 2)}
-                  </pre>
-                )}
-              </>
+                <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
+                  {JSON.stringify(quote.colli, null, 2)}
+                </pre>
+              </div>
             ) : (
               <p className="mt-2 text-xs text-slate-500">
                 I dettagli dei colli sono presenti nel JSON originale della
                 richiesta.
               </p>
+            )}
+
+            {showColliJson && (
+              <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
+                {JSON.stringify(
+                  quote?.colli ??
+                    quote?.fields?.colli ??
+                    quote?.fields?.colli_debug ??
+                    [],
+                  null,
+                  2,
+                )}
+              </pre>
             )}
           </div>
         </div>
@@ -1104,7 +1066,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </form>
           </div>
 
-          {/* TODO: invio email via Resend */}
+          {/* TODO: qui potremo aggiungere "Invia email al cliente" con Resend */}
           <div className="rounded-2xl border border-dashed bg-slate-50/60 p-3 text-[11px] text-slate-500">
             In un secondo step qui colleghiamo il bottone per{" "}
             <span className="font-medium">
