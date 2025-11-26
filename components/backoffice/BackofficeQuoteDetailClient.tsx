@@ -139,22 +139,27 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
 
   // stato base "nuova opzione" (form semplice per ora)
   const [newOption, setNewOption] = useState({
-  label: "Opzione A",
-  carrier: "",
-  service_name: "",
-  transit_time: "",
-  freight_price: "",
-  customs_price: "",
-  total_price: "",
-  currency: "EUR",
-  public_notes: "",
-  internal_cost: "",
-  internal_profit: "",
-  visible_to_client: true,
-  show_vat: false,
-  vat_rate: "22", // default B2B Italia
-});
+    label: "Opzione A",
+    carrier: "",
+    service_name: "",
+    transit_time: "",
+    freight_price: "",
+    customs_price: "",
+    total_price: "",
+    currency: "EUR",
+    public_notes: "",
+    internal_cost: "",
+    internal_profit: "",
+    visible_to_client: true,
+    show_vat: false,
+    vat_rate: "22", // default B2B Italia
+  });
   const [optionMsg, setOptionMsg] = useState<string | null>(null);
+
+  // Toggle JSON completo per mittente/destinatario/colli
+  const [showMittenteJson, setShowMittenteJson] = useState(false);
+  const [showDestinatarioJson, setShowDestinatarioJson] = useState(false);
+  const [showColliJson, setShowColliJson] = useState(false);
 
   const publicUrl = useMemo(() => {
     if (!quote?.public_token) return null;
@@ -423,10 +428,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 label="Email cliente"
                 value={quote.email_cliente || "—"}
               />
-              <InfoRow
-                label="Origine"
-                value={quote.origin || "dashboard"}
-              />
+              <InfoRow label="Origine" value={quote.origin || "dashboard"} />
             </div>
 
             {quote.note_generiche && (
@@ -441,7 +443,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             )}
           </div>
 
-          {/* Mittente / Destinatario (per ora leggiamo raw) */}
+          {/* Mittente / Destinatario con toggle JSON */}
           <div className="rounded-2xl border bg-white p-4">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -450,49 +452,113 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </div>
 
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                  Mittente
+              {/* MITTENTE */}
+              <div className="rounded-xl border bg-white p-4 shadow-sm">
+                <div className="mb-2 text-sm font-semibold">MITTENTE</div>
+
+                <div className="text-sm font-medium">
+                  {quote?.mittente?.ragioneSociale || "—"}
                 </div>
-                <div className="mt-1 text-xs text-slate-800">
-                  {quote.mittente ? (
-                    <pre className="whitespace-pre-wrap break-words text-[11px]">
-                      {JSON.stringify(quote.mittente, null, 2)}
-                    </pre>
-                  ) : (
-                    <span className="text-slate-500">
-                      Dati mittente nel JSON originale.
-                    </span>
-                  )}
+                <div className="text-sm text-slate-600">
+                  {[
+                    quote?.mittente?.indirizzo,
+                    quote?.mittente?.cap,
+                    quote?.mittente?.citta,
+                    quote?.mittente?.paese,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "—"}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMittenteJson((v) => !v)}
+                  className="mt-2 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+                >
+                  {showMittenteJson
+                    ? "Nascondi dati mittente nel JSON originale"
+                    : "Vedi dati mittente nel JSON originale"}
+                </button>
+
+                {showMittenteJson && (
+                  <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
+                    {JSON.stringify(
+                      quote?.mittente ??
+                        quote?.fields?.mittente ??
+                        quote?.fields?.mittente_json ??
+                        {},
+                      null,
+                      2,
+                    )}
+                  </pre>
+                )}
               </div>
-              <div className="rounded-xl bg-slate-50 p-3">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                  Destinatario
+
+              {/* DESTINATARIO */}
+              <div className="rounded-xl border bg-white p-4 shadow-sm">
+                <div className="mb-2 text-sm font-semibold">DESTINATARIO</div>
+
+                <div className="text-sm font-medium">
+                  {quote?.destinatario?.ragioneSociale || "—"}
                 </div>
-                <div className="mt-1 text-xs text-slate-800">
-                  {quote.destinatario ? (
-                    <pre className="whitespace-pre-wrap break-words text-[11px]">
-                      {JSON.stringify(quote.destinatario, null, 2)}
-                    </pre>
-                  ) : (
-                    <span className="text-slate-500">
-                      Dati destinatario nel JSON originale.
-                    </span>
-                  )}
+                <div className="text-sm text-slate-600">
+                  {[
+                    quote?.destinatario?.indirizzo,
+                    quote?.destinatario?.cap,
+                    quote?.destinatario?.citta,
+                    quote?.destinatario?.paese,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "—"}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowDestinatarioJson((v) => !v)}
+                  className="mt-2 text-[11px] text-slate-500 underline-offset-2 hover:underline"
+                >
+                  {showDestinatarioJson
+                    ? "Nascondi dati destinatario nel JSON originale"
+                    : "Vedi dati destinatario nel JSON originale"}
+                </button>
+
+                {showDestinatarioJson && (
+                  <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
+                    {JSON.stringify(
+                      quote?.destinatario ??
+                        quote?.fields?.destinatario ??
+                        quote?.fields?.destinatario_json ??
+                        {},
+                      null,
+                      2,
+                    )}
+                  </pre>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Colli / debug JSON */}
+          {/* Colli / debug JSON con toggle */}
           <div className="rounded-2xl border bg-white p-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="mb-2 flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Colli &amp; dati tecnici
               </h2>
+
+              {quote?.colli && (
+                <button
+                  type="button"
+                  onClick={() => setShowColliJson((v) => !v)}
+                  className="text-[11px] font-normal text-slate-500 underline-offset-2 hover:underline"
+                >
+                  {showColliJson
+                    ? "Nascondi JSON completo"
+                    : "Vedi JSON completo (debug)"}
+                </button>
+              )}
             </div>
 
+            {/* riepilogo/JSON colli che avevi già */}
             {quote.colli ? (
               <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
                 <div className="text-[11px] font-medium text-slate-500">
@@ -509,14 +575,30 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               </p>
             )}
 
+            {showColliJson && (
+              <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
+                {JSON.stringify(
+                  quote?.colli ??
+                    quote?.fields?.colli ??
+                    quote?.fields?.colli_debug ??
+                    [],
+                  null,
+                  2,
+                )}
+              </pre>
+            )}
+
+            {/* se ti serve ancora il JSON totale raw, puoi lasciare questo block: */}
+            {/* 
             <details className="mt-3">
               <summary className="cursor-pointer text-[11px] text-slate-500">
-                Vedi JSON completo (debug)
+                Vedi JSON completo richiesta (raw)
               </summary>
               <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900/95 p-3 text-[11px] text-slate-100">
                 {JSON.stringify(quote.fields, null, 2)}
               </pre>
             </details>
+            */}
           </div>
         </div>
 
@@ -643,7 +725,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                               <span className="h-1 w-1 rounded-full bg-slate-300" />
                               <span>
                                 Costo interno:{" "}
-                                {formatCurrency(o.internal_cost, o.currency)}
+                                  {formatCurrency(o.internal_cost, o.currency)}
                               </span>
                             </>
                           )}
@@ -724,9 +806,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-slate-500">
-                    Servizio
-                  </label>
+                  <label className="mb-1 block text-slate-500">Servizio</label>
                   <input
                     type="text"
                     value={newOption.service_name}
@@ -759,9 +839,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
 
               <div className="grid gap-2 sm:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-slate-500">
-                    Nolo (€)
-                  </label>
+                  <label className="mb-1 block text-slate-500">Nolo (€)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -847,40 +925,43 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                   />
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-  <label className="inline-flex cursor-pointer items-center gap-2 text-[11px] text-slate-600">
-    <input
-      type="checkbox"
-      checked={newOption.show_vat}
-      onChange={(e) =>
-        setNewOption((prev) => ({
-          ...prev,
-          show_vat: e.target.checked,
-        }))
-      }
-      className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-    />
-    <span>Mostra prezzi IVA inclusa al cliente</span>
-  </label>
 
-  <div className="flex items-center gap-2">
-    <span className="text-[11px] text-slate-500">Aliquota IVA (%)</span>
-    <input
-      type="number"
-      min={0}
-      max={99}
-      step={0.1}
-      value={newOption.vat_rate}
-      onChange={(e) =>
-        setNewOption((prev) => ({
-          ...prev,
-          vat_rate: e.target.value,
-        }))
-      }
-      className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
-    />
-  </div>
-</div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-[11px] text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={newOption.show_vat}
+                    onChange={(e) =>
+                      setNewOption((prev) => ({
+                        ...prev,
+                        show_vat: e.target.checked,
+                      }))
+                    }
+                    className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                  />
+                  <span>Mostra prezzi IVA inclusa al cliente</span>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-500">
+                    Aliquota IVA (%)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    step={0.1}
+                    value={newOption.vat_rate}
+                    onChange={(e) =>
+                      setNewOption((prev) => ({
+                        ...prev,
+                        vat_rate: e.target.value,
+                      }))
+                    }
+                    className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                  />
+                </div>
+              </div>
 
               <div>
                 <label className="mb-1 block text-slate-500">
