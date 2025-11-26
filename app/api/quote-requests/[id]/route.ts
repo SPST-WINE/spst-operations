@@ -79,6 +79,8 @@ type QuotePatchPayload = {
 
 // ---------- GET: dettaglio richiesta --------------------------------
 
+// ---------- GET: dettaglio richiesta --------------------------------
+
 export async function GET(
   _req: NextRequest,
   context: { params: { id: string } }
@@ -133,10 +135,39 @@ export async function GET(
       return jsonError(404, "NOT_FOUND");
     }
 
+    // 🔍 Ricavo i dati da `fields` se le colonne dedicate sono vuote
+    const row: any = data;
+    const fields = row.fields || {};
+
+    const mittente =
+      row.mittente ||
+      fields.mittente ||
+      fields.mittente_json ||
+      null;
+
+    const destinatario =
+      row.destinatario ||
+      fields.destinatario ||
+      fields.destinatario_json ||
+      null;
+
+    const colli =
+      row.colli ||
+      fields.colli ||
+      fields.colli_debug ||
+      null;
+
+    const quotePayload = {
+      ...row,
+      mittente,
+      destinatario,
+      colli,
+    } as QuoteDetail;
+
     return NextResponse.json(
       {
         ok: true,
-        quote: data as unknown as QuoteDetail,
+        quote: quotePayload,
       },
       { status: 200 }
     );
