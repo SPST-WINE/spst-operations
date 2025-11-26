@@ -62,6 +62,8 @@ type QuoteCreatePayload = {
   incoterm?: "DAP" | "DDP" | "EXW";
   createdByEmail?: string;
   customerEmail?: string;
+  // 👇 NUOVO
+  contenutoColli?: string;
 };
 
 // ---------- POST: crea preventivo -----------------------------------
@@ -98,29 +100,25 @@ export async function POST(req: NextRequest) {
     const dataRitiroDate =
       body.ritiroData ? new Date(body.ritiroData).toISOString().slice(0, 10) : null;
 
-    const { data, error } = await supabase
+        const { data, error } = await supabase
       .from("quotes")
       .insert({
         status: "In lavorazione",
+        incoterm: body.incoterm,
         declared_value: null,
-
-        // colonne "di testa"
-        incoterm: body.incoterm ?? null,
-        origin: "dashboard",
-
+        // colonne normalizzate
+        data_ritiro: body.ritiroData ? body.ritiroData.slice(0, 10) : null,
+        tipo_spedizione: body.tipoSped || null,
+        valuta: body.valuta || null,
+        note_generiche: body.noteGeneriche || null,
         email_cliente: customerEmail,
         creato_da_email: createdByEmail,
-        data_ritiro: dataRitiroDate,
-        tipo_spedizione: body.tipoSped ?? null,
-        valuta: body.valuta ?? "EUR",
-        note_generiche: body.noteGeneriche ?? null,
-
-        // JSON strutturati
-        mittente: body.mittente ?? null,
-        destinatario: body.destinatario ?? null,
-        colli: body.colli ?? null,
-
-        // payload completo per debug/compat
+        mittente: body.mittente || null,
+        destinatario: body.destinatario || null,
+        colli: Array.isArray(body.colli) ? body.colli : null,
+        // 👇 nuova colonna
+        contenuto_colli: body.contenutoColli || null,
+        // JSON completo (lasciamo tutto anche qui)
         fields,
       })
       .select("id")
