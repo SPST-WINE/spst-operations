@@ -26,7 +26,6 @@ type QuoteDetail = {
   mittente: any | null;
   destinatario: any | null;
   colli: any | null;
-  contenuto_colli: string | null;
   public_token: string | null;
   accepted_option_id: string | null;
   updated_at: string | null;
@@ -126,6 +125,34 @@ function InfoRow({
   );
 }
 
+// chiavi tolleranti per i colli (come pagina cliente)
+const QTY_KEYS = ["quantita", "Quantita", "Quantità", "Qty", "Q.ta"];
+const L_KEYS = ["lunghezza_cm", "L_cm", "Lato 1", "Lato1", "Lunghezza", "L"];
+const W_KEYS = ["larghezza_cm", "W_cm", "Lato 2", "Lato2", "Larghezza", "W"];
+const H_KEYS = ["altezza_cm", "H_cm", "Lato 3", "Lato3", "Altezza", "H"];
+const PESO_KEYS = [
+  "peso_kg",
+  "Peso",
+  "Peso (Kg)",
+  "Peso_Kg",
+  "Kg",
+  "Weight",
+];
+
+function pickNumber(f: any, keys: string[]) {
+  for (const k of keys) {
+    const v = f?.[k];
+    const n =
+      typeof v === "number"
+        ? v
+        : v != null && v !== ""
+        ? Number(String(v).replace(",", "."))
+        : NaN;
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
 export default function BackofficeQuoteDetailClient({ id }: Props) {
   const [quote, setQuote] = useState<QuoteDetail | null>(null);
   const [options, setOptions] = useState<QuoteOptionRow[]>([]);
@@ -138,7 +165,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // stato base "nuova opzione" (form semplice per ora)
+  // stato base "nuova opzione"
   const [newOption, setNewOption] = useState({
     label: "Opzione A",
     carrier: "",
@@ -153,7 +180,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     internal_profit: "",
     visible_to_client: true,
     show_vat: false,
-    vat_rate: "22", // default B2B Italia
+    vat_rate: "22",
   });
   const [optionMsg, setOptionMsg] = useState<string | null>(null);
 
@@ -284,7 +311,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
 
-      // rimuovi l'opzione dallo stato locale
       setOptions((prev) => prev.filter((opt) => opt.id !== optionId));
     } catch (e: any) {
       console.error("Errore durante eliminazione opzione:", e);
@@ -354,7 +380,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
 
-      // aggiorno lista opzioni
       setOptions((prev) => [...prev, json.option as QuoteOptionRow]);
 
       setOptionMsg("Opzione salvata come bozza.");
@@ -382,13 +407,55 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     };
   }, [quote]);
 
-  const contenutoColli: string =
-    quote?.contenuto_colli ??
-    (quote?.fields?.contenutoColli as string | undefined) ??
-    (quote?.fields?.contenuto_colli as string | undefined) ??
-    "";
+  // colli: array normalizzato + totals
+  const parsedColli = useMemo(() => {
+    if (!quote) return { rows: [] as any[], totalQty: 0, totalWeight: 0 };
 
-  // ------- Render ----------------------------------------------------------------
+    const raw =
+      (Array.isArray(quote.colli) && quote.colli) ||
+      (Array.isArray(quote.fields?.colli) && quote.fields.colli) ||
+      [];
+
+    const rows: {
+      i: number;
+      qty: number;
+      dims: string;
+      peso: number | string;
+    }[] = [];
+    let totalQty = 0;
+    let totalWeight = 0;
+
+    (raw as any[]).forEach((c, idx) => {
+      const cf = c || {};
+      const qty = pickNumber(cf, QTY_KEYS) ?? 1;
+      const L = pickNumber(cf, L_KEYS);
+      const W = pickNumber(cf, W_KEYS);
+      const H = pickNumber(cf, H_KEYS);
+      const peso =
+        pickNumber(cf, PESO_KEYS) ??
+        undefined;
+
+      const dimsParts = [L, W, H].map((n) => (n != null ? String(n) : "—"));
+      const dims =
+        L == null && W == null && H == null
+          ? "—"
+          : `${dimsParts[0]} × ${dimsParts[1]} × ${dimsParts[2]}`;
+
+      rows.push({
+        i: idx + 1,
+        qty,
+        dims,
+        peso: peso ?? "—",
+      });
+
+      totalQty += qty || 0;
+      if (peso != null) {
+        totalWeight += (peso || 0) * (qty || 1);
+      }
+    });
+
+    return { rows, totalQty, totalWeight };
+  }, [quote]);
 
   if (loading && !quote) {
     return (
@@ -408,6 +475,18 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
       </div>
     );
   }
+
+  const colliLabel =
+    parsedColli.totalQty === 1
+      ? "1 collo"
+      : `${parsedColli.totalQty || parsedColli.rows.length} colli`;
+  const pesoTotaleLabel =
+    parsedColli.totalWeight > 0
+      ? `${parsedColli.totalWeight.toLocaleString("it-IT", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} kg`
+      : "—";
 
   return (
     <div className="space-y-4">
@@ -500,14 +579,17 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 <div className="mb-2 text-sm font-semibold">MITTENTE</div>
 
                 <div className="text-sm font-medium">
-                  {quote?.mittente?.ragioneSociale || "—"}
+                  {quote?.mittente?.ragioneSociale ||
+                    quote?.fields?.mittente?.ragioneSociale ||
+                    "—"}
                 </div>
                 <div className="text-sm text-slate-600">
                   {[
-                    quote?.mittente?.indirizzo,
-                    quote?.mittente?.cap,
-                    quote?.mittente?.citta,
-                    quote?.mittente?.paese,
+                    quote?.mittente?.indirizzo ??
+                      quote?.fields?.mittente?.indirizzo,
+                    quote?.mittente?.cap ?? quote?.fields?.mittente?.cap,
+                    quote?.mittente?.citta ?? quote?.fields?.mittente?.citta,
+                    quote?.mittente?.paese ?? quote?.fields?.mittente?.paese,
                   ]
                     .filter(Boolean)
                     .join(", ") || "—"}
@@ -542,14 +624,19 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 <div className="mb-2 text-sm font-semibold">DESTINATARIO</div>
 
                 <div className="text-sm font-medium">
-                  {quote?.destinatario?.ragioneSociale || "—"}
+                  {quote?.destinatario?.ragioneSociale ||
+                    quote?.fields?.destinatario?.ragioneSociale ||
+                    "—"}
                 </div>
                 <div className="text-sm text-slate-600">
                   {[
-                    quote?.destinatario?.indirizzo,
-                    quote?.destinatario?.cap,
-                    quote?.destinatario?.citta,
-                    quote?.destinatario?.paese,
+                    quote?.destinatario?.indirizzo ??
+                      quote?.fields?.destinatario?.indirizzo,
+                    quote?.destinatario?.cap ?? quote?.fields?.destinatario?.cap,
+                    quote?.destinatario?.citta ??
+                      quote?.fields?.destinatario?.citta,
+                    quote?.destinatario?.paese ??
+                      quote?.fields?.destinatario?.paese,
                   ]
                     .filter(Boolean)
                     .join(", ") || "—"}
@@ -581,7 +668,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </div>
           </div>
 
-          {/* Colli / contenuto colli / debug JSON con toggle */}
+          {/* Colli / debug JSON con toggle */}
           <div className="rounded-2xl border bg-white p-4">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -589,7 +676,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               </h2>
 
               {(quote?.colli ||
-                contenutoColli ||
                 quote?.fields?.colli ||
                 quote?.fields?.colli_debug) && (
                 <button
@@ -605,32 +691,60 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </div>
 
             {/* Contenuto colli */}
-            <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
-              <div className="text-[11px] font-medium text-slate-500">
-                Contenuto colli
-              </div>
-              <div className="mt-1 whitespace-pre-wrap">
-                {contenutoColli && contenutoColli.trim() !== ""
-                  ? contenutoColli
-                  : "—"}
-              </div>
-            </div>
-
-            {/* Colli JSON "leggibile" */}
-            {quote.colli ? (
-              <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
+            {quote.fields?.contenuto_colli && (
+              <div className="mb-3 text-xs text-slate-700">
                 <div className="text-[11px] font-medium text-slate-500">
-                  Colli
+                  Contenuto colli
                 </div>
-                <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
-                  {JSON.stringify(quote.colli, null, 2)}
-                </pre>
+                <div className="mt-0.5 whitespace-pre-wrap">
+                  {quote.fields.contenuto_colli}
+                </div>
               </div>
-            ) : (
+            )}
+
+            {/* Tabella colli ordinata */}
+            {parsedColli.rows.length === 0 ? (
               <p className="mt-2 text-xs text-slate-500">
                 I dettagli dei colli sono presenti nel JSON originale della
                 richiesta.
               </p>
+            ) : (
+              <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
+                <div className="mb-2 flex items-center justify-between text-[11px] text-slate-600">
+                  <span>{colliLabel}</span>
+                  <span>Peso totale {pesoTotaleLabel}</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-[420px] w-full text-xs">
+                    <thead className="text-left text-slate-500">
+                      <tr>
+                        <th className="pb-1 pr-4">#</th>
+                        <th className="pb-1 pr-4">Qtà</th>
+                        <th className="pb-1 pr-4">Dimensioni (cm)</th>
+                        <th className="pb-1 pr-2">Peso (kg)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="align-top">
+                      {parsedColli.rows.map((c) => (
+                        <tr key={c.i} className="border-t border-slate-100">
+                          <td className="py-1.5 pr-4">{c.i}</td>
+                          <td className="py-1.5 pr-4">{c.qty}</td>
+                          <td className="py-1.5 pr-4">{c.dims}</td>
+                          <td className="py-1.5 pr-2">
+                            {typeof c.peso === "number"
+                              ? c.peso.toLocaleString("it-IT", {
+                                  maximumFractionDigits: 2,
+                                  minimumFractionDigits: 0,
+                                })
+                              : c.peso}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
 
             {showColliJson && (
@@ -1066,7 +1180,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </form>
           </div>
 
-          {/* TODO: qui potremo aggiungere "Invia email al cliente" con Resend */}
           <div className="rounded-2xl border border-dashed bg-slate-50/60 p-3 text-[11px] text-slate-500">
             In un secondo step qui colleghiamo il bottone per{" "}
             <span className="font-medium">
