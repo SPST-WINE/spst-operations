@@ -1,7 +1,13 @@
 // app/dashboard/nuova/vino/page.tsx
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  Suspense,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
@@ -297,9 +303,27 @@ async function uploadShipmentDocument(
 }
 
 // ------------------------------------------------------------
-// Component
+// ⚠️ Wrapper con Suspense richiesto da Next.js
 // ------------------------------------------------------------
 export default function NuovaVinoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Nuova spedizione — vino</h2>
+          <div className="text-sm text-slate-500">Caricamento…</div>
+        </div>
+      }
+    >
+      <NuovaVinoPageInner />
+    </Suspense>
+  );
+}
+
+// ------------------------------------------------------------
+// Component (tutto il tuo codice originale qui dentro)
+// ------------------------------------------------------------
+function NuovaVinoPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const forcedEmail = searchParams.get("for");
