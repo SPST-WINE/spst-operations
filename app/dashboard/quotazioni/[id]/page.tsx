@@ -117,6 +117,12 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     f['Note spedizione'] ||
     '';
 
+  // nuovo: contenuto colli (dal JSON/DB)
+  const contenutoColli: string =
+    (f['contenutoColli'] as string | undefined) ??
+    (f['contenuto_colli'] as string | undefined) ??
+    '';
+
   // ---- mittente / destinatario -------------------------------------
   const mittParty: QuoteParty = (f.mittente || {}) as QuoteParty;
   const destParty: QuoteParty = (f.destinatario || {}) as QuoteParty;
@@ -273,7 +279,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
         </div>
       </div>
 
-      {/* META EMAIL / NOTE */}
+      {/* META EMAIL / NOTE + CONTENUTO COLLI */}
       <div className="rounded-xl border bg-white p-4 shadow-sm">
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -290,6 +296,15 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
             </div>
             <div className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">
               {noteGeneriche || '—'}
+            </div>
+
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <div className="text-xs uppercase text-slate-500">
+                Contenuto colli
+              </div>
+              <div className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">
+                {contenutoColli || '—'}
+              </div>
             </div>
           </div>
         </div>
