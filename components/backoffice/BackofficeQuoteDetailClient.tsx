@@ -296,6 +296,8 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
           : null,
         visible_to_client: newOption.visible_to_client,
         status: "bozza",
+        show_vat: newOption.show_vat,
+        vat_rate: newOption.vat_rate ? Number(newOption.vat_rate) : null,
       };
 
       const res = await fetch(`/api/quote-requests/${id}/options`, {
@@ -844,6 +846,40 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                   />
                 </div>
               </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+  <label className="inline-flex cursor-pointer items-center gap-2 text-[11px] text-slate-600">
+    <input
+      type="checkbox"
+      checked={newOption.show_vat}
+      onChange={(e) =>
+        setNewOption((prev) => ({
+          ...prev,
+          show_vat: e.target.checked,
+        }))
+      }
+      className="h-3 w-3 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+    />
+    <span>Mostra prezzi IVA inclusa al cliente</span>
+  </label>
+
+  <div className="flex items-center gap-2">
+    <span className="text-[11px] text-slate-500">Aliquota IVA (%)</span>
+    <input
+      type="number"
+      min={0}
+      max={99}
+      step={0.1}
+      value={newOption.vat_rate}
+      onChange={(e) =>
+        setNewOption((prev) => ({
+          ...prev,
+          vat_rate: e.target.value,
+        }))
+      }
+      className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
+    />
+  </div>
+</div>
 
               <div>
                 <label className="mb-1 block text-slate-500">
