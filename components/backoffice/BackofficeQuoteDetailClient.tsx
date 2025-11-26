@@ -260,6 +260,43 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     }
   }
 
+  async function handleDeleteOption(optionId: string) {
+  if (!optionId) return;
+
+  if (
+    !window.confirm(
+      "Vuoi eliminare definitivamente questa opzione di quotazione in bozza?"
+    )
+  ) {
+    return;
+  }
+
+  setOptionMsg(null);
+  setLoadingOptions(true);
+
+  try {
+    const res = await fetch(`/api/quote-options/${optionId}`, {
+      method: "DELETE",
+    });
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error || `HTTP ${res.status}`);
+    }
+
+    // rimuovi l'opzione dallo stato locale
+    setOptions((prev) => prev.filter((opt) => opt.id !== optionId));
+  } catch (e: any) {
+    console.error("Errore durante eliminazione opzione:", e);
+    setOptionMsg(
+      e?.message || "Errore durante l'eliminazione dell'opzione di quotazione."
+    );
+  } finally {
+    setLoadingOptions(false);
+  }
+}
+
+
   async function handleCopyLink() {
     if (!publicUrl) return;
     try {
