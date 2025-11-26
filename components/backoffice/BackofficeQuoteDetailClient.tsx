@@ -138,20 +138,21 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
 
   // stato base "nuova opzione" (form semplice per ora)
   const [newOption, setNewOption] = useState({
-    label: "Opzione A",
-    carrier: "",
-    service_name: "",
-    transit_time: "",
-    freight_price: "",
-    customs_price: "",
-    total_price: "",
-    currency: "EUR",
-    public_notes: "",
-    internal_cost: "",
-    internal_profit: "",
-    visible_to_client: true,
-  });
-  const [savingOption, setSavingOption] = useState(false);
+  label: "Opzione A",
+  carrier: "",
+  service_name: "",
+  transit_time: "",
+  freight_price: "",
+  customs_price: "",
+  total_price: "",
+  currency: "EUR",
+  public_notes: "",
+  internal_cost: "",
+  internal_profit: "",
+  visible_to_client: true,
+  show_vat: false,
+  vat_rate: "22", // default B2B Italia
+});
   const [optionMsg, setOptionMsg] = useState<string | null>(null);
 
   const publicUrl = useMemo(() => {
