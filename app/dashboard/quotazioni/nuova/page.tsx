@@ -155,7 +155,7 @@ export default function NuovaQuotazionePage() {
 
     setSaving(true);
     try {
-      const res = await postPreventivo({
+            const res = await postPreventivo({
         mittente: {
           ragioneSociale: mittente.ragioneSociale,
           paese: mittente.paese,
@@ -186,9 +186,12 @@ export default function NuovaQuotazionePage() {
         ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
         tipoSped, // 'B2B' | 'B2C' | 'Sample'
         incoterm, // 'DAP' | 'DDP' | 'EXW'
+        // 👇 nuovo campo: prendiamo lo state `contenuto`
+        contenutoColli: contenuto || undefined,
         createdByEmail: email || undefined,
         // customerEmail lo potremo gestire in futuro se aggiungi un campo email cliente
       });
+
 
       setOk({ id: res?.id, displayId: res?.displayId });
       topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
