@@ -431,9 +431,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
       const L = pickNumber(cf, L_KEYS);
       const W = pickNumber(cf, W_KEYS);
       const H = pickNumber(cf, H_KEYS);
-      const peso =
-        pickNumber(cf, PESO_KEYS) ??
-        undefined;
+      const peso = pickNumber(cf, PESO_KEYS) ?? undefined;
 
       const dimsParts = [L, W, H].map((n) => (n != null ? String(n) : "—"));
       const dims =
@@ -487,6 +485,12 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
           maximumFractionDigits: 2,
         })} kg`
       : "—";
+
+  // nuovo: contenuto colli dalla colonna dedicata con fallback su fields
+  const contenutoColli =
+    (quote as any).contenuto_colli ??
+    quote.fields?.contenuto_colli ??
+    "";
 
   return (
     <div className="space-y-4">
@@ -691,13 +695,13 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             </div>
 
             {/* Contenuto colli */}
-            {quote.fields?.contenuto_colli && (
+            {contenutoColli && (
               <div className="mb-3 text-xs text-slate-700">
                 <div className="text-[11px] font-medium text-slate-500">
                   Contenuto colli
                 </div>
                 <div className="mt-0.5 whitespace-pre-wrap">
-                  {quote.fields.contenuto_colli}
+                  {contenutoColli}
                 </div>
               </div>
             )}
