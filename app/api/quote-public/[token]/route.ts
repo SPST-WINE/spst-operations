@@ -117,26 +117,30 @@ export async function GET(
       return jsonError(404, "QUOTE_NOT_FOUND");
     }
 
-    // 2) opzioni visibili al cliente
-    const { data: options, error: oErr } = await supabase
-      .from("quote_options")
-      .select(
-        [
-          "id",
-          "quote_id",
-          "label",
-          "carrier",
-          "service_name",
-          "transit_time",
-          "total_price",
-          "currency",
-          "public_notes",
-          "status",
-        ].join(", ")
-      )
-      .eq("quote_id", quote.id)
-      .eq("visible_to_client", true)
-      .order("total_price", { ascending: true });
+   // 2) opzioni visibili al cliente
+const quoteRow = quote as any; // workaround per i tipi Supabase/TS
+
+const { data: options, error: oErr } = await supabase
+  .from("quote_options")
+  .select(
+    [
+      "id",
+      "quote_id",
+      "label",
+      "carrier",
+      "service_name",
+      "transit_time",
+      "total_price",
+      "currency",
+      "public_notes",
+      "status",
+    ].join(", ")
+  )
+  // cast esplicito per evitare l'errore "GenericStringError"
+  .eq("quote_id", quoteRow.id)
+  .eq("visible_to_client", true)
+  .order("total_price", { ascending: true });
+
 
     if (oErr) {
       console.error("[API/quote-public/:token:GET] options error", oErr);
