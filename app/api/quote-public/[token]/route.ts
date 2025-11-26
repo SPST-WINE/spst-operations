@@ -64,10 +64,14 @@ export type PublicQuoteOption = {
   carrier: string | null;
   service_name: string | null;
   transit_time: string | null;
+  freight_price: number | null;
+  customs_price: number | null;
   total_price: number | null;
   currency: string | null;
   public_notes: string | null;
   status: string | null;
+  show_vat: boolean | null;
+  vat_rate: number | null;
 };
 
 export async function GET(
@@ -124,19 +128,22 @@ const { data: options, error: oErr } = await supabase
   .from("quote_options")
   .select(
     [
-      "id",
-      "quote_id",
-      "label",
-      "carrier",
-      "service_name",
-      "transit_time",
-      "total_price",
-      "currency",
-      "public_notes",
-      "status",
+"id",
+  "quote_id",
+  "label",
+  "carrier",
+  "service_name",
+  "transit_time",
+  "freight_price",
+  "customs_price",
+  "total_price",
+  "currency",
+  "public_notes",
+  "status",
+  "show_vat",
+  "vat_rate",
     ].join(", ")
   )
-  // cast esplicito per evitare l'errore "GenericStringError"
   .eq("quote_id", quoteRow.id)
   .eq("visible_to_client", true)
   .order("total_price", { ascending: true });
