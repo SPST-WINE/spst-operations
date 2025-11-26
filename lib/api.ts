@@ -205,10 +205,13 @@ export type QuoteCreatePayload = {
   ritiroData?: string;      // ISO (yyyy-mm-dd)
   tipoSped?: 'B2B' | 'B2C' | 'Sample';
   incoterm?: 'DAP' | 'DDP' | 'EXW';
+  // 👇 NUOVO
+  contenutoColli?: string;
   // server può valorizzare createdByEmail/customerEmail da auth
   createdByEmail?: string;
   customerEmail?: string;
 };
+
 
 export async function postPreventivo(
   payload: QuoteCreatePayload,
