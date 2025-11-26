@@ -131,6 +131,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   const [loading, setLoading] = useState(true);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingOption, setSavingOption] = useState(false);
 
   const [creatingLink, setCreatingLink] = useState(false);
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
