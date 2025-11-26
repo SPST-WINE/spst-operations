@@ -1,7 +1,13 @@
 // app/dashboard/nuova/altro/page.tsx
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  Suspense,
+} from "react";
 import { useRouter } from "next/navigation";
 
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
@@ -232,7 +238,6 @@ async function uploadShipmentDocument(
 
   const url = urlData?.publicUrl || null;
 
-
   // Insert DB
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
     shipment_id: shipmentId,
@@ -251,9 +256,27 @@ async function uploadShipmentDocument(
 }
 
 // ------------------------------------------------------------
-// COMPONENTE PAGINA
+// WRAPPER CON SUSPENSE (come pagina vino)
 // ------------------------------------------------------------
 export default function NuovaAltroPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Nuova spedizione — altro</h2>
+          <div className="text-sm text-slate-500">Caricamento…</div>
+        </div>
+      }
+    >
+      <NuovaAltroPageInner />
+    </Suspense>
+  );
+}
+
+// ------------------------------------------------------------
+// COMPONENTE PAGINA (tutta la tua logica qui dentro)
+// ------------------------------------------------------------
+function NuovaAltroPageInner() {
   const router = useRouter();
 
   // Stato base
