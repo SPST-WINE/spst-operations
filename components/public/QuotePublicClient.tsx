@@ -30,10 +30,14 @@ type PublicQuoteOption = {
   carrier: string | null;
   service_name: string | null;
   transit_time: string | null;
-  total_price: number | null;
+  freight_price: number | null; // Nolo
+  customs_price: number | null; // Costi doganali e fiscali
+  total_price: number | null; // Totale mostrato al cliente
   currency: string | null;
   public_notes: string | null;
   status: string | null;
+  show_vat: boolean | null; // true = prezzi IVA inclusa
+  vat_rate: number | null; // es. 22
 };
 
 function formatDate(dateStr?: string | null) {
@@ -101,7 +105,9 @@ export default function QuotePublicClient({ token }: Props) {
       } catch (e) {
         console.error("[QuotePublicClient] load error:", e);
         if (active) {
-          setError("Si è verificato un errore nel caricamento della quotazione.");
+          setError(
+            "Si è verificato un errore nel caricamento della quotazione."
+          );
           setQuote(null);
           setOptions([]);
         }
@@ -151,7 +157,6 @@ export default function QuotePublicClient({ token }: Props) {
         return;
       }
 
-      // aggiorno stato locale
       setQuote((prev) =>
         prev
           ? {
@@ -276,8 +281,17 @@ export default function QuotePublicClient({ token }: Props) {
         ) : (
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {options.map((opt, idx) => {
+              const freight = opt.freight_price ?? 0;
+              const customs = opt.customs_price ?? 0;
+              const total = opt.total_price ?? freight + customs;
+              const currency = opt.currency || quote.valuta || "EUR";
+
+              const ivaIncluded = !!opt.show_vat;
+              const vatRate = opt.vat_rate ?? null;
+
               const isAccepted =
-                quote.accepted_option_id === opt.id || opt.status === "accettata";
+                quote.accepted_option_id === opt.id ||
+                opt.status === "accettata";
               const isRejected = opt.status === "rifiutata";
               const disabled = alreadyAccepted && !isAccepted;
 
@@ -322,7 +336,34 @@ export default function QuotePublicClient({ token }: Props) {
                         Totale spedizione
                       </div>
                       <div className="text-base font-semibold text-slate-50">
-                        {formatCurrency(opt.total_price, opt.currency || quote.valuta)}
+                        {formatCurrency(total, currency)}
+                      </div>
+                      <div className="mt-1 text-[10px] text-slate-400">
+                        {ivaIncluded
+                          ? vatRate
+                            ? `Prezzi IVA ${vatRate}% inclusa`
+                            : "Prezzi IVA inclusa"
+                          : vatRate
+                          ? `Prezzi al netto di IVA ${vatRate}% (applicata in fattura)`
+                          : "Prezzi al netto di IVA (dove applicabile)"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Breakdown nolo / dogana */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-200">
+                    <div className="rounded-xl bg-slate-900/70 px-2 py-1.5">
+                      <div className="text-[10px] text-slate-400">Nolo</div>
+                      <div className="text-sm font-medium">
+                        {formatCurrency(freight, currency)}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-900/70 px-2 py-1.5">
+                      <div className="text-[10px] text-slate-400">
+                        Costi doganali e fiscali
+                      </div>
+                      <div className="text-sm font-medium">
+                        {formatCurrency(customs, currency)}
                       </div>
                     </div>
                   </div>
