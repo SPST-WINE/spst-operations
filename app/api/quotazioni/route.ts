@@ -94,16 +94,38 @@ export async function POST(req: NextRequest) {
       customerEmail,
     };
 
+        // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
+    const dataRitiroDate =
+      body.ritiroData ? new Date(body.ritiroData).toISOString().slice(0, 10) : null;
+
     const { data, error } = await supabase
       .from("quotes")
       .insert({
         status: "In lavorazione",
-        incoterm: body.incoterm,
         declared_value: null,
+
+        // colonne "di testa"
+        incoterm: body.incoterm ?? null,
+        origin: "dashboard",
+
+        email_cliente: customerEmail,
+        creato_da_email: createdByEmail,
+        data_ritiro: dataRitiroDate,
+        tipo_spedizione: body.tipoSped ?? null,
+        valuta: body.valuta ?? "EUR",
+        note_generiche: body.noteGeneriche ?? null,
+
+        // JSON strutturati
+        mittente: body.mittente ?? null,
+        destinatario: body.destinatario ?? null,
+        colli: body.colli ?? null,
+
+        // payload completo per debug/compat
         fields,
       })
       .select("id")
       .single();
+
 
     if (error || !data) {
       console.error("[API/quotazioni:POST] DB_ERROR", error);
