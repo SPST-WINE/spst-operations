@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
 import RitiroCard from "@/components/nuova/RitiroCard";
@@ -217,13 +217,21 @@ function newSessionToken() {
 // ------------------------------------------------------------
 // API helper (usa Supabase Auth per creare la spedizione)
 // ------------------------------------------------------------
-async function createShipmentWithAuth(payload: any) {
-  const [{ data: { user } }, { data: { session } }] = await Promise.all([
-    supabase.auth.getUser(),
-    supabase.auth.getSession(),
-  ]);
+async function createShipmentWithAuth(payload: any, emailOverride?: string) {
+  const [
+    {
+      data: { user },
+    },
+    {
+      data: { session },
+    },
+  ] = await Promise.all([supabase.auth.getUser(), supabase.auth.getSession()]);
 
-  const email = user?.email ?? null;
+  const rawEmail =
+    emailOverride?.toLowerCase().trim() ||
+    user?.email?.toLowerCase().trim() ||
+    null;
+
   const token = session?.access_token ?? null;
 
   const res = await fetch("/api/spedizioni", {
@@ -231,18 +239,28 @@ async function createShipmentWithAuth(payload: any) {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      "x-user-email": email || "",
+      ...(rawEmail
+        ? { "x-user-email": rawEmail, "x-client-email": rawEmail }
+        : {}),
     },
-    body: JSON.stringify({ ...payload, email }),
+    body: JSON.stringify({
+      ...payload,
+      email: rawEmail || undefined,
+    }),
   });
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body?.ok) {
     const details =
       body?.details || body?.error || `${res.status} ${res.statusText}`;
-    throw new Error(details);
+    throw new Error(
+      typeof details === "string"
+        ? details
+        : "Errore creazione spedizione. Riprova."
+    );
   }
-  return body.shipment; // { id, human_id, ... }
+  // compat: se l'API ritorna { ok, shipment } usiamo shipment, altrimenti il json puro
+  return body.shipment ?? body;
 }
 
 // ------------------------------------------------------------
@@ -283,6 +301,8 @@ async function uploadShipmentDocument(
 // ------------------------------------------------------------
 export default function NuovaVinoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const forcedEmail = searchParams.get("for");
 
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
   const [destAbilitato, setDestAbilitato] = useState(false);
@@ -300,13 +320,17 @@ export default function NuovaVinoPage() {
           data: { user },
         } = await supabase.auth.getUser();
 
-        const email = user?.email || "info@spst.it";
-        if (!email) return;
+        const effectiveEmail =
+          forcedEmail?.toLowerCase().trim() ||
+          user?.email?.toLowerCase().trim() ||
+          "info@spst.it";
+
+        if (!effectiveEmail) return;
 
         const res = await fetch(
-          `/api/impostazioni?email=${encodeURIComponent(email)}`,
+          `/api/impostazioni?email=${encodeURIComponent(effectiveEmail)}`,
           {
-            headers: { "x-spst-email": email },
+            headers: { "x-spst-email": effectiveEmail },
             cache: "no-store",
           }
         );
@@ -337,7 +361,7 @@ export default function NuovaVinoPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [forcedEmail]);
 
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
@@ -430,13 +454,9 @@ export default function NuovaVinoPage() {
         else if (r.gradazione < 4 || r.gradazione > 25)
           out.push(`${idx}: gradazione fuori range plausibile (4–25% vol).`);
         if (r.peso_netto_bott == null || r.peso_netto_bott <= 0)
-          out.push(
-            `${idx}: peso netto/bottiglia (kg) obbligatorio.`
-          );
+          out.push(`${idx}: peso netto/bottiglia (kg) obbligatorio.`);
         if (r.peso_lordo_bott == null || r.peso_lordo_bott <= 0)
-          out.push(
-            `${idx}: peso lordo/bottiglia (kg) obbligatorio.`
-          );
+          out.push(`${idx}: peso lordo/bottiglia (kg) obbligatorio.`);
       }
     });
     return out;
@@ -522,8 +542,11 @@ export default function NuovaVinoPage() {
         packingList: pl,
       };
 
-      // 1) Crea spedizione (Supabase Auth)
-      const created = await createShipmentWithAuth(payload);
+      // 1) Crea spedizione (Supabase Auth, eventualmente forzando mail cliente da ?for=)
+      const created = await createShipmentWithAuth(
+        payload,
+        forcedEmail || undefined
+      );
 
       // 2) Upload documenti usando la stessa API del Back Office
       try {
