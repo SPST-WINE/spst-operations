@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, ExternalLink, Globe2, Copy, Check } from "lucide-react";
+import { Loader2, Globe2, Copy, Check } from "lucide-react";
 
 type Props = {
   id: string;
@@ -163,7 +163,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
 
   const publicUrl = useMemo(() => {
     if (!quote?.public_token) return null;
-    // NB: in dev potresti voler usare NEXT_PUBLIC_BASE_URL, qui hardcodiamo il dominio prod
     return `https://spst-operations.vercel.app/quote/${quote.public_token}`;
   }, [quote?.public_token]);
 
@@ -261,41 +260,41 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   }
 
   async function handleDeleteOption(optionId: string) {
-  if (!optionId) return;
+    if (!optionId) return;
 
-  if (
-    !window.confirm(
-      "Vuoi eliminare definitivamente questa opzione di quotazione in bozza?"
-    )
-  ) {
-    return;
-  }
-
-  setOptionMsg(null);
-  setLoadingOptions(true);
-
-  try {
-    const res = await fetch(`/api/quote-options/${optionId}`, {
-      method: "DELETE",
-    });
-    const json = await res.json().catch(() => ({}));
-
-    if (!res.ok || !json?.ok) {
-      throw new Error(json?.error || `HTTP ${res.status}`);
+    if (
+      !window.confirm(
+        "Vuoi eliminare definitivamente questa opzione di quotazione in bozza?",
+      )
+    ) {
+      return;
     }
 
-    // rimuovi l'opzione dallo stato locale
-    setOptions((prev) => prev.filter((opt) => opt.id !== optionId));
-  } catch (e: any) {
-    console.error("Errore durante eliminazione opzione:", e);
-    setOptionMsg(
-      e?.message || "Errore durante l'eliminazione dell'opzione di quotazione."
-    );
-  } finally {
-    setLoadingOptions(false);
-  }
-}
+    setOptionMsg(null);
+    setLoadingOptions(true);
 
+    try {
+      const res = await fetch(`/api/quote-options/${optionId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+
+      // rimuovi l'opzione dallo stato locale
+      setOptions((prev) => prev.filter((opt) => opt.id !== optionId));
+    } catch (e: any) {
+      console.error("Errore durante eliminazione opzione:", e);
+      setOptionMsg(
+        e?.message ||
+          "Errore durante l'eliminazione dell'opzione di quotazione.",
+      );
+    } finally {
+      setLoadingOptions(false);
+    }
+  }
 
   async function handleCopyLink() {
     if (!publicUrl) return;
@@ -595,7 +594,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               )}
             </div>
 
-            {/* riepilogo/JSON colli che avevi già */}
             {quote.colli ? (
               <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-800">
                 <div className="text-[11px] font-medium text-slate-500">
@@ -624,18 +622,6 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 )}
               </pre>
             )}
-
-            {/* se ti serve ancora il JSON totale raw, puoi lasciare questo block: */}
-            {/* 
-            <details className="mt-3">
-              <summary className="cursor-pointer text-[11px] text-slate-500">
-                Vedi JSON completo richiesta (raw)
-              </summary>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900/95 p-3 text-[11px] text-slate-100">
-                {JSON.stringify(quote.fields, null, 2)}
-              </pre>
-            </details>
-            */}
           </div>
         </div>
 
@@ -762,7 +748,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                               <span className="h-1 w-1 rounded-full bg-slate-300" />
                               <span>
                                 Costo interno:{" "}
-                                  {formatCurrency(o.internal_cost, o.currency)}
+                                {formatCurrency(o.internal_cost, o.currency)}
                               </span>
                             </>
                           )}
@@ -783,10 +769,20 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1 text-[11px]">
+                      <div className="flex flex-col items-end gap-1 text-[11px]">
                         <span className="rounded-full bg-slate-50 px-2 py-0.5 text-slate-500">
                           ID opzione: {o.id.slice(0, 8)}…
                         </span>
+
+                        {o.status === "bozza" && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteOption(o.id)}
+                            className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100"
+                          >
+                            Elimina bozza
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
