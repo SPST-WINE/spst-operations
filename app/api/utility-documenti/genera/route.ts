@@ -213,6 +213,11 @@ function buildDocData(
   shipment: ShipmentRow,
   plLines: PackingLineDb[]
 ): DocData {
+  const fields = (shipment.fields || {}) as any;
+  const mittJson = (fields.mittente || {}) as any;
+  const destJson = (fields.destinatario || {}) as any;
+  const fattJson = (fields.fatturazione || {}) as any;
+
   const itemsFromJson = mapPackingJsonToItems(shipment);
   const itemsFromDb = mapPackingDbToItems(plLines);
 
@@ -244,7 +249,7 @@ function buildDocData(
   const currency =
     items.find((it) => !!it.currency)?.currency ??
     shipment.fatt_valuta ??
-    (shipment.fields && (shipment.fields as any).valuta) ??
+    fields.valuta ??
     null;
 
   const today = new Date();
@@ -254,6 +259,7 @@ function buildDocData(
 
   const meta: DocData["meta"] = {
     docType,
+    // per ora numero auto; in futuro lo riceveremo dalla UI
     docNumber: `AUTO-${docType.toUpperCase()}-${humanId ?? shipment.id}`,
     docDate,
     humanId,
@@ -263,52 +269,55 @@ function buildDocData(
     valuta: currency,
   };
 
+  // ---------- SHIPPER ----------
   const shipper = {
-    name: shipment.mittente_rs ?? null,
-    contact: shipment.mittente_referente ?? null,
+    name: shipment.mittente_rs ?? mittJson.ragioneSociale ?? null,
+    contact: shipment.mittente_referente ?? mittJson.referente ?? null,
     address: {
-      line1: shipment.mittente_indirizzo ?? null,
-      city: shipment.mittente_citta ?? null,
-      postalCode: shipment.mittente_cap ?? null,
-      country: shipment.mittente_paese ?? null,
+      line1: shipment.mittente_indirizzo ?? mittJson.indirizzo ?? null,
+      city: shipment.mittente_citta ?? mittJson.citta ?? null,
+      postalCode: shipment.mittente_cap ?? mittJson.cap ?? null,
+      country: shipment.mittente_paese ?? mittJson.paese ?? null,
     },
-    vatNumber: shipment.mittente_piva ?? null,
-    phone: shipment.mittente_telefono ?? null,
+    vatNumber: shipment.mittente_piva ?? mittJson.piva ?? null,
+    phone: shipment.mittente_telefono ?? mittJson.telefono ?? null,
   };
 
+  // ---------- CONSIGNEE ----------
   const consignee = {
-    name: shipment.dest_rs ?? null,
-    contact: shipment.dest_referente ?? null,
+    name: shipment.dest_rs ?? destJson.ragioneSociale ?? null,
+    contact: shipment.dest_referente ?? destJson.referente ?? null,
     address: {
-      line1: shipment.dest_indirizzo ?? null,
-      city: shipment.dest_citta ?? null,
-      postalCode: shipment.dest_cap ?? null,
-      country: shipment.dest_paese ?? null,
+      line1: shipment.dest_indirizzo ?? destJson.indirizzo ?? null,
+      city: shipment.dest_citta ?? destJson.citta ?? null,
+      postalCode: shipment.dest_cap ?? destJson.cap ?? null,
+      country: shipment.dest_paese ?? destJson.paese ?? null,
     },
-    vatNumber: shipment.dest_piva ?? null,
-    phone: shipment.dest_telefono ?? null,
+    vatNumber: shipment.dest_piva ?? destJson.piva ?? null,
+    phone: shipment.dest_telefono ?? destJson.telefono ?? null,
   };
 
-  const billTo =
+  // ---------- BILL TO (fatturazione) ----------
+  const hasBillToColumns =
     shipment.fatt_rs ||
     shipment.fatt_indirizzo ||
     shipment.fatt_paese ||
-    shipment.fatt_piva
-      ? {
-          name: shipment.fatt_rs ?? null,
-          contact: shipment.fatt_referente ?? null,
-          address: {
-            line1: shipment.fatt_indirizzo ?? null,
-            city: shipment.fatt_citta ?? null,
-            postalCode: shipment.fatt_cap ?? null,
-            country: shipment.fatt_paese ?? null,
-          },
-          vatNumber: shipment.fatt_piva ?? null,
-          phone: shipment.fatt_telefono ?? null,
-        }
-      : consignee;
+    shipment.fatt_piva;
 
-  const fields = (shipment.fields || {}) as any;
+  const billTo = hasBillToColumns || Object.keys(fattJson).length > 0
+    ? {
+        name: shipment.fatt_rs ?? fattJson.ragioneSociale ?? null,
+        contact: shipment.fatt_referente ?? fattJson.referente ?? null,
+        address: {
+          line1: shipment.fatt_indirizzo ?? fattJson.indirizzo ?? null,
+          city: shipment.fatt_citta ?? fattJson.citta ?? null,
+          postalCode: shipment.fatt_cap ?? fattJson.cap ?? null,
+          country: shipment.fatt_paese ?? fattJson.paese ?? null,
+        },
+        vatNumber: shipment.fatt_piva ?? fattJson.piva ?? null,
+        phone: shipment.fatt_telefono ?? fattJson.telefono ?? null,
+      }
+    : consignee;
 
   const shipmentInfo: DocData["shipment"] = {
     totalPackages: shipment.colli_n ?? null,
