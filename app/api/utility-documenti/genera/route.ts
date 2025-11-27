@@ -260,7 +260,7 @@ function buildDocData(
   const meta: DocData["meta"] = {
     docType,
     // per ora numero auto; in futuro lo riceveremo dalla UI
-    docNumber: `AUTO-${docType.toUpperCase()}-${humanId ?? shipment.id}`,
+    docNumber: `SPST-${docType.toUpperCase()}-${humanId ?? shipment.id}`,
     docDate,
     humanId,
     courier,
