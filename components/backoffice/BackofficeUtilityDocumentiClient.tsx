@@ -101,6 +101,9 @@ export default function BackofficeUtilityDocumentiClient() {
   const [draftDoc, setDraftDoc] = useState<DocData | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
+  // show/hide JSON debug
+  const [showJson, setShowJson] = useState(false);
+
   async function handleLoadShipment() {
     const id = humanIdInput.trim();
     if (!id) {
@@ -236,6 +239,119 @@ export default function BackofficeUtilityDocumentiClient() {
       setGenerating(false);
     }
   }
+
+  // ---------- FUNZIONI DI SUPPORTO PER L'EDITOR ----------
+
+  type DraftUpdater = (prev: DocData) => DocData;
+
+  const updateDraft = (updater: DraftUpdater) => {
+    setDraftDoc((prev) => {
+      if (!prev) return prev;
+      return updater(prev);
+    });
+  };
+
+  const updatePartyField = (partyKey: string, field: string, value: any) => {
+    setDraftDoc((prev) => {
+      if (!prev) return prev;
+      const prevParties = prev.parties || {};
+      const prevParty = prevParties[partyKey] || {};
+      return {
+        ...prev,
+        parties: {
+          ...prevParties,
+          [partyKey]: {
+            ...prevParty,
+            [field]: value,
+          },
+        },
+      };
+    });
+  };
+
+  const updatePartyAddress = (
+    partyKey: string,
+    field: string,
+    value: any
+  ) => {
+    setDraftDoc((prev) => {
+      if (!prev) return prev;
+      const prevParties = prev.parties || {};
+      const prevParty = prevParties[partyKey] || {};
+      const prevAddress = prevParty.address || {};
+      return {
+        ...prev,
+        parties: {
+          ...prevParties,
+          [partyKey]: {
+            ...prevParty,
+            address: {
+              ...prevAddress,
+              [field]: value,
+            },
+          },
+        },
+      };
+    });
+  };
+
+  const updateItemField = (idx: number, field: string, value: any) => {
+    setDraftDoc((prev) => {
+      if (!prev) return prev;
+      const items = Array.isArray(prev.items) ? [...prev.items] : [];
+      const current = items[idx] || {};
+      items[idx] = { ...current, [field]: value };
+      return {
+        ...prev,
+        items,
+      };
+    });
+  };
+
+  const handleRenderPreview = async () => {
+    if (!draftDoc) return;
+
+    setGenerateError(null);
+
+    const effectiveDocType =
+      (draftDoc.meta && draftDoc.meta.docType) || docType || "fattura_proforma";
+
+    try {
+      const res = await fetch("/api/utility-documenti/genera", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_type: effectiveDocType,
+          doc_data: draftDoc,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(
+          json?.error ||
+            json?.details ||
+            `Errore ${res.status} nel rendering documento`
+        );
+      }
+
+      if (json.doc) {
+        setDraftDoc(json.doc);
+        setBaseDoc(json.doc);
+        setDebugPayload(json.doc);
+      } else {
+        setDebugPayload(json);
+      }
+      setPreviewHtml(json.html || null);
+    } catch (e: any) {
+      console.error("[utility-documenti] render doc error:", e);
+      setGenerateError(
+        e?.message || "Errore nel rendering / aggiornamento del documento"
+      );
+    }
+  };
+
+  // ---------- DERIVATI PER CARD 1 ----------
 
   const mittente = shipment && {
     ragioneSociale: shipment.mittente_rs,
@@ -471,47 +587,29 @@ export default function BackofficeUtilityDocumentiClient() {
         </div>
       </section>
 
-      {/* Card 3: azione + debug + anteprima */}
-      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+      {/* CARD 3 — GENERA DOCUMENTO */}
+      <div className="rounded-xl border border-slate-200 bg-white p-6">
+        {/* Header card: titolo + bottone genera */}
         <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">
-              3. Genera documento (scheletro)
-            </h2>
+            <div className="text-lg font-semibold text-slate-800">
+              3. Genera e modifica il documento
+            </div>
             <p className="mt-1 text-xs text-slate-500">
-              Per ora l&apos;API restituisce un JSON con tutti i dati necessari
-              (mittente, destinatario, fattura, colli, packing list). In un
-              secondo step collegheremo il generatore PDF.
+              Genera lo scheletro del documento dalla spedizione, poi modifica i
+              dati (meta, soggetti, spedizione, items) e aggiorna l&apos;anteprima
+              in tempo reale.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={generating || !shipment}
-              className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
-            >
-              {generating
-                ? "Genero documento…"
-                : "Genera documento (placeholder)"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (baseDoc) {
-                  setDraftDoc(baseDoc);
-                  setPreviewHtml(null);
-                  setDebugPayload(baseDoc);
-                }
-              }}
-              disabled={!baseDoc}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Reset dai dati spedizione
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generating || !shipment || !docType || !courier}
+            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
+          >
+            {generating ? "Genero documento…" : "Genera documento da spedizione"}
+          </button>
         </div>
 
         {generateError && (
@@ -520,256 +618,602 @@ export default function BackofficeUtilityDocumentiClient() {
           </p>
         )}
 
-        {debugPayload && (
-          <div className="mt-4 max-h-72 overflow-auto rounded-xl bg-slate-950 p-4 text-[11px] text-slate-50">
-            <pre className="whitespace-pre-wrap break-all">
-              {JSON.stringify(debugPayload, null, 2)}
-            </pre>
-          </div>
-        )}
-
-        {previewHtml && (
-          <div className="mt-4">
-            <div className="mb-2 text-xs font-medium text-slate-600">
-              Anteprima documento (HTML)
-            </div>
-            <div className="h-[480px] w-full overflow-hidden rounded-xl border border-slate-200">
-              <iframe
-                title="Anteprima documento"
-                srcDoc={previewHtml}
-                className="h-full w-full"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Editor bozza DocData */}
-        {draftDoc && (
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-3 text-sm font-semibold text-slate-800">
-              Editor dati documento (bozza)
-            </div>
-
-            {/* Meta */}
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Numero documento
-                </label>
-                <input
-                  type="text"
-                  value={draftDoc.meta?.docNumber ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            meta: { ...prev.meta, docNumber: e.target.value },
-                          }
-                        : prev
-                    )
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
+        {/* Layout a due colonne */}
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* ======== COLONNA SINISTRA (JSON + EDITOR) ======== */}
+          <div className="space-y-6 lg:col-span-2">
+            {/* JSON DEBUG COLLASSABILE */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-medium text-slate-700">
+                  API Response (debug)
+                </div>
+                <button
+                  onClick={() => setShowJson((s) => !s)}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-white"
+                  type="button"
+                >
+                  {showJson ? "Nascondi JSON" : "Mostra JSON"}
+                </button>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Data documento
-                </label>
-                <input
-                  type="date"
-                  value={draftDoc.meta?.docDate ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            meta: { ...prev.meta, docDate: e.target.value },
-                          }
-                        : prev
-                    )
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Incoterm
-                </label>
-                <input
-                  type="text"
-                  value={draftDoc.meta?.incoterm ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            meta: { ...prev.meta, incoterm: e.target.value },
-                          }
-                        : prev
-                    )
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
-              </div>
+              {showJson && (
+                <pre className="max-h-72 overflow-x-auto rounded-md bg-black p-3 text-xs text-green-400">
+                  {JSON.stringify(debugPayload, null, 2)}
+                </pre>
+              )}
             </div>
 
-            {/* Parties */}
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Seller (nome)
-                </label>
-                <input
-                  type="text"
-                  value={draftDoc.parties?.shipper?.name ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) => {
-                      if (!prev) return prev;
-                      const prevParties = prev.parties || {};
-                      const prevShipper = prevParties.shipper || {};
-                      return {
-                        ...prev,
-                        parties: {
-                          ...prevParties,
-                          shipper: {
-                            ...prevShipper,
-                            name: e.target.value,
+            {/* ====================== EDITOR DOC ====================== */}
+            {draftDoc && (
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-3 text-sm font-semibold text-slate-800">
+                  Editor dati documento (completo)
+                </div>
+
+                {/* META */}
+                <div className="mb-6 mt-4">
+                  <div className="mb-2 text-xs font-semibold text-slate-500">
+                    Meta
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {/* Numero documento */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Numero documento
+                      </label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.meta?.docNumber ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            meta: { ...d.meta, docNumber: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {/* Data */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Data documento
+                      </label>
+                      <input
+                        type="date"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.meta?.docDate ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            meta: { ...d.meta, docDate: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {/* Incoterm */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Incoterm
+                      </label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.meta?.incoterm ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            meta: { ...d.meta, incoterm: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/* Courier + Tracking */}
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Courier
+                      </label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.meta?.courier ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            meta: { ...d.meta, courier: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Tracking
+                      </label>
+                      <input
+                        type="text"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.meta?.trackingCode ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            meta: { ...d.meta, trackingCode: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ====================== PARTIES ====================== */}
+                <div className="border-t border-slate-200 pt-4">
+                  <div className="mb-2 text-xs font-semibold text-slate-500">
+                    Soggetti
+                  </div>
+
+                  {["shipper", "consignee", "billTo"].map((partyKey) => (
+                    <div
+                      key={partyKey}
+                      className="mb-6 border-b border-slate-100 pb-4"
+                    >
+                      <div className="mb-2 text-[11px] font-semibold uppercase text-slate-600">
+                        {partyKey === "shipper"
+                          ? "Mittente"
+                          : partyKey === "consignee"
+                          ? "Destinatario"
+                          : "Fatturazione"}
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {/* Nome */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Nome
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={draftDoc.parties?.[partyKey]?.name ?? ""}
+                            onChange={(e) =>
+                              updatePartyField(
+                                partyKey,
+                                "name",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Referente */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Referente
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={draftDoc.parties?.[partyKey]?.contact ?? ""}
+                            onChange={(e) =>
+                              updatePartyField(
+                                partyKey,
+                                "contact",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Indirizzo */}
+                        <div className="md:col-span-2">
+                          <label className="block text-[11px] text-slate-500">
+                            Indirizzo
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.address?.line1 ?? ""
+                            }
+                            onChange={(e) =>
+                              updatePartyAddress(
+                                partyKey,
+                                "line1",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Città / CAP */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Città
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.address?.city ?? ""
+                            }
+                            onChange={(e) =>
+                              updatePartyAddress(
+                                partyKey,
+                                "city",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            CAP
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.address
+                                ?.postalCode ?? ""
+                            }
+                            onChange={(e) =>
+                              updatePartyAddress(
+                                partyKey,
+                                "postalCode",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Paese */}
+                        <div className="md:col-span-2">
+                          <label className="block text-[11px] text-slate-500">
+                            Paese
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.address?.country ??
+                              ""
+                            }
+                            onChange={(e) =>
+                              updatePartyAddress(
+                                partyKey,
+                                "country",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* PIVA */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            P.IVA / Tax ID
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.vatNumber ?? ""
+                            }
+                            onChange={(e) =>
+                              updatePartyField(
+                                partyKey,
+                                "vatNumber",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Telefono */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Telefono
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={
+                              draftDoc.parties?.[partyKey]?.phone ?? ""
+                            }
+                            onChange={(e) =>
+                              updatePartyField(
+                                partyKey,
+                                "phone",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ====================== SHIPMENT ====================== */}
+                <div className="border-t border-slate-200 pt-4">
+                  <div className="mb-2 text-xs font-semibold text-slate-500">
+                    Dati spedizione
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {/* Colli */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Colli
+                      </label>
+                      <input
+                        type="number"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.shipment?.totalPackages ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            shipment: {
+                              ...d.shipment,
+                              totalPackages: Number(e.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {/* Peso */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Peso lordo (kg)
+                      </label>
+                      <input
+                        type="number"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={
+                          draftDoc.shipment?.totalGrossWeightKg ?? ""
+                        }
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            shipment: {
+                              ...d.shipment,
+                              totalGrossWeightKg: Number(e.target.value),
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {/* Pickup date */}
+                    <div>
+                      <label className="block text-[11px] text-slate-500">
+                        Pickup date
+                      </label>
+                      <input
+                        type="date"
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        value={draftDoc.shipment?.pickupDate ?? ""}
+                        onChange={(e) =>
+                          updateDraft((d) => ({
+                            ...d,
+                            shipment: {
+                              ...d.shipment,
+                              pickupDate: e.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/* descrizione */}
+                  <div className="mt-3">
+                    <label className="block text-[11px] text-slate-500">
+                      Descrizione merce
+                    </label>
+                    <input
+                      type="text"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                      value={draftDoc.shipment?.contentSummary ?? ""}
+                      onChange={(e) =>
+                        updateDraft((d) => ({
+                          ...d,
+                          shipment: {
+                            ...d.shipment,
+                            contentSummary: e.target.value,
                           },
-                        },
-                      };
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Buyer (nome)
-                </label>
-                <input
-                  type="text"
-                  value={draftDoc.parties?.consignee?.name ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) => {
-                      if (!prev) return prev;
-                      const prevParties = prev.parties || {};
-                      const prevConsignee = prevParties.consignee || {};
-                      return {
-                        ...prev,
-                        parties: {
-                          ...prevParties,
-                          consignee: {
-                            ...prevConsignee,
-                            name: e.target.value,
-                          },
-                        },
-                      };
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-500">
-                  Bill to (nome)
-                </label>
-                <input
-                  type="text"
-                  value={draftDoc.parties?.billTo?.name ?? ""}
-                  onChange={(e) =>
-                    setDraftDoc((prev) => {
-                      if (!prev) return prev;
-                      const prevParties = prev.parties || {};
-                      const prevBillTo = prevParties.billTo || {};
-                      return {
-                        ...prev,
-                        parties: {
-                          ...prevParties,
-                          billTo: {
-                            ...prevBillTo,
-                            name: e.target.value,
-                          },
-                        },
-                      };
-                    })
-                  }
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!draftDoc) return;
-                  try {
-                    const res = await fetch(
-                      "/api/utility-documenti/genera",
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          doc_type:
-                            draftDoc.meta?.docType ??
-                            docType ??
-                            "fattura_proforma",
-                          doc_data: draftDoc,
-                        }),
+                        }))
                       }
-                    );
-                    const json = await res.json().catch(() => ({}));
-                    if (!res.ok || !json?.ok) {
-                      throw new Error(
-                        json?.error ||
-                          json?.details ||
-                          `Errore ${res.status} nel rendering documento`
-                      );
-                    }
-                    // Aggiorniamo sia doc che html
-                    if (json.doc) {
-                      setDraftDoc(json.doc);
-                      setDebugPayload(json.doc);
-                      setBaseDoc(json.doc);
-                    } else {
-                      setDebugPayload(json);
-                    }
-                    setPreviewHtml(json.html || null);
-                  } catch (e: any) {
-                    console.error(
-                      "[utility-documenti] render doc error:",
-                      e
-                    );
-                    alert(
-                      e?.message || "Errore nel rendering del documento"
-                    );
-                  }
-                }}
-                className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-              >
-                Aggiorna anteprima
-              </button>
+                    />
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (baseDoc) {
-                    setDraftDoc(baseDoc);
-                    setPreviewHtml(null);
-                    setDebugPayload(baseDoc);
-                  }
-                }}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Reset dai dati spedizione
-              </button>
+                {/* ====================== ITEMS ====================== */}
+                <div className="border-t border-slate-200 pt-4">
+                  <div className="mb-2 text-xs font-semibold text-slate-500">
+                    Items
+                  </div>
+
+                  {draftDoc.items?.map((it: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className="mb-3 rounded-lg border border-slate-100 p-3"
+                    >
+                      <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+                        {/* Descrizione */}
+                        <div className="md:col-span-3">
+                          <label className="block text-[11px] text-slate-500">
+                            Descrizione
+                          </label>
+                          <input
+                            type="text"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.description ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "description",
+                                e.target.value
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Bottiglie */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Bottiglie
+                          </label>
+                          <input
+                            type="number"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.bottles ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "bottles",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Litri */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Litri/bottiglia
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.volumePerBottleL ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "volumePerBottleL",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Volume totale */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Volume totale (L)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.totalVolumeL ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "totalVolumeL",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Prezzo unitario */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Prezzo unitario
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.unitPrice ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "unitPrice",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Totale riga */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Line total
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.lineTotal ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "lineTotal",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* BOTTONI EDITOR */}
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleRenderPreview}
+                    className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                  >
+                    Aggiorna anteprima
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (baseDoc) {
+                        setDraftDoc(baseDoc);
+                        setPreviewHtml(null);
+                        setDebugPayload(baseDoc);
+                      }
+                    }}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Reset da spedizione
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ======== COLONNA DESTRA: ANTEPRIMA DOCUMENTO ======== */}
+          <div className="lg:col-span-1">
+            <div className="overflow-hidden rounded-xl border border-slate-300">
+              {previewHtml ? (
+                <iframe
+                  srcDoc={previewHtml}
+                  className="h-[1200px] w-full border-none"
+                  title="Anteprima documento"
+                />
+              ) : (
+                <div className="p-6 text-sm text-slate-500">
+                  Genera il documento e/o aggiorna la bozza per vedere
+                  l&apos;anteprima.
+                </div>
+              )}
             </div>
           </div>
-        )}
-      </section>
+        </div>
+      </div>
     </div>
   );
 }
