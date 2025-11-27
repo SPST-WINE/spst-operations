@@ -31,7 +31,322 @@ const ALLOWED_DOC_TYPES = new Set([
   "dle",
 ]);
 
-// POST /api/utility-documenti/genera
+// ----------------------- Tipi interni -----------------------
+type ShipmentRow = {
+  id: string;
+  human_id?: string | null;
+  carrier?: string | null;
+  tracking_code?: string | null;
+  incoterm?: string | null;
+  incoterm_norm?: string | null;
+  colli_n?: number | null;
+  peso_reale_kg?: number | null;
+  contenuto_generale?: string | null;
+  giorno_ritiro?: string | null;
+  fatt_valuta?: string | null;
+
+  mittente_rs?: string | null;
+  mittente_referente?: string | null;
+  mittente_indirizzo?: string | null;
+  mittente_cap?: string | null;
+  mittente_citta?: string | null;
+  mittente_paese?: string | null;
+  mittente_piva?: string | null;
+  mittente_telefono?: string | null;
+
+  dest_rs?: string | null;
+  dest_referente?: string | null;
+  dest_indirizzo?: string | null;
+  dest_cap?: string | null;
+  dest_citta?: string | null;
+  dest_paese?: string | null;
+  dest_piva?: string | null;
+  dest_telefono?: string | null;
+
+  fatt_rs?: string | null;
+  fatt_referente?: string | null;
+  fatt_indirizzo?: string | null;
+  fatt_cap?: string | null;
+  fatt_citta?: string | null;
+  fatt_paese?: string | null;
+  fatt_piva?: string | null;
+  fatt_telefono?: string | null;
+
+  fields?: any;
+  [key: string]: any;
+};
+
+type PackingLineDb = {
+  id: string;
+  label?: string | null;
+  item_type?: string | null;
+  bottles?: number | null;
+  volume_l?: number | null;
+  unit_price?: number | null;
+  currency?: string | null;
+  [key: string]: any;
+};
+
+type DocItem = {
+  description: string;
+  bottles: number | null;
+  volumePerBottleL: number | null;
+  totalVolumeL: number | null;
+  unitPrice: number | null;
+  currency: string | null;
+  lineTotal: number | null;
+  itemType: string | null;
+};
+
+type DocData = {
+  meta: {
+    docType: string;
+    docNumber: string;
+    docDate: string;
+    humanId: string | null | undefined;
+    courier: string;
+    trackingCode: string | null;
+    incoterm: string | null;
+    valuta: string | null;
+  };
+  parties: {
+    shipper: any;
+    consignee: any;
+    billTo: any;
+  };
+  shipment: {
+    totalPackages: number | null;
+    totalGrossWeightKg: number | null;
+    contentSummary: string | null;
+    pickupDate: string | null;
+  };
+  items: DocItem[];
+  totals: {
+    totalBottles: number;
+    totalVolumeL: number | null;
+    totalValue: number | null;
+    currency: string | null;
+  };
+};
+
+// ----------------- Normalizzazione packing list -----------------
+function mapPackingJsonToItems(shipment: ShipmentRow): DocItem[] {
+  const fields = (shipment.fields || {}) as any;
+  const packingJson = Array.isArray(fields.packingList)
+    ? (fields.packingList as any[])
+    : [];
+
+  return packingJson.map((row, idx): DocItem => {
+    const bottles: number | null =
+      row.bottiglie ?? row.qty ?? row.quantita ?? null;
+
+    const volPerBottle: number | null =
+      row.formato_litri ?? row.volume_litri ?? null;
+
+    const totalVolumeL: number | null =
+      bottles != null && volPerBottle != null ? bottles * volPerBottle : null;
+
+    const unitPrice: number | null =
+      row.prezzo ?? row.unit_price ?? null;
+
+    const currency: string | null =
+      row.valuta ??
+      row.currency ??
+      shipment.fatt_valuta ??
+      fields.valuta ??
+      null;
+
+    const lineTotal: number | null =
+      bottles != null && unitPrice != null ? bottles * unitPrice : null;
+
+    const descriptionParts = [
+      row.etichetta,
+      row.tipologia,
+    ].filter((x) => !!x && String(x).trim().length > 0);
+
+    const description =
+      descriptionParts.length > 0
+        ? descriptionParts.join(" – ")
+        : "Wine";
+
+    return {
+      description,
+      bottles,
+      volumePerBottleL: volPerBottle,
+      totalVolumeL,
+      unitPrice,
+      currency,
+      lineTotal,
+      itemType: row.tipologia ?? null,
+    };
+  });
+}
+
+function mapPackingDbToItems(lines: PackingLineDb[]): DocItem[] {
+  return (lines || []).map((row): DocItem => {
+    const bottles = row.bottles ?? null;
+    const volPerBottle: number | null = null;
+    const totalVolumeL: number | null = row.volume_l ?? null;
+    const unitPrice = row.unit_price ?? null;
+    const currency = row.currency ?? null;
+    const lineTotal: number | null =
+      bottles != null && unitPrice != null ? bottles * unitPrice : null;
+
+    return {
+      description: row.label || "Voce packing list",
+      bottles,
+      volumePerBottleL: volPerBottle,
+      totalVolumeL,
+      unitPrice,
+      currency,
+      lineTotal,
+      itemType: row.item_type ?? null,
+    };
+  });
+}
+
+// ----------------- Costruzione DocData normalizzato -----------------
+function buildDocData(
+  docType: string,
+  courier: string,
+  trackingCode: string | null,
+  shipment: ShipmentRow,
+  plLines: PackingLineDb[]
+): DocData {
+  const itemsFromJson = mapPackingJsonToItems(shipment);
+  const itemsFromDb = mapPackingDbToItems(plLines);
+
+  // Preferisci la tabella se esiste, altrimenti il JSON nel fields
+  const items: DocItem[] =
+    itemsFromDb && itemsFromDb.length > 0 ? itemsFromDb : itemsFromJson;
+
+  const totalBottles = items.reduce(
+    (sum, it) => sum + (it.bottles ?? 0),
+    0
+  );
+
+  const totalVolumeL =
+    items.some((it) => it.totalVolumeL != null)
+      ? items.reduce(
+          (sum, it) => sum + (it.totalVolumeL ?? 0),
+          0
+        )
+      : null;
+
+  const totalValue =
+    items.some((it) => it.lineTotal != null)
+      ? items.reduce(
+          (sum, it) => sum + (it.lineTotal ?? 0),
+          0
+        )
+      : null;
+
+  const currency =
+    items.find((it) => !!it.currency)?.currency ??
+    shipment.fatt_valuta ??
+    (shipment.fields && (shipment.fields as any).valuta) ??
+    null;
+
+  const today = new Date();
+  const docDate = today.toISOString().slice(0, 10);
+
+  const humanId = shipment.human_id ?? null;
+
+  const meta: DocData["meta"] = {
+    docType,
+    docNumber: `AUTO-${docType.toUpperCase()}-${humanId ?? shipment.id}`,
+    docDate,
+    humanId,
+    courier,
+    trackingCode,
+    incoterm: shipment.incoterm_norm ?? shipment.incoterm ?? null,
+    valuta: currency,
+  };
+
+  const shipper = {
+    name: shipment.mittente_rs ?? null,
+    contact: shipment.mittente_referente ?? null,
+    address: {
+      line1: shipment.mittente_indirizzo ?? null,
+      city: shipment.mittente_citta ?? null,
+      postalCode: shipment.mittente_cap ?? null,
+      country: shipment.mittente_paese ?? null,
+    },
+    vatNumber: shipment.mittente_piva ?? null,
+    phone: shipment.mittente_telefono ?? null,
+  };
+
+  const consignee = {
+    name: shipment.dest_rs ?? null,
+    contact: shipment.dest_referente ?? null,
+    address: {
+      line1: shipment.dest_indirizzo ?? null,
+      city: shipment.dest_citta ?? null,
+      postalCode: shipment.dest_cap ?? null,
+      country: shipment.dest_paese ?? null,
+    },
+    vatNumber: shipment.dest_piva ?? null,
+    phone: shipment.dest_telefono ?? null,
+  };
+
+  const billTo =
+    shipment.fatt_rs ||
+    shipment.fatt_indirizzo ||
+    shipment.fatt_paese ||
+    shipment.fatt_piva
+      ? {
+          name: shipment.fatt_rs ?? null,
+          contact: shipment.fatt_referente ?? null,
+          address: {
+            line1: shipment.fatt_indirizzo ?? null,
+            city: shipment.fatt_citta ?? null,
+            postalCode: shipment.fatt_cap ?? null,
+            country: shipment.fatt_paese ?? null,
+          },
+          vatNumber: shipment.fatt_piva ?? null,
+          phone: shipment.fatt_telefono ?? null,
+        }
+      : consignee;
+
+  const fields = (shipment.fields || {}) as any;
+
+  const shipmentInfo: DocData["shipment"] = {
+    totalPackages: shipment.colli_n ?? null,
+    totalGrossWeightKg:
+      typeof shipment.peso_reale_kg === "number"
+        ? shipment.peso_reale_kg
+        : null,
+    contentSummary:
+      shipment.contenuto_generale ??
+      fields.contenuto ??
+      fields.contenuto_generale ??
+      "Wine bottles",
+    pickupDate:
+      shipment.giorno_ritiro ??
+      (fields.ritiroData ? String(fields.ritiroData).slice(0, 10) : null),
+  };
+
+  const totals: DocData["totals"] = {
+    totalBottles,
+    totalVolumeL,
+    totalValue,
+    currency,
+  };
+
+  return {
+    meta,
+    parties: {
+      shipper,
+      consignee,
+      billTo,
+    },
+    shipment: shipmentInfo,
+    items,
+    totals,
+  };
+}
+
+// ----------------- Handler POST -----------------
 // body: { human_id, doc_type, courier, tracking_code }
 export async function POST(req: Request) {
   let body: any = {};
@@ -90,18 +405,7 @@ export async function POST(req: Request) {
 
     const shipmentId = shipment.id as string;
 
-    // 2) Colli
-    const { data: packages, error: pkgErr } = await supa
-      .schema("spst")
-      .from("packages")
-      .select("*")
-      .eq("shipment_id", shipmentId);
-
-    if (pkgErr) {
-      console.error("[utility-documenti:genera] packages select error:", pkgErr);
-    }
-
-    // 3) Packing list
+    // 2) Packing list da tabella (se/quando popolata)
     const { data: plLines, error: plErr } = await supa
       .schema("spst")
       .from("shipment_pl_lines")
@@ -115,20 +419,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const doc = {
-      meta: {
-        humanId,
-        docType,
-        courier,
-        trackingCode,
-        createdAt: new Date().toISOString(),
-      },
-      shipment,
-      packages: packages || [],
-      packingList: plLines || [],
-    };
+    const docData = buildDocData(
+      docType,
+      courier,
+      trackingCode,
+      shipment as ShipmentRow,
+      (plLines || []) as PackingLineDb[]
+    );
 
-    return NextResponse.json({ ok: true, doc });
+    return NextResponse.json({
+      ok: true,
+      doc: docData,
+      raw: {
+        shipment,
+        packingListDb: plLines || [],
+      },
+    });
   } catch (e: any) {
     console.error("[utility-documenti:genera] unexpected error:", e);
     return NextResponse.json(
