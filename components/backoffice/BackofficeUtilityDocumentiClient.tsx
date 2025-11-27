@@ -70,6 +70,15 @@ type PlLineRow = {
   currency?: string | null;
 };
 
+// DocData per editor
+type DocData = {
+  meta: any;
+  parties: any;
+  shipment: any;
+  items: any[];
+  totals: any;
+};
+
 export default function BackofficeUtilityDocumentiClient() {
   const [humanIdInput, setHumanIdInput] = useState("");
   const [loadingShipment, setLoadingShipment] = useState(false);
@@ -86,6 +95,10 @@ export default function BackofficeUtilityDocumentiClient() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [debugPayload, setDebugPayload] = useState<any | null>(null);
+
+  // nuovi stati per documento base + bozza editabile + anteprima
+  const [baseDoc, setBaseDoc] = useState<DocData | null>(null);
+  const [draftDoc, setDraftDoc] = useState<DocData | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
   async function handleLoadShipment() {
@@ -102,6 +115,8 @@ export default function BackofficeUtilityDocumentiClient() {
     setPackingList([]);
     setDebugPayload(null);
     setPreviewHtml(null);
+    setBaseDoc(null);
+    setDraftDoc(null);
 
     try {
       const res = await fetch(
@@ -208,6 +223,12 @@ export default function BackofficeUtilityDocumentiClient() {
 
       setDebugPayload(json.doc || json);
       setPreviewHtml(json.html || null);
+
+      // nuovo: salviamo doc come base + bozza editabile
+      if (json.doc) {
+        setBaseDoc(json.doc);
+        setDraftDoc(json.doc);
+      }
     } catch (e: any) {
       console.error("[utility-documenti] generate error:", e);
       setGenerateError(e?.message || "Errore nella generazione del documento");
@@ -450,7 +471,7 @@ export default function BackofficeUtilityDocumentiClient() {
         </div>
       </section>
 
-      {/* Card 3: azione */}
+      {/* Card 3: azione + debug + anteprima */}
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
           <div>
@@ -464,16 +485,33 @@ export default function BackofficeUtilityDocumentiClient() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={generating || !shipment}
-            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
-          >
-            {generating
-              ? "Genero documento…"
-              : "Genera documento (placeholder)"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating || !shipment}
+              className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
+            >
+              {generating
+                ? "Genero documento…"
+                : "Genera documento (placeholder)"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (baseDoc) {
+                  setDraftDoc(baseDoc);
+                  setPreviewHtml(null);
+                  setDebugPayload(baseDoc);
+                }
+              }}
+              disabled={!baseDoc}
+              className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Reset dai dati spedizione
+            </button>
+          </div>
         </div>
 
         {generateError && (
@@ -501,6 +539,233 @@ export default function BackofficeUtilityDocumentiClient() {
                 srcDoc={previewHtml}
                 className="h-full w-full"
               />
+            </div>
+          </div>
+        )}
+
+        {/* Editor bozza DocData */}
+        {draftDoc && (
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 text-sm font-semibold text-slate-800">
+              Editor dati documento (bozza)
+            </div>
+
+            {/* Meta */}
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Numero documento
+                </label>
+                <input
+                  type="text"
+                  value={draftDoc.meta?.docNumber ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            meta: { ...prev.meta, docNumber: e.target.value },
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Data documento
+                </label>
+                <input
+                  type="date"
+                  value={draftDoc.meta?.docDate ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            meta: { ...prev.meta, docDate: e.target.value },
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Incoterm
+                </label>
+                <input
+                  type="text"
+                  value={draftDoc.meta?.incoterm ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            meta: { ...prev.meta, incoterm: e.target.value },
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Parties */}
+            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Seller (nome)
+                </label>
+                <input
+                  type="text"
+                  value={draftDoc.parties?.shipper?.name ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) => {
+                      if (!prev) return prev;
+                      const prevParties = prev.parties || {};
+                      const prevShipper = prevParties.shipper || {};
+                      return {
+                        ...prev,
+                        parties: {
+                          ...prevParties,
+                          shipper: {
+                            ...prevShipper,
+                            name: e.target.value,
+                          },
+                        },
+                      };
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Buyer (nome)
+                </label>
+                <input
+                  type="text"
+                  value={draftDoc.parties?.consignee?.name ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) => {
+                      if (!prev) return prev;
+                      const prevParties = prev.parties || {};
+                      const prevConsignee = prevParties.consignee || {};
+                      return {
+                        ...prev,
+                        parties: {
+                          ...prevParties,
+                          consignee: {
+                            ...prevConsignee,
+                            name: e.target.value,
+                          },
+                        },
+                      };
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500">
+                  Bill to (nome)
+                </label>
+                <input
+                  type="text"
+                  value={draftDoc.parties?.billTo?.name ?? ""}
+                  onChange={(e) =>
+                    setDraftDoc((prev) => {
+                      if (!prev) return prev;
+                      const prevParties = prev.parties || {};
+                      const prevBillTo = prevParties.billTo || {};
+                      return {
+                        ...prev,
+                        parties: {
+                          ...prevParties,
+                          billTo: {
+                            ...prevBillTo,
+                            name: e.target.value,
+                          },
+                        },
+                      };
+                    })
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!draftDoc) return;
+                  try {
+                    const res = await fetch(
+                      "/api/utility-documenti/genera",
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          doc_type:
+                            draftDoc.meta?.docType ??
+                            docType ??
+                            "fattura_proforma",
+                          doc_data: draftDoc,
+                        }),
+                      }
+                    );
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok || !json?.ok) {
+                      throw new Error(
+                        json?.error ||
+                          json?.details ||
+                          `Errore ${res.status} nel rendering documento`
+                      );
+                    }
+                    // Aggiorniamo sia doc che html
+                    if (json.doc) {
+                      setDraftDoc(json.doc);
+                      setDebugPayload(json.doc);
+                      setBaseDoc(json.doc);
+                    } else {
+                      setDebugPayload(json);
+                    }
+                    setPreviewHtml(json.html || null);
+                  } catch (e: any) {
+                    console.error(
+                      "[utility-documenti] render doc error:",
+                      e
+                    );
+                    alert(
+                      e?.message || "Errore nel rendering del documento"
+                    );
+                  }
+                }}
+                className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+              >
+                Aggiorna anteprima
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (baseDoc) {
+                    setDraftDoc(baseDoc);
+                    setPreviewHtml(null);
+                    setDebugPayload(baseDoc);
+                  }
+                }}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Reset dai dati spedizione
+              </button>
             </div>
           </div>
         )}
