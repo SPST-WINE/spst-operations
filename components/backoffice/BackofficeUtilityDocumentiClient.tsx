@@ -25,26 +25,59 @@ const COURIERS = [
 type ShipmentSummary = {
   id: string;
   human_id: string | null;
+
   carrier: string | null;
   tracking_code: string | null;
-  mittente_ragione_sociale?: string | null;
+
+  // Mittente
+  mittente_rs?: string | null;
   mittente_indirizzo?: string | null;
   mittente_cap?: string | null;
   mittente_citta?: string | null;
   mittente_paese?: string | null;
-  dest_ragione_sociale?: string | null;
+
+  // Destinatario
+  dest_rs?: string | null;
   dest_indirizzo?: string | null;
   dest_cap?: string | null;
   dest_citta?: string | null;
   dest_paese?: string | null;
+
+  // Dati spedizione
+  colli_n?: number | null;
+  peso_reale_kg?: number | null;
+
   [key: string]: any;
+};
+
+type PackageRow = {
+  id?: string;
+  length_cm?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  contents?: string | null;
+  fields?: any;
+};
+
+type PlLineRow = {
+  id?: string;
+  label?: string | null;
+  item_type?: string | null;
+  bottles?: number | null;
+  volume_l?: number | null;
+  unit_price?: number | null;
+  currency?: string | null;
 };
 
 export default function BackofficeUtilityDocumentiClient() {
   const [humanIdInput, setHumanIdInput] = useState("");
   const [loadingShipment, setLoadingShipment] = useState(false);
   const [shipmentError, setShipmentError] = useState<string | null>(null);
+
   const [shipment, setShipment] = useState<ShipmentSummary | null>(null);
+  const [packages, setPackages] = useState<PackageRow[]>([]);
+  const [packingList, setPackingList] = useState<PlLineRow[]>([]);
 
   const [docType, setDocType] = useState<string>("");
   const [courier, setCourier] = useState<string>("");
@@ -64,6 +97,8 @@ export default function BackofficeUtilityDocumentiClient() {
     setLoadingShipment(true);
     setShipmentError(null);
     setShipment(null);
+    setPackages([]);
+    setPackingList([]);
     setDebugPayload(null);
 
     try {
@@ -82,6 +117,10 @@ export default function BackofficeUtilityDocumentiClient() {
 
       const sh = json.shipment as ShipmentSummary;
       setShipment(sh);
+
+      // Colli + packing list
+      setPackages((json.packages || []) as PackageRow[]);
+      setPackingList((json.plLines || []) as PlLineRow[]);
 
       // Precompila courier + tracking se presenti
       setCourier(sh.carrier || "");
@@ -133,7 +172,6 @@ export default function BackofficeUtilityDocumentiClient() {
         );
       }
 
-      // Per ora mostriamo il payload che useremo per costruire il PDF
       setDebugPayload(json.doc || json);
     } catch (e: any) {
       console.error("[utility-documenti] generate error:", e);
@@ -144,7 +182,7 @@ export default function BackofficeUtilityDocumentiClient() {
   }
 
   const mittente = shipment && {
-    ragioneSociale: shipment.mittente_ragione_sociale,
+    ragioneSociale: shipment.mittente_rs,
     indirizzo: shipment.mittente_indirizzo,
     cap: shipment.mittente_cap,
     citta: shipment.mittente_citta,
@@ -152,12 +190,15 @@ export default function BackofficeUtilityDocumentiClient() {
   };
 
   const destinatario = shipment && {
-    ragioneSociale: shipment.dest_ragione_sociale,
+    ragioneSociale: shipment.dest_rs,
     indirizzo: shipment.dest_indirizzo,
     cap: shipment.dest_cap,
     citta: shipment.dest_citta,
     paese: shipment.dest_paese,
   };
+
+  const colliCount = shipment?.colli_n ?? packages.length ?? 0;
+  const pesoTotale = shipment?.peso_reale_kg ?? null;
 
   return (
     <div className="space-y-6">
@@ -201,35 +242,170 @@ export default function BackofficeUtilityDocumentiClient() {
         )}
 
         {shipment && (
-          <div className="mt-5 grid gap-4 rounded-xl bg-slate-50 p-4 text-xs text-slate-700 md:grid-cols-2">
-            <div>
-              <div className="text-[11px] font-semibold uppercase text-slate-500">
-                Mittente
-              </div>
-              <div className="mt-1 space-y-0.5">
-                <div>{mittente?.ragioneSociale || "—"}</div>
-                <div>{mittente?.indirizzo || "—"}</div>
-                <div>
-                  {(mittente?.cap || "") +
-                    (mittente?.cap ? " " : "") +
-                    (mittente?.citta || "")}
+          <div className="mt-5 space-y-4 rounded-xl bg-slate-50 p-4 text-xs text-slate-700">
+            {/* Mittente / Destinatario */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase text-slate-500">
+                  Mittente
                 </div>
-                <div>{mittente?.paese || "—"}</div>
+                <div className="mt-1 space-y-0.5">
+                  <div>{mittente?.ragioneSociale || "—"}</div>
+                  <div>{mittente?.indirizzo || "—"}</div>
+                  <div>
+                    {(mittente?.cap || "") +
+                      (mittente?.cap ? " " : "") +
+                      (mittente?.citta || "")}
+                  </div>
+                  <div>{mittente?.paese || "—"}</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase text-slate-500">
+                  Destinatario
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  <div>{destinatario?.ragioneSociale || "—"}</div>
+                  <div>{destinatario?.indirizzo || "—"}</div>
+                  <div>
+                    {(destinatario?.cap || "") +
+                      (destinatario?.cap ? " " : "") +
+                      (destinatario?.citta || "")}
+                  </div>
+                  <div>{destinatario?.paese || "—"}</div>
+                </div>
               </div>
             </div>
-            <div>
-              <div className="text-[11px] font-semibold uppercase text-slate-500">
-                Destinatario
-              </div>
-              <div className="mt-1 space-y-0.5">
-                <div>{destinatario?.ragioneSociale || "—"}</div>
-                <div>{destinatario?.indirizzo || "—"}</div>
-                <div>
-                  {(destinatario?.cap || "") +
-                    (destinatario?.cap ? " " : "") +
-                    (destinatario?.citta || "")}
+
+            {/* Colli + Packing list */}
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Colli */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-[11px] font-semibold uppercase text-slate-500">
+                    Colli
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {colliCount > 0 && (
+                      <>
+                        {colliCount} collo{colliCount > 1 ? "i" : ""}{" "}
+                        {pesoTotale ? `· ${pesoTotale} kg totali` : ""}
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div>{destinatario?.paese || "—"}</div>
+
+                {packages.length === 0 ? (
+                  <div className="text-[11px] italic text-slate-500">
+                    Nessun collo registrato.
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {packages.slice(0, 4).map((p, idx) => {
+                      const dims =
+                        p.length_cm && p.width_cm && p.height_cm
+                          ? `${p.length_cm}×${p.width_cm}×${p.height_cm} cm`
+                          : null;
+
+                      const peso = p.weight_kg
+                        ? `${p.weight_kg} kg`
+                        : undefined;
+
+                      const contents =
+                        p.contents ||
+                        (p.fields &&
+                          (p.fields.contenuto ||
+                            p.fields.contenuto_collo ||
+                            p.fields.contents));
+
+                      return (
+                        <li
+                          key={p.id || idx}
+                          className="rounded-lg border border-slate-200 bg-white/60 px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-[11px] font-medium text-slate-700">
+                              Collo #{idx + 1}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {peso || "—"}
+                            </div>
+                          </div>
+                          {dims && (
+                            <div className="text-[11px] text-slate-500">
+                              {dims}
+                            </div>
+                          )}
+                          {contents && (
+                            <div className="mt-0.5 text-[11px] text-slate-600 line-clamp-2">
+                              {contents}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+
+                    {packages.length > 4 && (
+                      <li className="text-[11px] text-slate-500">
+                        … e altri {packages.length - 4} colli.
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+
+              {/* Packing list */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-[11px] font-semibold uppercase text-slate-500">
+                    Packing list
+                  </div>
+                  {packingList.length > 0 && (
+                    <div className="text-[11px] text-slate-500">
+                      {packingList.length} voce
+                      {packingList.length > 1 ? "i" : ""}
+                    </div>
+                  )}
+                </div>
+
+                {packingList.length === 0 ? (
+                  <div className="text-[11px] italic text-slate-500">
+                    Nessuna riga di packing list.
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {packingList.slice(0, 4).map((r, idx) => {
+                      const qty = r.bottles ?? null;
+                      const vol = r.volume_l ?? null;
+                      const price =
+                        r.unit_price != null
+                          ? `${r.unit_price} ${r.currency || ""}`.trim()
+                          : null;
+
+                      return (
+                        <li
+                          key={r.id || idx}
+                          className="rounded-lg border border-slate-200 bg-white/60 px-3 py-2"
+                        >
+                          <div className="text-[11px] font-medium text-slate-700 line-clamp-2">
+                            {r.label || "Voce packing list"}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                            {qty != null && <span>{qty} bt</span>}
+                            {vol != null && <span>{vol} L totali</span>}
+                            {price && <span>· {price}</span>}
+                          </div>
+                        </li>
+                      );
+                    })}
+
+                    {packingList.length > 4 && (
+                      <li className="text-[11px] text-slate-500">
+                        … e altre {packingList.length - 4} righe.
+                      </li>
+                    )}
+                  </ul>
+                )}
               </div>
             </div>
           </div>
