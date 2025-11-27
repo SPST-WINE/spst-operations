@@ -618,10 +618,10 @@ export default function BackofficeUtilityDocumentiClient() {
           </p>
         )}
 
-        {/* Layout a due colonne */}
-        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Layout a due colonne 50/50 */}
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* ======== COLONNA SINISTRA (JSON + EDITOR) ======== */}
-          <div className="space-y-6 lg:col-span-2">
+          <div className="space-y-6">
             {/* JSON DEBUG COLLASSABILE */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-2 flex items-center justify-between">
@@ -921,9 +921,7 @@ export default function BackofficeUtilityDocumentiClient() {
                           <input
                             type="text"
                             className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                            value={
-                              draftDoc.parties?.[partyKey]?.phone ?? ""
-                            }
+                            value={draftDoc.parties?.[partyKey]?.phone ?? ""}
                             onChange={(e) =>
                               updatePartyField(
                                 partyKey,
@@ -1196,7 +1194,7 @@ export default function BackofficeUtilityDocumentiClient() {
           </div>
 
           {/* ======== COLONNA DESTRA: ANTEPRIMA DOCUMENTO ======== */}
-          <div className="lg:col-span-1">
+          <div>
             <div className="overflow-hidden rounded-xl border border-slate-300">
               {previewHtml ? (
                 <iframe
