@@ -86,84 +86,85 @@ export default function BackofficeUtilityDocumentiClient() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [debugPayload, setDebugPayload] = useState<any | null>(null);
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
-async function handleLoadShipment() {
-  const id = humanIdInput.trim();
-  if (!id) {
-    setShipmentError("Inserisci un ID spedizione (es. SP-27-11-2025-00001).");
-    return;
-  }
+  async function handleLoadShipment() {
+    const id = humanIdInput.trim();
+    if (!id) {
+      setShipmentError("Inserisci un ID spedizione (es. SP-27-11-2025-00001).");
+      return;
+    }
 
-  setLoadingShipment(true);
-  setShipmentError(null);
-  setShipment(null);
-  setPackages([]);
-  setPackingList([]);
-  setDebugPayload(null);
+    setLoadingShipment(true);
+    setShipmentError(null);
+    setShipment(null);
+    setPackages([]);
+    setPackingList([]);
+    setDebugPayload(null);
+    setPreviewHtml(null);
 
-  try {
-    const res = await fetch(
-      `/api/utility-documenti/shipment?human_id=${encodeURIComponent(id)}`
-    );
-    const json = await res.json().catch(() => ({}));
-
-    if (!res.ok || !json?.ok) {
-      throw new Error(
-        json?.error ||
-          json?.details ||
-          `Errore ${res.status} nel caricamento spedizione`
+    try {
+      const res = await fetch(
+        `/api/utility-documenti/shipment?human_id=${encodeURIComponent(id)}`
       );
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(
+          json?.error ||
+            json?.details ||
+            `Errore ${res.status} nel caricamento spedizione`
+        );
+      }
+
+      const sh = json.shipment as ShipmentSummary;
+      setShipment(sh);
+
+      // Colli da tabella (se ci sono)
+      setPackages((json.packages || []) as PackageRow[]);
+
+      // ------- PACKING LIST SOLO DA JSON shipment.fields.packingList -------
+      let plFinal: PlLineRow[] = [];
+
+      const maybePacking = (sh as any)?.fields?.packingList;
+      if (Array.isArray(maybePacking) && maybePacking.length > 0) {
+        plFinal = maybePacking.map((row: any, idx: number): PlLineRow => {
+          const bottles: number | null =
+            row.bottiglie ?? row.qty ?? row.quantita ?? null;
+
+          const formatLiters: number | null =
+            row.formato_litri ?? row.volume_litri ?? null;
+
+          const totalVolume: number | null =
+            bottles != null && formatLiters != null
+              ? bottles * formatLiters
+              : null;
+
+          return {
+            id: `${sh.id}-json-${idx}`,
+            label:
+              row.etichetta || row.label || row.nome || "Voce packing list",
+            item_type: row.tipologia || row.item_type || null,
+            bottles,
+            volume_l: totalVolume,
+            unit_price: row.prezzo ?? row.unit_price ?? null,
+            currency: row.valuta || row.currency || null,
+          };
+        });
+      }
+
+      setPackingList(plFinal);
+
+      // Precompila courier + tracking se presenti
+      setCourier(sh.carrier || "");
+      setTracking(sh.tracking_code || "");
+    } catch (e: any) {
+      console.error("[utility-documenti] load shipment error:", e);
+      setShipmentError(e?.message || "Errore nel caricamento della spedizione");
+    } finally {
+      setLoadingShipment(false);
     }
-
-    const sh = json.shipment as ShipmentSummary;
-    setShipment(sh);
-
-    // Colli da tabella (se ci sono)
-    setPackages((json.packages || []) as PackageRow[]);
-
-    // ------- PACKING LIST SOLO DA JSON shipment.fields.packingList -------
-    let plFinal: PlLineRow[] = [];
-
-    const maybePacking = (sh as any)?.fields?.packingList;
-    if (Array.isArray(maybePacking) && maybePacking.length > 0) {
-      plFinal = maybePacking.map((row: any, idx: number): PlLineRow => {
-        const bottles: number | null =
-          row.bottiglie ?? row.qty ?? row.quantita ?? null;
-
-        const formatLiters: number | null =
-          row.formato_litri ?? row.volume_litri ?? null;
-
-        const totalVolume: number | null =
-          bottles != null && formatLiters != null
-            ? bottles * formatLiters
-            : null;
-
-        return {
-          id: `${sh.id}-json-${idx}`,
-          label:
-            row.etichetta || row.label || row.nome || "Voce packing list",
-          item_type: row.tipologia || row.item_type || null,
-          bottles,
-          volume_l: totalVolume,
-          unit_price: row.prezzo ?? row.unit_price ?? null,
-          currency: row.valuta || row.currency || null,
-        };
-      });
-    }
-
-    setPackingList(plFinal);
-
-    // Precompila courier + tracking se presenti
-    setCourier(sh.carrier || "");
-    setTracking(sh.tracking_code || "");
-  } catch (e: any) {
-    console.error("[utility-documenti] load shipment error:", e);
-    setShipmentError(e?.message || "Errore nel caricamento della spedizione");
-  } finally {
-    setLoadingShipment(false);
   }
-}
-
 
   async function handleGenerate() {
     if (!shipment) {
@@ -182,6 +183,7 @@ async function handleLoadShipment() {
     setGenerating(true);
     setGenerateError(null);
     setDebugPayload(null);
+    setPreviewHtml(null);
 
     try {
       const res = await fetch("/api/utility-documenti/genera", {
@@ -205,6 +207,7 @@ async function handleLoadShipment() {
       }
 
       setDebugPayload(json.doc || json);
+      setPreviewHtml(json.html || null);
     } catch (e: any) {
       console.error("[utility-documenti] generate error:", e);
       setGenerateError(e?.message || "Errore nella generazione del documento");
@@ -263,8 +266,8 @@ async function handleLoadShipment() {
           1. Seleziona spedizione
         </h2>
         <p className="mt-1 text-xs text-slate-500">
-          Inserisci l&apos;ID della spedizione (es. SP-27-11-2025-00001). Verranno
-          letti mittente, destinatario, colli e packing list.
+          Inserisci l&apos;ID della spedizione (es. SP-27-11-2025-00001).
+          Verranno letti mittente, destinatario, colli e packing list.
         </p>
 
         <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
@@ -467,7 +470,9 @@ async function handleLoadShipment() {
             disabled={generating || !shipment}
             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
           >
-            {generating ? "Genero documento…" : "Genera documento (placeholder)"}
+            {generating
+              ? "Genero documento…"
+              : "Genera documento (placeholder)"}
           </button>
         </div>
 
@@ -482,6 +487,21 @@ async function handleLoadShipment() {
             <pre className="whitespace-pre-wrap break-all">
               {JSON.stringify(debugPayload, null, 2)}
             </pre>
+          </div>
+        )}
+
+        {previewHtml && (
+          <div className="mt-4">
+            <div className="mb-2 text-xs font-medium text-slate-600">
+              Anteprima documento (HTML)
+            </div>
+            <div className="h-[480px] w-full overflow-hidden rounded-xl border border-slate-200">
+              <iframe
+                title="Anteprima documento"
+                srcDoc={previewHtml}
+                className="h-full w-full"
+              />
+            </div>
           </div>
         )}
       </section>
