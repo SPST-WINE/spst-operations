@@ -95,8 +95,7 @@ export async function POST(req: Request) {
       .schema("spst")
       .from("packages")
       .select("*")
-      .eq("shipment_id", shipmentId)
-      .order("idx", { ascending: true });
+      .eq("shipment_id", shipmentId);
 
     if (pkgErr) {
       console.error("[utility-documenti:genera] packages select error:", pkgErr);
@@ -107,8 +106,7 @@ export async function POST(req: Request) {
       .schema("spst")
       .from("shipment_pl_lines")
       .select("*")
-      .eq("shipment_id", shipmentId)
-      .order("line_no", { ascending: true });
+      .eq("shipment_id", shipmentId);
 
     if (plErr) {
       console.error(
@@ -117,7 +115,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Costruisci oggetto documento (scheletro)
     const doc = {
       meta: {
         humanId,
@@ -129,13 +126,8 @@ export async function POST(req: Request) {
       shipment,
       packages: packages || [],
       packingList: plLines || [],
-      // Qui in futuro possiamo già preparare le sezioni "flattened"
-      // per header, body, footer del PDF.
     };
 
-    // In futuro: generazione PDF qui (es. pdfkit) + salvataggio su storage
-    // e return { ok:true, url, storagePath, ... }.
-    // Per ora restituiamo solo il payload.
     return NextResponse.json({ ok: true, doc });
   } catch (e: any) {
     console.error("[utility-documenti:genera] unexpected error:", e);
