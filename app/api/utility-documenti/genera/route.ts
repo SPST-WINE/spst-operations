@@ -149,7 +149,7 @@ function mapPackingJsonToItems(shipment: ShipmentRow): DocItem[] {
     ? (fields.packingList as any[])
     : [];
 
-  return packingJson.map((row, idx): DocItem => {
+  return packingJson.map((row): DocItem => {
     const bottles: number | null =
       row.bottiglie ?? row.qty ?? row.quantita ?? null;
 
@@ -232,7 +232,6 @@ function buildDocData(
   const itemsFromJson = mapPackingJsonToItems(shipment);
   const itemsFromDb = mapPackingDbToItems(plLines);
 
-  // Preferisci la tabella se esiste, altrimenti il JSON nel fields
   const items: DocItem[] =
     itemsFromDb && itemsFromDb.length > 0 ? itemsFromDb : itemsFromJson;
 
@@ -451,7 +450,6 @@ function renderProformaHtml(doc: DocData): string {
     totals.totalVolumeL != null ? totals.totalVolumeL.toFixed(2) : "";
   const totalValueStr =
     totals.totalValue != null ? totals.totalValue.toFixed(2) : "";
-
   const currency = esc(totals.currency ?? meta.valuta ?? "");
 
   const destinationCountry =
@@ -651,11 +649,9 @@ function renderDocumentHtml(doc: DocData): string | null {
   switch (doc.meta.docType) {
     case "fattura_proforma":
     case "fattura_commerciale":
-      // Per ora usiamo lo stesso layout per proforma e commerciale
       return renderProformaHtml(doc);
     default:
-      // DDT e DLE li aggiungeremo dopo
-      return null;
+      return null; // DDT / DLE li aggiungiamo dopo
   }
 }
 
@@ -666,10 +662,41 @@ export async function POST(req: Request) {
     body = await req.json();
   } catch {}
 
+  const rawDocType = (body?.doc_type || "").trim();
+  const docDataFromBody = body?.doc_data as DocData | undefined;
+
+  // Se ci arriva già un doc_data: modalità "render-only", niente DB
+  if (docDataFromBody) {
+    const inferredType =
+      rawDocType || docDataFromBody.meta?.docType || "fattura_proforma";
+
+    if (!ALLOWED_DOC_TYPES.has(inferredType)) {
+      return NextResponse.json(
+        { ok: false, error: "INVALID_DOC_TYPE" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedDoc: DocData = {
+      ...docDataFromBody,
+      meta: {
+        ...docDataFromBody.meta,
+        docType: inferredType,
+      },
+    };
+
+    const html = renderDocumentHtml(normalizedDoc);
+
+    return NextResponse.json({
+      ok: true,
+      doc: normalizedDoc,
+      html,
+    });
+  }
+
+  // Modalità classica: da human_id
   const humanId = (body?.human_id || "").trim();
-  const docType = (body?.doc_type || "").trim();
-  const courier = (body?.courier || "").trim();
-  const trackingCode = (body?.tracking_code || "").trim() || null;
+  const docType = rawDocType;
 
   if (!humanId) {
     return NextResponse.json(
@@ -683,6 +710,10 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  const courier = (body?.courier || "").trim();
+  const trackingCode = (body?.tracking_code || "").trim() || null;
+
   if (!courier) {
     return NextResponse.json(
       { ok: false, error: "MISSING_COURIER" },
@@ -693,7 +724,6 @@ export async function POST(req: Request) {
   try {
     const supa = admin();
 
-    // 1) Spedizione
     const {
       data: shipment,
       error: shipmentErr,
@@ -717,7 +747,6 @@ export async function POST(req: Request) {
 
     const shipmentId = shipment.id as string;
 
-    // 2) Packing list da tabella (se/quando popolata)
     const { data: plLines, error: plErr } = await supa
       .schema("spst")
       .from("shipment_pl_lines")
