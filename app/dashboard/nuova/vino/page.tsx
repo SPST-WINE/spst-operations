@@ -326,6 +326,17 @@ export default function NuovaVinoPage() {
 function NuovaVinoPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+const asEmail = searchParams.get("as_email");
+
+useEffect(() => {
+  const emailNorm = asEmail?.trim();
+  if (typeof document !== "undefined") {
+    document.title = emailNorm
+      ? `Vino - ${emailNorm}`
+      : "Nuova spedizione vino";
+  }
+}, [asEmail]);
+  const searchParams = useSearchParams();
   const forcedEmail = searchParams.get("for");
 
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
