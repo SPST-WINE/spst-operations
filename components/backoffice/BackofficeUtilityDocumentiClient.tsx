@@ -79,6 +79,8 @@ type DocData = {
   totals: any;
 };
 
+type DraftUpdater = (prev: DocData) => DocData;
+
 export default function BackofficeUtilityDocumentiClient() {
   const [humanIdInput, setHumanIdInput] = useState("");
   const [loadingShipment, setLoadingShipment] = useState(false);
@@ -96,13 +98,15 @@ export default function BackofficeUtilityDocumentiClient() {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [debugPayload, setDebugPayload] = useState<any | null>(null);
 
-  // nuovi stati per documento base + bozza editabile + anteprima
+  // documento base + bozza editabile + anteprima
   const [baseDoc, setBaseDoc] = useState<DocData | null>(null);
   const [draftDoc, setDraftDoc] = useState<DocData | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
 
   // show/hide JSON debug
   const [showJson, setShowJson] = useState(false);
+
+  // ---------- LOAD SPEDIZIONE ----------
 
   async function handleLoadShipment() {
     const id = humanIdInput.trim();
@@ -141,7 +145,7 @@ export default function BackofficeUtilityDocumentiClient() {
       // Colli da tabella (se ci sono)
       setPackages((json.packages || []) as PackageRow[]);
 
-      // ------- PACKING LIST SOLO DA JSON shipment.fields.packingList -------
+      // PACKING LIST da shipment.fields.packingList
       let plFinal: PlLineRow[] = [];
 
       const maybePacking = (sh as any)?.fields?.packingList;
@@ -183,6 +187,8 @@ export default function BackofficeUtilityDocumentiClient() {
       setLoadingShipment(false);
     }
   }
+
+  // ---------- GENERA DOCUMENTO BASE ----------
 
   async function handleGenerate() {
     if (!shipment) {
@@ -227,7 +233,6 @@ export default function BackofficeUtilityDocumentiClient() {
       setDebugPayload(json.doc || json);
       setPreviewHtml(json.html || null);
 
-      // nuovo: salviamo doc come base + bozza editabile
       if (json.doc) {
         setBaseDoc(json.doc);
         setDraftDoc(json.doc);
@@ -240,9 +245,7 @@ export default function BackofficeUtilityDocumentiClient() {
     }
   }
 
-  // ---------- FUNZIONI DI SUPPORTO PER L'EDITOR ----------
-
-  type DraftUpdater = (prev: DocData) => DocData;
+  // ---------- HELPER EDITOR DOC ----------
 
   const updateDraft = (updater: DraftUpdater) => {
     setDraftDoc((prev) => {
@@ -308,6 +311,24 @@ export default function BackofficeUtilityDocumentiClient() {
     });
   };
 
+  const duplicateItem = (idx: number) => {
+    setDraftDoc((prev) => {
+      if (!prev || !Array.isArray(prev.items)) return prev;
+      const copy = { ...prev.items[idx] };
+      const newItems = [...prev.items];
+      newItems.splice(idx + 1, 0, copy);
+      return { ...prev, items: newItems };
+    });
+  };
+
+  const deleteItem = (idx: number) => {
+    setDraftDoc((prev) => {
+      if (!prev || !Array.isArray(prev.items)) return prev;
+      const newItems = prev.items.filter((_, i) => i !== idx);
+      return { ...prev, items: newItems };
+    });
+  };
+
   const handleRenderPreview = async () => {
     if (!draftDoc) return;
 
@@ -351,6 +372,50 @@ export default function BackofficeUtilityDocumentiClient() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!draftDoc) return;
+
+    setGenerateError(null);
+
+    try {
+      const res = await fetch("/api/utility-documenti/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_type:
+            (draftDoc.meta && draftDoc.meta.docType) ||
+            docType ||
+            "fattura_proforma",
+          doc_data: draftDoc,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          text || `Errore ${res.status} nello scaricamento del PDF`
+        );
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      const safeNumber = draftDoc.meta?.docNumber || "documento";
+      a.download = `${safeNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      console.error("[utility-documenti] download pdf error:", e);
+      setGenerateError(
+        e?.message || "Errore nella generazione / download del PDF"
+      );
+    }
+  };
+
   // ---------- DERIVATI PER CARD 1 ----------
 
   const mittente = shipment && {
@@ -369,7 +434,6 @@ export default function BackofficeUtilityDocumentiClient() {
     paese: shipment.dest_paese,
   };
 
-  // Stringhe multilinea per la card riepilogo
   const mittenteAddress =
     mittente &&
     [
@@ -597,8 +661,8 @@ export default function BackofficeUtilityDocumentiClient() {
             </div>
             <p className="mt-1 text-xs text-slate-500">
               Genera lo scheletro del documento dalla spedizione, poi modifica i
-              dati (meta, soggetti, spedizione, items) e aggiorna l&apos;anteprima
-              in tempo reale.
+              dati (meta, soggetti, spedizione, items, note) e aggiorna
+              l&apos;anteprima in tempo reale.
             </p>
           </div>
 
@@ -647,8 +711,41 @@ export default function BackofficeUtilityDocumentiClient() {
             {/* ====================== EDITOR DOC ====================== */}
             {draftDoc && (
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-                <div className="mb-3 text-sm font-semibold text-slate-800">
-                  Editor dati documento (completo)
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-800">
+                    Editor dati documento (completo)
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRenderPreview}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                    >
+                      Aggiorna anteprima
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      Scarica PDF
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (baseDoc) {
+                          setDraftDoc(baseDoc);
+                          setPreviewHtml(null);
+                          setDebugPayload(baseDoc);
+                        }
+                      }}
+                      className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    >
+                      Reset da spedizione
+                    </button>
+                  </div>
                 </div>
 
                 {/* META */}
@@ -747,6 +844,24 @@ export default function BackofficeUtilityDocumentiClient() {
                         }
                       />
                     </div>
+                  </div>
+
+                  {/* NOTE DOCUMENTO */}
+                  <div className="mt-6">
+                    <label className="mb-1 block text-[11px] text-slate-500">
+                      Note documento
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                      value={draftDoc.meta?.docNotes ?? ""}
+                      onChange={(e) =>
+                        updateDraft((d) => ({
+                          ...d,
+                          meta: { ...d.meta, docNotes: e.target.value },
+                        }))
+                      }
+                    />
                   </div>
                 </div>
 
@@ -1040,8 +1155,26 @@ export default function BackofficeUtilityDocumentiClient() {
                   {draftDoc.items?.map((it: any, idx: number) => (
                     <div
                       key={idx}
-                      className="mb-3 rounded-lg border border-slate-100 p-3"
+                      className="relative mb-3 rounded-lg border border-slate-100 p-3"
                     >
+                      {/* bottoni duplica / cancella */}
+                      <div className="absolute right-2 top-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => duplicateItem(idx)}
+                          className="rounded border border-slate-300 px-2 py-0.5 text-[11px] hover:bg-slate-100"
+                        >
+                          + Duplica
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteItem(idx)}
+                          className="rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
                       <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                         {/* Descrizione */}
                         <div className="md:col-span-3">
@@ -1163,31 +1296,6 @@ export default function BackofficeUtilityDocumentiClient() {
                       </div>
                     </div>
                   ))}
-                </div>
-
-                {/* BOTTONI EDITOR */}
-                <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleRenderPreview}
-                    className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-                  >
-                    Aggiorna anteprima
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (baseDoc) {
-                        setDraftDoc(baseDoc);
-                        setPreviewHtml(null);
-                        setDebugPayload(baseDoc);
-                      }
-                    }}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                  >
-                    Reset da spedizione
-                  </button>
                 </div>
               </div>
             )}
