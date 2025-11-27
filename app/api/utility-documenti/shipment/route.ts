@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   try {
     const supa = admin();
 
-    // 1) Trova la spedizione per human_id
+    // 1) Spedizione per human_id
     const {
       data: shipment,
       error: shipmentErr,
@@ -64,25 +64,23 @@ export async function GET(req: Request) {
 
     const shipmentId = shipment.id as string;
 
-    // 2) Colli
+    // 2) Colli (senza order su colonne inesistenti)
     const { data: packages, error: pkgErr } = await supa
       .schema("spst")
       .from("packages")
       .select("*")
-      .eq("shipment_id", shipmentId)
-      .order("idx", { ascending: true });
+      .eq("shipment_id", shipmentId);
 
     if (pkgErr) {
       console.error("[utility-documenti] packages select error:", pkgErr);
     }
 
-    // 3) Packing list (righe)
+    // 3) Packing list da tabella (se/quando la userai)
     const { data: plLines, error: plErr } = await supa
       .schema("spst")
       .from("shipment_pl_lines")
       .select("*")
-      .eq("shipment_id", shipmentId)
-      .order("line_no", { ascending: true });
+      .eq("shipment_id", shipmentId);
 
     if (plErr) {
       console.error("[utility-documenti] pl_lines select error:", plErr);
