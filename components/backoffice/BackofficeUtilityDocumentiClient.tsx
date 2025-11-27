@@ -87,51 +87,83 @@ export default function BackofficeUtilityDocumentiClient() {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [debugPayload, setDebugPayload] = useState<any | null>(null);
 
-  async function handleLoadShipment() {
-    const id = humanIdInput.trim();
-    if (!id) {
-      setShipmentError("Inserisci un ID spedizione (es. SP-27-11-2025-00001).");
-      return;
-    }
-
-    setLoadingShipment(true);
-    setShipmentError(null);
-    setShipment(null);
-    setPackages([]);
-    setPackingList([]);
-    setDebugPayload(null);
-
-    try {
-      const res = await fetch(
-        `/api/utility-documenti/shipment?human_id=${encodeURIComponent(id)}`
-      );
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok || !json?.ok) {
-        throw new Error(
-          json?.error ||
-            json?.details ||
-            `Errore ${res.status} nel caricamento spedizione`
-        );
-      }
-
-      const sh = json.shipment as ShipmentSummary;
-      setShipment(sh);
-
-      // Colli + packing list
-      setPackages((json.packages || []) as PackageRow[]);
-      setPackingList((json.plLines || []) as PlLineRow[]);
-
-      // Precompila courier + tracking se presenti
-      setCourier(sh.carrier || "");
-      setTracking(sh.tracking_code || "");
-    } catch (e: any) {
-      console.error("[utility-documenti] load shipment error:", e);
-      setShipmentError(e?.message || "Errore nel caricamento della spedizione");
-    } finally {
-      setLoadingShipment(false);
-    }
+async function handleLoadShipment() {
+  const id = humanIdInput.trim();
+  if (!id) {
+    setShipmentError("Inserisci un ID spedizione (es. SP-27-11-2025-00001).");
+    return;
   }
+
+  setLoadingShipment(true);
+  setShipmentError(null);
+  setShipment(null);
+  setPackages([]);
+  setPackingList([]);
+  setDebugPayload(null);
+
+  try {
+    const res = await fetch(
+      `/api/utility-documenti/shipment?human_id=${encodeURIComponent(id)}`
+    );
+    const json = await res.json().catch(() => ({}));
+
+    if (!res.ok || !json?.ok) {
+      throw new Error(
+        json?.error ||
+          json?.details ||
+          `Errore ${res.status} nel caricamento spedizione`
+      );
+    }
+
+    const sh = json.shipment as ShipmentSummary;
+    setShipment(sh);
+
+    // Colli da tabella (se ci sono)
+    setPackages((json.packages || []) as PackageRow[]);
+
+    // ------- PACKING LIST SOLO DA JSON shipment.fields.packingList -------
+    let plFinal: PlLineRow[] = [];
+
+    const maybePacking = (sh as any)?.fields?.packingList;
+    if (Array.isArray(maybePacking) && maybePacking.length > 0) {
+      plFinal = maybePacking.map((row: any, idx: number): PlLineRow => {
+        const bottles: number | null =
+          row.bottiglie ?? row.qty ?? row.quantita ?? null;
+
+        const formatLiters: number | null =
+          row.formato_litri ?? row.volume_litri ?? null;
+
+        const totalVolume: number | null =
+          bottles != null && formatLiters != null
+            ? bottles * formatLiters
+            : null;
+
+        return {
+          id: `${sh.id}-json-${idx}`,
+          label:
+            row.etichetta || row.label || row.nome || "Voce packing list",
+          item_type: row.tipologia || row.item_type || null,
+          bottles,
+          volume_l: totalVolume,
+          unit_price: row.prezzo ?? row.unit_price ?? null,
+          currency: row.valuta || row.currency || null,
+        };
+      });
+    }
+
+    setPackingList(plFinal);
+
+    // Precompila courier + tracking se presenti
+    setCourier(sh.carrier || "");
+    setTracking(sh.tracking_code || "");
+  } catch (e: any) {
+    console.error("[utility-documenti] load shipment error:", e);
+    setShipmentError(e?.message || "Errore nel caricamento della spedizione");
+  } finally {
+    setLoadingShipment(false);
+  }
+}
+
 
   async function handleGenerate() {
     if (!shipment) {
