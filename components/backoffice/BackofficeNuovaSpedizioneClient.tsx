@@ -130,14 +130,24 @@ export default function BackofficeNuovaSpedizioneClient() {
   const canOpenForms = !!emailInput;
 
   function openFormVino() {
-    if (!canOpenForms) return;
-    router.push(`/dashboard/nuova/vino?as_email=${encodeURIComponent(emailInput)}`);
+  if (!canOpenForms) return;
+  const url = `/dashboard/nuova/vino?as_email=${encodeURIComponent(
+    emailInput.trim()
+  )}`;
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
   }
+}
 
-  function openFormAltro() {
-    if (!canOpenForms) return;
-    router.push(`/dashboard/nuova/altro?as_email=${encodeURIComponent(emailInput)}`);
+function openFormAltro() {
+  if (!canOpenForms) return;
+  const url = `/dashboard/nuova/altro?as_email=${encodeURIComponent(
+    emailInput.trim()
+  )}`;
+  if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
   }
+}
 
   return (
     <div className="space-y-4">
