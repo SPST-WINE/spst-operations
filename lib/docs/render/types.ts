@@ -36,7 +36,7 @@ export type DocData = {
     valuta: string | null;
 
     // 🔽 campi extra gestiti dall’editor lato client
-    note?: string | null;          // note documento
+    docNotes?: string | null;
     feePerRowEur?: number | null;  // fee per riga (es. 0.5)
   };
   parties: {
