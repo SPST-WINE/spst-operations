@@ -10,43 +10,39 @@ export function renderProformaHtml(doc: DocData): string {
   const courierStr = meta.courier ? esc(meta.courier) : "";
   const trackingStr = meta.trackingCode ? esc(meta.trackingCode) : "";
 
-  // 🔹 NOTE DOCUMENTO (da editor, con fallback)
+  // 🔹 NOTE DOCUMENTO — leggiamo docNotes (come nel JSON che hai incollato)
   const documentNote =
+    meta.docNotes ??
+    (meta as any).docNotes ??
     (meta as any).note ??
-    (meta as any).noteDocumento ??
-    (doc as any).note ??
     null;
 
-  // 🔹 FEE DI DEFAULT PACKING LIST → 0,10 € per oggetto
+  // 🔹 VALUTAZIONE PROFORMA: SEMPRE 0,10€ PER OGGETTO (bottiglia)
   const PACKING_FEE_PER_UNIT = 0.1;
+  const currency = esc(totals.currency ?? meta.valuta ?? "EUR");
 
-  // Applichiamo la fee solo per PROFORMA e solo alle righe senza prezzo/totale
-  const shouldApplyPackingFee =
-    meta.docType === "fattura_proforma" &&
-    items.some((it) => it.unitPrice == null && it.lineTotal == null);
+  // Ignoriamo i prezzi reali e ricalcoliamo tutto
+  const valuedItems = items.map((it) => {
+    const qty = it.bottles ?? 1;
+    const unitPrice = PACKING_FEE_PER_UNIT;
+    const lineTotal = qty * unitPrice;
 
-  const itemsWithDefaults = items.map((it) => {
-    if (shouldApplyPackingFee && it.unitPrice == null && it.lineTotal == null) {
-      const qty = it.bottles ?? 1; // se non ho bottiglie, considero 1 pezzo
-      const unitPrice = PACKING_FEE_PER_UNIT;
-      const lineTotal = qty * unitPrice;
-      return {
-        ...it,
-        unitPrice,
-        lineTotal,
-      };
-    }
-    return it;
+    return {
+      ...it,
+      unitPrice,
+      lineTotal,
+      currency: currency || it.currency || "EUR",
+    };
   });
 
   const rowsHtml =
-    itemsWithDefaults.length === 0
+    valuedItems.length === 0
       ? `<tr>
            <td colspan="7" style="padding:8px 6px;font-size:11px;color:#555;">
              No items
            </td>
          </tr>`
-      : itemsWithDefaults
+      : valuedItems
           .map((it, idx) => {
             return `
           <tr>
@@ -79,17 +75,12 @@ export function renderProformaHtml(doc: DocData): string {
 
   const totalVolumeStr = formatNumber(totals.totalVolumeL, 2);
 
-  // 🔹 Ricalcolo coerente del total value se abbiamo applicato la fee
-  const effectiveTotalValue =
-    itemsWithDefaults.some((it) => it.lineTotal != null)
-      ? itemsWithDefaults.reduce(
-          (sum, it) => sum + (it.lineTotal ?? 0),
-          0
-        )
-      : totals.totalValue;
-
-  const totalValueStr = formatNumber(effectiveTotalValue, 2);
-  const currency = esc(totals.currency ?? meta.valuta ?? "");
+  // 🔹 valore proforma = somma dei lineTotal ricalcolati a 0,10 €
+  const goodsValue = valuedItems.reduce(
+    (sum, it) => sum + (it.lineTotal ?? 0),
+    0
+  );
+  const goodsValueStr = formatNumber(goodsValue, 2);
 
   const destinationCountry =
     parties.consignee.address.country || parties.consignee.address.city || "";
@@ -209,13 +200,10 @@ export function renderProformaHtml(doc: DocData): string {
             <div>Total volume: <strong>${
               totalVolumeStr ? totalVolumeStr + " L" : "-"
             }</strong></div>
-            <div style="margin-top:4px; font-size:12px;">
+
+            <div style="margin-top:6px; font-size:12px;">
               Total invoice value:
-              <strong>${
-                totalValueStr
-                  ? `${totalValueStr} ${currency}`
-                  : "-" + (currency ? " " + currency : "")
-              }</strong>
+              <strong>${goodsValueStr} ${currency}</strong>
             </div>
           </div>
         </td>
@@ -231,13 +219,10 @@ export function renderProformaHtml(doc: DocData): string {
       }
       This proforma invoice is issued for customs purposes only and does not constitute a tax invoice.<br/>
       Goods: wine – HS code 2204.21. No dangerous goods.<br/>
-      All amounts are expressed in ${currency || "the indicated currency"}.${
-        shouldApplyPackingFee
-          ? `<br/>For this proforma, unit prices have been valued at ${PACKING_FEE_PER_UNIT.toFixed(
-              2
-            )} EUR per unit for customs / content declaration purposes.`
-          : ""
-      }
+      All amounts are expressed in ${currency}.<br/>
+      For this proforma, unit prices have been valued at ${PACKING_FEE_PER_UNIT.toFixed(
+        2
+      )} EUR per unit for customs / content declaration purposes.
     </div>
 
     <!-- Signature -->
