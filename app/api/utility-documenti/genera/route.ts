@@ -1,6 +1,8 @@
 // app/api/utility-documenti/genera/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { DocData, DocItem, DocParty } from "@/lib/docs/render/types";
+import { renderDocumentHtml } from "@/lib/docs/render";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
