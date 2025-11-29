@@ -1,4 +1,3 @@
-// lib/docs/render/ddt.ts
 import type { DocData } from "./types";
 import { renderBaseHtml } from "./shared/layout";
 import { esc, renderAddressBlock, formatNumber } from "./shared/utils";
@@ -35,11 +34,11 @@ export function renderDdtHtml(doc: DocData): string {
   const pickupDate =
     shipment.pickupDate != null ? esc(String(shipment.pickupDate)) : docDate;
 
-  // Causale / Porto: per ora default semplici, modificabili da editor
   const causaleTrasporto =
     (meta as any).causaleTrasporto ??
     (meta as any).causale ??
     "Vendita";
+
   const porto =
     (meta as any).porto ??
     "Franco";
@@ -50,11 +49,17 @@ export function renderDdtHtml(doc: DocData): string {
     (meta as any).note ??
     null;
 
+  // 🔹 Righe dettaglio merce – con colonna Alc. % vol
   const rowsHtml =
     items.length === 0
       ? `<tr><td colspan="4" style="padding:8px;font-size:11px;color:#555;">Nessun articolo</td></tr>`
       : items
           .map((it, idx) => {
+            const alcStr =
+              it.alcoholPercent != null
+                ? `Alc. ${formatNumber(it.alcoholPercent, 1)}% vol`
+                : "";
+
             return `
           <tr>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;">${idx + 1}</td>
@@ -64,15 +69,7 @@ export function renderDdtHtml(doc: DocData): string {
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">${
               it.bottles ?? ""
             }</td>
-            <td style="padding:6px;border-bottom:1px solid #e5e7eb;">
-              ${
-                it.alcoholPercent != null
-                  ? `Alc. ${formatNumber(it.alcoholPercent, 1)}% vol`
-                  : it.itemType
-                  ? esc(it.itemType)
-                  : ""
-              }
-            </td>
+            <td style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">${alcStr}</td>
           </tr>`;
           })
           .join("");
@@ -158,7 +155,7 @@ export function renderDdtHtml(doc: DocData): string {
           <th style="padding:6px;border-bottom:1px solid #e5e7eb;">#</th>
           <th style="padding:6px;border-bottom:1px solid #e5e7eb;">Descrizione</th>
           <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Quantità (bt)</th>
-          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">Note</th>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Alc. % vol</th>
         </tr>
       </thead>
       <tbody>
@@ -166,7 +163,7 @@ export function renderDdtHtml(doc: DocData): string {
       </tbody>
     </table>
 
-    <!-- Note -->
+    <!-- Note documento -->
     <div style="margin-top:16px;font-size:10px;color:#4b5563;line-height:1.5;">
       ${
         documentNote
@@ -177,18 +174,23 @@ export function renderDdtHtml(doc: DocData): string {
       La merce viaggia a rischio e pericolo del vettore secondo gli accordi contrattuali vigenti.
     </div>
 
-    <!-- Firme -->
+    <!-- Firme (più spaziose e ordinate) -->
     <table style="width:100%; margin-top:32px; font-size:11px;">
       <tr>
-        <td style="width:50%; vertical-align:top; padding-right:16px;">
-          Luogo e data di consegna: _______________________________<br/><br/>
-          Firma del destinatario:<br/><br/><br/>
-          _______________________________
+        <td style="width:50%; vertical-align:top; padding-right:24px;">
+          <div>Luogo e data di consegna:</div>
+          <div style="margin-top:8px; border-bottom:1px solid #000; height:18px;"></div>
+
+          <div style="margin-top:24px;">Firma del destinatario:</div>
+          <div style="margin-top:8px; border-bottom:1px solid #000; height:18px;"></div>
         </td>
-        <td style="width:50%; vertical-align:top;">
-          Luogo e data di presa in carico: ________________________<br/><br/>
-          Firma del vettore / conducente:<br/><br/><br/>
-          _______________________________
+
+        <td style="width:50%; vertical-align:top; padding-left:24px;">
+          <div>Luogo e data di presa in carico:</div>
+          <div style="margin-top:8px; border-bottom:1px solid #000; height:18px;"></div>
+
+          <div style="margin-top:24px;">Firma del vettore / conducente:</div>
+          <div style="margin-top:8px; border-bottom:1px solid #000; height:18px;"></div>
         </td>
       </tr>
     </table>
