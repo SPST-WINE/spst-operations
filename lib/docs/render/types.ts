@@ -9,6 +9,9 @@ export type DocItem = {
   currency: string | null;
   lineTotal: number | null;
   itemType: string | null;
+
+  // 🔹 nuova info: gradazione alcolica (% vol)
+  alcoholPercent: number | null;
 };
 
 export type DocParty = {
@@ -37,7 +40,7 @@ export type DocData = {
 
     // 🔽 campi extra gestiti dall’editor lato client
     docNotes?: string | null;
-    feePerRowEur?: number | null;  // fee per riga (es. 0.5)
+    feePerRowEur?: number | null; // fee per riga (es. 0.5)
   };
   parties: {
     shipper: DocParty;
