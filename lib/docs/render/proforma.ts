@@ -12,10 +12,7 @@ export function renderProformaHtml(doc: DocData): string {
 
   // 🔹 NOTE DOCUMENTO — leggiamo docNotes (come nel JSON che hai incollato)
   const documentNote =
-    meta.docNotes ??
-    (meta as any).docNotes ??
-    (meta as any).note ??
-    null;
+    meta.docNotes ?? (meta as any).docNotes ?? (meta as any).note ?? null;
 
   // 🔹 VALUTAZIONE PROFORMA: SEMPRE 0,10€ PER OGGETTO (bottiglia)
   const PACKING_FEE_PER_UNIT = 0.1;
@@ -38,7 +35,7 @@ export function renderProformaHtml(doc: DocData): string {
   const rowsHtml =
     valuedItems.length === 0
       ? `<tr>
-           <td colspan="7" style="padding:8px 6px;font-size:11px;color:#555;">
+           <td colspan="8" style="padding:8px 6px;font-size:11px;color:#555;">
              No items
            </td>
          </tr>`
@@ -46,7 +43,9 @@ export function renderProformaHtml(doc: DocData): string {
           .map((it, idx) => {
             return `
           <tr>
-            <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px;">${idx + 1}</td>
+            <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px;">${
+              idx + 1
+            }</td>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px;">${esc(
               it.description
             )}</td>
@@ -63,6 +62,13 @@ export function renderProformaHtml(doc: DocData): string {
                 ? formatNumber(it.totalVolumeL, 2)
                 : ""
             }</td>
+            <td style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:11px;">
+              ${
+                it.alcoholPercent != null
+                  ? formatNumber(it.alcoholPercent, 1)
+                  : ""
+              }
+            </td>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:11px;">${
               it.unitPrice != null ? formatNumber(it.unitPrice, 2) : ""
             }</td>
@@ -181,6 +187,7 @@ export function renderProformaHtml(doc: DocData): string {
           <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Bottles</th>
           <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Bottle size (L)</th>
           <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Total vol (L)</th>
+          <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Alc. % vol</th>
           <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Unit price</th>
           <th style="text-align:right; padding:6px; font-size:11px; border-bottom:1px solid #e5e7eb;">Line total</th>
         </tr>
