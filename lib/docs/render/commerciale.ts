@@ -63,7 +63,7 @@ export function renderCommercialeHtml(doc: DocData): string {
   const totalVolumeStr =
     totals.totalVolumeL != null ? formatNumber(totals.totalVolumeL, 2) : "-";
 
-  // valore totale reale
+  // valore totale reale (sempre NET, senza IVA)
   const goodsValue = valuedItems.reduce(
     (sum, it) => sum + (it.lineTotal ?? 0),
     0
@@ -188,13 +188,9 @@ export function renderCommercialeHtml(doc: DocData): string {
         <td style="width:50%;"></td>
         <td style="width:50%; text-align:right;">
           <div>
-            <div style="margin-bottom:2px;">
-              Total goods value:
+            <div style="margin-bottom:4px;">
+              Goods value (net of VAT):
               <strong>${goodsValueStr} ${currency}</strong>
-            </div>
-            <div style="margin-bottom:2px;">
-              VAT (0%):
-              <strong>0.00 ${currency}</strong>
             </div>
             <div style="margin-top:6px; font-size:12px;">
               <strong>Total invoice value: ${goodsValueStr} ${currency}</strong>
@@ -207,7 +203,7 @@ export function renderCommercialeHtml(doc: DocData): string {
     <!-- Legal notes -->
     <div style="margin-top:18px;font-size:10px;color:#4b5563;line-height:1.5;">
       Commercial invoice for export of alcoholic beverages.<br/>
-      VAT exempt under Art. X — international export.<br/>
+      Amounts indicated are net of VAT and refer to the value of goods only.<br/>
       HS code 2204.21 — wine. Country of origin: Italy.<br/>
       No dangerous goods. Alcoholic beverages — Alc. % vol indicated per line item.
     </div>
