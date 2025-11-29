@@ -86,6 +86,10 @@ type PackingLineDb = {
   volume_l?: number | null;
   unit_price?: number | null;
   currency?: string | null;
+
+  // 🔹 gradazione dalla tabella shipment_pl_lines
+  abv_percent?: number | null;
+
   [key: string]: any;
 };
 
@@ -123,9 +127,14 @@ function mapPackingJsonToItems(shipment: ShipmentRow): DocItem[] {
       .map((x) => String(x).trim());
 
     const description =
-      descriptionParts.length > 0
-        ? descriptionParts.join(" – ")
-        : "Wine";
+      descriptionParts.length > 0 ? descriptionParts.join(" – ") : "Wine";
+
+    const alcoholPercent: number | null =
+      row.abv_percent ??
+      row.abv ??
+      row.alcohol ??
+      row.gradazione ??
+      null;
 
     return {
       description,
@@ -136,6 +145,7 @@ function mapPackingJsonToItems(shipment: ShipmentRow): DocItem[] {
       currency,
       lineTotal,
       itemType: row.tipologia ?? null,
+      alcoholPercent,
     };
   });
 }
@@ -150,6 +160,9 @@ function mapPackingDbToItems(lines: PackingLineDb[]): DocItem[] {
     const lineTotal: number | null =
       bottles != null && unitPrice != null ? bottles * unitPrice : null;
 
+    const alcoholPercent: number | null =
+      typeof row.abv_percent === "number" ? Number(row.abv_percent) : null;
+
     return {
       description: row.label || "Voce packing list",
       bottles,
@@ -159,6 +172,7 @@ function mapPackingDbToItems(lines: PackingLineDb[]): DocItem[] {
       currency,
       lineTotal,
       itemType: row.item_type ?? null,
+      alcoholPercent,
     };
   });
 }
@@ -182,25 +196,16 @@ function buildDocData(
   const items: DocItem[] =
     itemsFromDb && itemsFromDb.length > 0 ? itemsFromDb : itemsFromJson;
 
-  const totalBottles = items.reduce(
-    (sum, it) => sum + (it.bottles ?? 0),
-    0
-  );
+  const totalBottles = items.reduce((sum, it) => sum + (it.bottles ?? 0), 0);
 
   const totalVolumeL =
     items.some((it) => it.totalVolumeL != null)
-      ? items.reduce(
-          (sum, it) => sum + (it.totalVolumeL ?? 0),
-          0
-        )
+      ? items.reduce((sum, it) => sum + (it.totalVolumeL ?? 0), 0)
       : null;
 
   const totalValue =
     items.some((it) => it.lineTotal != null)
-      ? items.reduce(
-          (sum, it) => sum + (it.lineTotal ?? 0),
-          0
-        )
+      ? items.reduce((sum, it) => sum + (it.lineTotal ?? 0), 0)
       : null;
 
   const currency =
