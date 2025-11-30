@@ -9,39 +9,44 @@ import playwright from "playwright-core";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// ✅ Funzione aggiornata e compatibile con Vercel/Next
 async function generatePdfFromHtml(html: string): Promise<ArrayBuffer> {
   const executablePath = await chromium.executablePath();
 
   const browser = await playwright.chromium.launch({
     args: chromium.args,
     executablePath,
-    headless: true
+    headless: true,
   });
 
   const page = await browser.newPage({
-    viewport: { width: 794, height: 1123 }
+    viewport: { width: 794, height: 1123 },
   });
 
   await page.setContent(html, { waitUntil: "networkidle" });
 
-  const pdfBytes = await page.pdf({
+  // Forziamo il tipo a Uint8Array (Buffer eredita da Uint8Array)
+  const pdfBytes: Uint8Array = await page.pdf({
     format: "A4",
     printBackground: true,
     margin: {
       top: "10mm",
       right: "10mm",
       bottom: "15mm",
-      left: "10mm"
-    }
+      left: "10mm",
+    },
   });
 
   await browser.close();
 
-  // 👇 FIX FINALE: convert Uint8Array → ArrayBuffer
-  return pdfBytes.buffer.slice(
-    pdfBytes.byteOffset,
-    pdfBytes.byteOffset + pdfBytes.byteLength
-  );
+  // 🔥 FIX DEFINITIVO — Converte SEMPRE in ArrayBuffer puro
+  function toPureArrayBuffer(u8: Uint8Array): ArrayBuffer {
+    const ab = new ArrayBuffer(u8.byteLength);
+    new Uint8Array(ab).set(u8); // copia i byte
+    return ab; // ArrayBuffer 100% puro
+  }
+
+  return toPureArrayBuffer(pdfBytes);
 }
 
 export async function POST(req: NextRequest) {
@@ -69,8 +74,8 @@ export async function POST(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${fileName}"`
-      }
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+      },
     });
   } catch (error: any) {
     console.error("[PDF ERROR]", error);
