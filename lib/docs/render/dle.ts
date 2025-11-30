@@ -1,3 +1,4 @@
+// lib/docs/render/dle.ts
 import type { DocData } from "./types";
 import { renderBaseHtml } from "./shared/layout";
 import { esc, renderAddressBlock, formatNumber } from "./shared/utils";
@@ -15,6 +16,7 @@ export function renderDleHtml(doc: DocData): string {
 
 /**
  * DLE UPS – replica il modello UPS Italia
+ * Intestazione a destra e in grassetto, testo liscio
  */
 function renderUpsDle(doc: DocData): string {
   const { meta, parties } = doc;
@@ -27,8 +29,8 @@ function renderUpsDle(doc: DocData): string {
   const body = `
   <div class="page" style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:11px;color:#111827;padding-top:20mm;">
 
-    <!-- Intestazione UPS -->
-    <div style="margin-bottom:18px;">
+    <!-- Intestazione UPS, a destra e in grassetto -->
+    <div style="margin-bottom:18px; text-align:right; font-weight:700;">
       <div>Spettabile</div>
       <div>UPS ITALIA Srl</div>
       <div>Via Orio al Serio 49/51</div>
@@ -51,7 +53,7 @@ function renderUpsDle(doc: DocData): string {
       affida ad UPS Italia SRL:
     </div>
 
-    <!-- Elenco regolamenti UPS -->
+    <!-- Elenco regolamenti UPS (testo liscio, niente box) -->
     <div style="line-height:1.5; margin-bottom:18px;">
       <div>
         Non rientrano tra quelle protette dalla Convenzione di Washington (CITES), come da regolamento (CE) n. 338/97 del Consiglio del 9
@@ -156,6 +158,7 @@ function renderUpsDle(doc: DocData): string {
 
 /**
  * DLE FedEx – modello esportatore
+ * Intestazione sotto "To the attention..." e testo liscio, cumulation NO spuntata
  */
 function renderFedexDle(doc: DocData): string {
   const { meta, parties } = doc;
@@ -174,13 +177,16 @@ function renderFedexDle(doc: DocData): string {
   const body = `
   <div class="page" style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;font-size:10px;color:#111827;padding-top:18mm;">
 
-    <!-- Nota letterhead -->
     <div style="font-size:9px; margin-bottom:8px;">
       (If the consignor is a company, the Declaration below must be printed on company letterhead)
     </div>
 
-    <!-- Intestazione mittente (simuliamo carta intestata in alto a destra) -->
-    <div style="text-align:right; font-size:10px; margin-bottom:12px;">
+    <div style="margin-bottom:8px;">
+      To the attention of the Customs Agency
+    </div>
+
+    <!-- Intestazione del mittente subito sotto, a sinistra -->
+    <div style="font-size:10px; margin-bottom:12px;">
       <strong>${esc(shipper.name || "INTESTAZIONE DEL MITTENTE")}</strong><br/>
       ${shipper.address.line1 ? esc(shipper.address.line1) + "<br/>" : ""}
       ${shipper.address.postalCode ? esc(shipper.address.postalCode) + " " : ""}${
@@ -188,194 +194,187 @@ function renderFedexDle(doc: DocData): string {
       }
     </div>
 
-    <!-- Destinatario -->
-    <div style="margin-bottom:10px;">
-      To the attention of the Customs Agency
-    </div>
-
-    <!-- Titolo -->
     <div style="font-weight:600; text-transform:uppercase; margin-bottom:10px;">
-      Exporter’s declaration for free export / non-restricted goods
+      EXPORTER’S DECLARATION FOR FREE EXPORT / NON-RESTRICTED GOODS
     </div>
 
-    <!-- Intro -->
     <div style="margin-bottom:12px; line-height:1.5;">
       While accepting all consequent responsibilities for the shipment we hereby declare that none of the goods in export are
       subject to any export license and therefore:
     </div>
 
-    <!-- GOODS OF EU PREFERENTIAL ORIGIN -->
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">GOODS OF EU PREFERENTIAL ORIGIN</div>
-      <div style="margin-bottom:6px;">
-        [ ] (please mark the box in case of goods of UE preferential origin and fill in the following mandatory declaration)
-      </div>
-      <div style="font-weight:600; margin-bottom:4px;">DECLARATION</div>
-      <div style="line-height:1.5; margin-bottom:4px;">
-        I, the undersigned, declare that the goods listed on this document (invoice number)
-        <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
-          invoiceNumber
-        )}</span>
-        originate in
-        <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
-          originCountry
-        )}</span>
-        and satisfy the rules of origin governing preferential trade with
-        <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
-          destCountry
-        )}</span>.
-      </div>
-      <div style="line-height:1.5; margin-top:6px;">
-        I declare that:
-      </div>
-      <div style="line-height:1.5;">
-        [ ] Cumulation applied with __________________ (name of the country/countries)<br/>
-        [ ] No cumulation applied (origin from a single country)
-      </div>
-      <div style="line-height:1.5; margin-top:6px;">
-        I undertake to make available to the customs authorities any further supporting documents they may require (for
-        example: invoices, import documentation, statement of origin, invoice declaration, producer/manufacturer declaration,
-        extracts of accounting documents, extracts of technical documentation, etc.):
-      </div>
-      <div style="margin-top:4px; line-height:1.5;">
-        .......................................................................<br/>
-        .......................................................................<br/>
-        .......................................................................
-      </div>
+    <!-- GOODS OF EU PREFERENTIAL ORIGIN (testo liscio) -->
+    <div style="margin-bottom:8px; font-weight:600;">
+      GOODS OF EU PREFERENTIAL ORIGIN
+    </div>
+    <div style="margin-bottom:6px; line-height:1.5;">
+      (please mark the box in case of goods of UE preferential origin and fill in the following mandatory declaration)
+    </div>
+    <div style="margin-bottom:4px; font-weight:600;">
+      DECLARATION
+    </div>
+    <div style="line-height:1.5; margin-bottom:4px;">
+      I, the undersigned, declare that the goods listed on this document (invoice number)
+      <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
+        invoiceNumber
+      )}</span>
+      originate in
+      <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
+        originCountry
+      )}</span>
+      and satisfy the rules of origin governing preferential trade with
+      <span style="border-bottom:1px solid #111827; padding:0 4px;">${esc(
+        destCountry
+      )}</span>.
+    </div>
+    <div style="line-height:1.5; margin-top:4px;">
+      I declare that:
+    </div>
+    <div style="line-height:1.5;">
+      ☐ Cumulation applied with __________________ (name of the country/countries)<br/>
+      ☑ No cumulation applied (origin from a single country)
+    </div>
+    <div style="line-height:1.5; margin-top:6px;">
+      I undertake to make available to the customs authorities any further supporting documents they may require (for
+      example: invoices, import documentation, statement of origin, invoice declaration, producer/manufacturer declaration,
+      extracts of accounting documents, extracts of technical documentation, etc.):
+    </div>
+    <div style="margin-top:4px; line-height:1.5;">
+      .......................................................................<br/>
+      .......................................................................<br/>
+      .......................................................................
     </div>
 
     <!-- GOODS DESTINED TO TURKEY -->
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">GOODS DESTINED TO TURKEY</div>
-      <div style="line-height:1.5;">
-        [ ] (please mark the box in case of goods destined to Turkey)<br/>
-        I declare that the goods meet the requirements for the application of UE/Turkey Agreement (Decision n.1/95 of the
-        Council of Association CE-Turkey, of 22/12/1995 and 2006/646/CE: Decision n.1/2006 of the Customs Cooperation
-        Committee CE-Turkey, of 26/09/2006).
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      GOODS DESTINED TO TURKEY
+    </div>
+    <div style="line-height:1.5; margin-bottom:6px;">
+      (please mark the box in case of goods destined to Turkey)
+    </div>
+    <div style="line-height:1.5;">
+      I declare that the goods meet the requirements for the application of UE/Turkey Agreement (Decision n.1/95 of the
+      Council of Association CE-Turkey, of 22/12/1995 and 2006/646/CE: Decision n.1/2006 of the Customs Cooperation
+      Committee CE-Turkey, of 26/09/2006)
     </div>
 
     <!-- MANDATE -->
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">MANDATE TO ISSUE EUR1/EUR-MED/ATR CERTIFICATE</div>
-      <div style="line-height:1.5;">
-        We assign to _________ the mandate to proceed with customs clearance activities, to issue, sign on our behalf and file the
-        EUR1/EUR-MED/ATR certificate, relieving _________ of any responsibilities directly or indirectly associated with the
-        fulfillment of the above indicated procedure.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      MANDATE TO ISSUE EUR1/EUR-MED/ATR CERTIFICATE
+    </div>
+    <div style="line-height:1.5;">
+      We assign to <strong>FedEx</strong> the mandate to proceed with customs clearance activities, to issue, sign on our behalf and file the
+      EUR1/EUR-MED/ATR certificate, relieving <strong>FedEx</strong> of any responsibilities directly or indirectly associated with the
+      fulfillment of the above indicated procedure.
     </div>
 
-    <!-- DUAL USE / WASHINGTON / etc. -->
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">DUAL USE (Y901)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EC) No. 428/09 and its following
-        amendments, instituting a control system on exported products and technologies with dual use, therefore the goods are
-        only for civil use.
-      </div>
+    <!-- DUAL USE / WASHINGTON / etc. – tutto testo liscio -->
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      DUAL USE (Y901)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EC) No. 428/09 and its following
+      amendments, instituting a control system on exported products and technologies with dual use, therefore the goods are
+      only for civil use.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">WASHINGTON CONVENTION (Y900)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EC) No. 338/97 and its following
-        amendments on the protection of endangered flora and fauna species through trade control.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      WASHINGTON CONVENTION (Y900)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EC) No. 338/97 and its following
+      amendments on the protection of endangered flora and fauna species through trade control.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">CAT AND DOG FUR (Y922)</div>
-      <div style="line-height:1.5;">
-        The goods are not cat and dog fur and/or products which contain them, as per Council Regulation (EC) No. 1523/07 and
-        its amendments that forbids trading, imports and exports of cat and dog fur.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      CAT AND DOG FUR (Y922)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not cat and dog fur and/or products which contain them, as per Council Regulation (EC) No. 1523/07 and
+      its amendments that forbids trading, imports and exports of cat and dog fur.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">OZONE (Y902)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of substances that cause ozone layer depletion as per Council Regulation (EC) No.
-        1005/09 and its following modifications.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      OZONE (Y902)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of substances that cause ozone layer depletion as per Council Regulation (EC) No.
+      1005/09 and its following modifications.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">CULTURAL GOODS (Y903)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EC) No. 116/09, and its amendments ruling
-        export of cultural goods.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      CULTURAL GOODS (Y903)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EC) No. 116/09, and its amendments ruling
+      export of cultural goods.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">DANGEROUS CHEMICAL SUBSTANCES (Y916 – Y917)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per appendixes I and V of Council Regulation (EU) No. 649/2012
-        and its amendments, laying down detailed rules for the export and import of dangerous chemical substances.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      DANGEROUS CHEMICAL SUBSTANCES (Y916 – Y917)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per appendixes I and V of Council Regulation (EU) No. 649/2012
+      and its amendments, laying down detailed rules for the export and import of dangerous chemical substances.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">
-        GOODS USED FOR DEATH PENALTY, TORTURE ETC. – Y904 – Y906 – Y907- Y908
-      </div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EC) No. 1236/05, and its amendments
-        laying down detailed rules for trading certain goods that could be used for death penalty, torture or for other cruel,
-        inhuman or demeaning treatments or penalties.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      GOODS USED FOR DEATH PENALTY, TORTURE ETC. – Y904 – Y906 – Y907- Y908
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EC) No. 1236/05, and its amendments
+      laying down detailed rules for trading certain goods that could be used for death penalty, torture or for other cruel,
+      inhuman or demeaning treatments or penalties.
     </div>
 
-    <div style="font-size:9px; margin-bottom:6px;">
+    <div style="margin-top:10px; font-size:9px;">
       Updated on November 2019
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">
-        GOODS SENT TO ONE OF THE BELOW INDICATED COUNTRIES (Y920 – Y921 - Y949 - Y966 – Y967)
-      </div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per:<br/>
-        Council Regulation (EC) No. 314/04 and its amendments, concerning certain restrictive measures in respect of
-        Zimbabwe;<br/>
-        Council Decision (CFSP) 2016/917 and its amendments, imposing restrictions on the supply of assistance related to
-        military activities to Côte d’Ivoire;<br/>
-        Council Regulation (EU) No. 1509/17 and its amendments, concerning restrictive measures against the Democratic
-        People’s Republic of Korea;<br/>
-        Council Regulation (EU) No. 401/13 and its amendments, renewing and strengthening the restrictive measures in
-        respect of Myanmar;<br/>
-        Council Regulation (EU) No. 44/16 and its amendments, concerning restrictive measures in view of the situation in Libya;<br/>
-        Council Regulation (EU) No. 36/12 and its amendments, concerning restrictive measures in view of the situation in Syria;<br/>
-        Council Regulation (EU) No. 267/12 and its amendments, concerning restrictive measures against Iran;<br/>
-        Council Regulation (EU) No. 747/14 and its amendments, concerning restrictive measures in view of the situation in
-        Sudan.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      GOODS SENT TO ONE OF THE BELOW INDICATED COUNTRIES (Y920 – Y921 - Y949 - Y966 – Y967)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per:<br/>
+      Council Regulation (EC) No. 314/04 and its amendments, concerning certain restrictive measures in respect of
+      Zimbabwe;<br/>
+      Council Decision (CFSP) 2016/917 and its amendments, imposing restrictions on the supply of assistance related to
+      military activities to Côte d’Ivoire;<br/>
+      Council Regulation (EU) No. 1509/17 and its amendments, concerning restrictive measures against the Democratic
+      People’s Republic of Korea;<br/>
+      Council Regulation (EU) No. 401/13 and its amendments, renewing and strengthening the restrictive measures in
+      respect of Myanmar;<br/>
+      Council Regulation (EU) No. 44/16 and its amendments, concerning restrictive measures in view of the situation in Libya;<br/>
+      Council Regulation (EU) No. 36/12 and its amendments, concerning restrictive measures in view of the situation in Syria;<br/>
+      Council Regulation (EU) No. 267/12 and its amendments, concerning restrictive measures against Iran;<br/>
+      Council Regulation (EU) No. 747/14 and its amendments, concerning restrictive measures in view of the situation in
+      Sudan.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">Y935</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EU) No. 1332/13 and its amendments,
-        concerning restrictive measures in view of the situation in Syria.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      Y935
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EU) No. 1332/13 and its amendments,
+      concerning restrictive measures in view of the situation in Syria.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">GOODS SENT TO RUSSIA (Y939 – Y920)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Council Regulation (EU) No. 833/14 and Council Decision
-        2014/512 and their amendments, concerning restrictive measures in view of Russia's actions destabilizing the situation in
-        Ukraine.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      GOODS SENT TO RUSSIA (Y939 – Y920)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Council Regulation (EU) No. 833/14 and Council Decision
+      2014/512 and their amendments, concerning restrictive measures in view of Russia's actions destabilizing the situation in
+      Ukraine.
     </div>
 
-    <div style="border:1px solid #e5e7eb; padding:8px 10px; margin-bottom:10px;">
-      <div style="font-weight:600; margin-bottom:4px;">WASTE (Y923)</div>
-      <div style="line-height:1.5;">
-        The goods are not included in the list of products as per Regulation (EC) No. 1013/2006 (GUCE L190) and its
-        amendments of the European Parliament and of the Council of 14 June 2006 concerning restrictive measures for
-        shipments of waste.
-      </div>
+    <div style="margin-top:10px; margin-bottom:4px; font-weight:600;">
+      WASTE (Y923)
+    </div>
+    <div style="line-height:1.5;">
+      The goods are not included in the list of products as per Regulation (EC) No. 1013/2006 (GUCE L190) and its
+      amendments of the European Parliament and of the Council of 14 June 2006 concerning restrictive measures for
+      shipments of waste.
     </div>
 
     <!-- Place / signature -->
