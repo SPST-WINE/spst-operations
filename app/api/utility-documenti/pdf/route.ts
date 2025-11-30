@@ -1,3 +1,4 @@
+// app/api/utility-documenti/pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { renderDocumentHtml } from "@/lib/docs/render";
 import type { DocData } from "@/lib/docs/render/types";
@@ -8,7 +9,7 @@ import playwright from "playwright-core";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function generatePdfFromHtml(html: string): Promise<Uint8Array> {
+async function generatePdfFromHtml(html: string): Promise<ArrayBuffer> {
   const executablePath = await chromium.executablePath();
 
   const browser = await playwright.chromium.launch({
@@ -23,7 +24,7 @@ async function generatePdfFromHtml(html: string): Promise<Uint8Array> {
 
   await page.setContent(html, { waitUntil: "networkidle" });
 
-  const pdfBuffer = await page.pdf({
+  const pdfBytes = await page.pdf({
     format: "A4",
     printBackground: true,
     margin: {
@@ -36,7 +37,11 @@ async function generatePdfFromHtml(html: string): Promise<Uint8Array> {
 
   await browser.close();
 
-  return pdfBuffer;
+  // 👇 FIX FINALE: convert Uint8Array → ArrayBuffer
+  return pdfBytes.buffer.slice(
+    pdfBytes.byteOffset,
+    pdfBytes.byteOffset + pdfBytes.byteLength
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -52,26 +57,25 @@ export async function POST(req: NextRequest) {
     }
 
     const html = renderDocumentHtml(doc);
-    const pdfBytes = await generatePdfFromHtml(html);
+    const arrayBuffer = await generatePdfFromHtml(html);
 
-    const safeName =
+    const fileName =
       (doc.meta.docNumber || "document")
         .replace(/[^\w.-]+/g, "_")
         .slice(0, 80) + ".pdf";
 
-    // 🔥 FIX FINALE: usare Response invece di NextResponse
-    return new Response(pdfBytes, {
+    // 👇 FINAL WORKING RESPONSE
+    return new Response(arrayBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${safeName}"`
+        "Content-Disposition": `attachment; filename="${fileName}"`
       }
     });
-
-  } catch (err: any) {
-    console.error("[PDF ERROR]", err);
+  } catch (error: any) {
+    console.error("[PDF ERROR]", error);
     return NextResponse.json(
-      { ok: false, error: err?.message || "PDF_GENERATION_ERROR" },
+      { ok: false, error: error?.message || "PDF_GENERATION_ERROR" },
       { status: 500 }
     );
   }
