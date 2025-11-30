@@ -1,4 +1,3 @@
-// app/api/utility-documenti/pdf/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { renderDocumentHtml } from "@/lib/docs/render";
 import type { DocData } from "@/lib/docs/render/types";
@@ -9,14 +8,13 @@ import playwright from "playwright-core";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function generatePdfFromHtml(html: string): Promise<Buffer> {
-  // IMPORTANT: must call executablePath()
+async function generatePdfFromHtml(html: string): Promise<Uint8Array> {
   const executablePath = await chromium.executablePath();
 
   const browser = await playwright.chromium.launch({
     args: chromium.args,
     executablePath,
-    headless: true // FIX: always true for Vercel
+    headless: true
   });
 
   const page = await browser.newPage({
@@ -25,7 +23,7 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
 
   await page.setContent(html, { waitUntil: "networkidle" });
 
-  const pdf = await page.pdf({
+  const pdfBuffer = await page.pdf({
     format: "A4",
     printBackground: true,
     margin: {
@@ -38,7 +36,7 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
 
   await browser.close();
 
-  return Buffer.from(pdf);
+  return pdfBuffer;
 }
 
 export async function POST(req: NextRequest) {
@@ -54,14 +52,15 @@ export async function POST(req: NextRequest) {
     }
 
     const html = renderDocumentHtml(doc);
-    const pdfBuffer = await generatePdfFromHtml(html);
+    const pdfBytes = await generatePdfFromHtml(html);
 
     const safeName =
       (doc.meta.docNumber || "document")
         .replace(/[^\w.-]+/g, "_")
         .slice(0, 80) + ".pdf";
 
-    return new NextResponse(pdfBuffer, {
+    // 🔥 FIX FINALE: usare Response invece di NextResponse
+    return new Response(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
