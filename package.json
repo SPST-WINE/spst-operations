@@ -22,7 +22,11 @@
     "react-day-picker": "^9.0.8",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.52.1",
-    "resend": "^6.0.2"
+    "resend": "^6.0.2",
+
+    // ➕ AGGIUNTI PER GENERAZIONE PDF
+    "@sparticuz/chromium-min": "^121.0.0",
+    "playwright-core": "^1.46.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
