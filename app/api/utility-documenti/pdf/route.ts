@@ -10,17 +10,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function generatePdfFromHtml(html: string): Promise<Buffer> {
-  // FIX: executablePath must call the function!
+  // IMPORTANT: must call executablePath()
   const executablePath = await chromium.executablePath();
 
   const browser = await playwright.chromium.launch({
     args: chromium.args,
     executablePath,
-    headless: chromium.headless,
+    headless: true // FIX: always true for Vercel
   });
 
   const page = await browser.newPage({
-    viewport: { width: 794, height: 1123 }, // A4 ~96dpi
+    viewport: { width: 794, height: 1123 }
   });
 
   await page.setContent(html, { waitUntil: "networkidle" });
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${safeName}"`,
+        "Content-Disposition": `attachment; filename="${safeName}"`
       }
     });
 
