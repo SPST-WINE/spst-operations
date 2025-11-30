@@ -1,15 +1,15 @@
 // lib/docs/render/dle.ts
-export function renderDleHtml(doc: DocData): string {
-  const courier = doc.meta.courier?.toUpperCase() ?? "";
+import type { DocData } from "./types";
+import { renderBaseHtml } from "./shared/layout";
+import { esc, renderAddressBlock } from "./shared/utils";
 
-  switch (true) {
-    case courier.includes("UPS"):
-      return renderUpsDle(doc);
-    case courier.includes("FEDEX"):
-      return renderFedexDle(doc);
-    case courier.includes("DHL"):
-      return renderDhlDle(doc);       // possiamo farla semplice
-    default:
-      return renderGenericDle(doc);   // SPST / privati / altro
-  }
+export function renderDleHtml(doc: DocData): string {
+  const courier = (doc.meta.courier || "").toUpperCase();
+
+  if (courier.includes("UPS")) return renderUpsDle(doc);
+  if (courier.includes("FEDEX")) return renderFedexDle(doc);
+  if (courier.includes("DHL")) return renderDhlDle(doc);
+
+  // default: SPST / privati / altro
+  return renderGenericDle(doc);
 }
