@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function generatePdfFromHtml(html: string): Promise<Buffer> {
-  const executablePath = await chromium.executablePath;
+  // FIX: executablePath must call the function!
+  const executablePath = await chromium.executablePath();
 
   const browser = await playwright.chromium.launch({
     args: chromium.args,
@@ -19,7 +20,7 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
   });
 
   const page = await browser.newPage({
-    viewport: { width: 794, height: 1123 }, // ~A4
+    viewport: { width: 794, height: 1123 }, // A4 ~96dpi
   });
 
   await page.setContent(html, { waitUntil: "networkidle" });
@@ -31,14 +32,13 @@ async function generatePdfFromHtml(html: string): Promise<Buffer> {
       top: "10mm",
       right: "10mm",
       bottom: "15mm",
-      left: "10mm",
-    },
+      left: "10mm"
+    }
   });
 
   await browser.close();
 
-  // @ts-expect-error - playwright returns Buffer
-  return pdf as Buffer;
+  return Buffer.from(pdf);
 }
 
 export async function POST(req: NextRequest) {
@@ -53,10 +53,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Render HTML tramite renderer centralizzato
     const html = renderDocumentHtml(doc);
-
-    // Generazione PDF
     const pdfBuffer = await generatePdfFromHtml(html);
 
     const safeName =
@@ -69,15 +66,13 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${safeName}"`,
-      },
+      }
     });
+
   } catch (err: any) {
-    console.error("[utility-documenti:pdf] error", err);
+    console.error("[PDF ERROR]", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: err?.message || "PDF_GENERATION_ERROR",
-      },
+      { ok: false, error: err?.message || "PDF_GENERATION_ERROR" },
       { status: 500 }
     );
   }
