@@ -22,6 +22,11 @@ function renderUpsDle(doc: DocData): string {
   const { meta, parties } = doc;
   const shipper = parties.shipper;
 
+  const signer =
+    shipper.contact && shipper.contact.trim().length > 0
+      ? esc(shipper.contact)
+      : "________________";
+
   const place =
     shipper.address.city || shipper.address.country || "________________";
   const date = meta.docDate || "____/____/________";
@@ -43,9 +48,9 @@ function renderUpsDle(doc: DocData): string {
       <strong>Oggetto: dichiarazione di libera esportazione</strong>
     </div>
 
-    <!-- Intro -->
+    <!-- Intro — sostituiamo il sottoscritto con il referente -->
     <div style="margin-bottom:12px; line-height:1.5;">
-      Il sottoscritto __________________ in qualità di MITTENTE dichiara sotto la propria personale responsabilità
+      Il sottoscritto <strong>${signer}</strong> in qualità di MITTENTE dichiara sotto la propria personale responsabilità
       che tutte le merci che la società
       <span style="display:inline-block; min-width:260px; border-bottom:1px solid #111827;">
         ${esc(shipper.name || "")}
@@ -53,7 +58,7 @@ function renderUpsDle(doc: DocData): string {
       affida ad UPS Italia SRL:
     </div>
 
-    <!-- Elenco regolamenti UPS (testo liscio, niente box) -->
+    <!-- Elenco regolamenti UPS -->
     <div style="line-height:1.5; margin-bottom:18px;">
       <div>
         Non rientrano tra quelle protette dalla Convenzione di Washington (CITES), come da regolamento (CE) n. 338/97 del Consiglio del 9
