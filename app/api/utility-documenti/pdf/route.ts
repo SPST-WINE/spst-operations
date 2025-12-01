@@ -1,87 +1,58 @@
-// app/api/utility-documenti/pdf/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { renderDocumentHtml } from "@/lib/docs/render";
 import type { DocData } from "@/lib/docs/render/types";
-
-import chromium from "@sparticuz/chromium-min";
-import playwright from "playwright-core";
-
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-// ✅ Funzione aggiornata e compatibile con Vercel/Next
-async function generatePdfFromHtml(html: string): Promise<ArrayBuffer> {
-  const executablePath = await chromium.executablePath();
+// ⚡ Usa JSDOM invece di Chromium/Playwright (che non esiste più)
+import { JSDOM } from "jsdom";
 
-  const browser = await playwright.chromium.launch({
-    args: chromium.args,
-    executablePath,
-    headless: true,
-  });
+// Render HTML → PDF via jsPDF (solo lato server)
+import { jsPDF } from "jspdf";
 
-  const page = await browser.newPage({
-    viewport: { width: 794, height: 1123 },
-  });
-
-  await page.setContent(html, { waitUntil: "networkidle" });
-
-  // Forziamo il tipo a Uint8Array (Buffer eredita da Uint8Array)
-  const pdfBytes: Uint8Array = await page.pdf({
-    format: "A4",
-    printBackground: true,
-    margin: {
-      top: "10mm",
-      right: "10mm",
-      bottom: "15mm",
-      left: "10mm",
-    },
-  });
-
-  await browser.close();
-
-  // 🔥 FIX DEFINITIVO — Converte SEMPRE in ArrayBuffer puro
-  function toPureArrayBuffer(u8: Uint8Array): ArrayBuffer {
-    const ab = new ArrayBuffer(u8.byteLength);
-    new Uint8Array(ab).set(u8); // copia i byte
-    return ab; // ArrayBuffer 100% puro
-  }
-
-  return toPureArrayBuffer(pdfBytes);
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const doc = body?.doc as DocData | undefined;
+    console.log("[utility-documenti] pdf route start");
 
-    if (!doc) {
-      return NextResponse.json(
-        { ok: false, error: "MISSING_DOC" },
-        { status: 400 }
-      );
+    const body = await req.json();
+    const html: string | null = body?.html ?? null;
+    const filename: string = body?.filename ?? "document.pdf";
+
+    if (!html) {
+      console.error("[utility-documenti] Missing HTML");
+      return Response.json({ ok: false, error: "MISSING_HTML" }, { status: 400 });
     }
 
-    const html = renderDocumentHtml(doc);
-    const arrayBuffer = await generatePdfFromHtml(html);
+    // 1. Render HTML in JSDOM
+    const dom = new JSDOM(html);
+    const doc = dom.window.document;
 
-    const fileName =
-      (doc.meta.docNumber || "document")
-        .replace(/[^\w.-]+/g, "_")
-        .slice(0, 80) + ".pdf";
+    // 2. Genera PDF
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4"
+    });
 
-    // 👇 FINAL WORKING RESPONSE
-    return new Response(arrayBuffer, {
+    pdf.html(doc.body, {
+      callback: function (pdfResult) {
+        console.log("[utility-documenti] PDF generated");
+      },
+      x: 10,
+      y: 10,
+      width: 575
+    });
+
+    const pdfBytes = pdf.output("arraybuffer");
+
+    console.log("[utility-documenti] done, returning PDF");
+
+    return new Response(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
-      },
+        "Content-Disposition": `attachment; filename="${filename}"`
+      }
     });
-  } catch (error: any) {
-    console.error("[PDF ERROR]", error);
-    return NextResponse.json(
-      { ok: false, error: error?.message || "PDF_GENERATION_ERROR" },
-      { status: 500 }
-    );
+
+  } catch (err: any) {
+    console.error("[utility-documenti] error:", err);
+    return Response.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
