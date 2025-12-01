@@ -1266,13 +1266,14 @@ export default function BackofficeUtilityDocumentiClient() {
             )}
           </div>
 
-          {/* ======== COLONNA DESTRA: ANTEPRIMA DOCUMENTO ======== */}
+                  {/* ======== COLONNA DESTRA: ANTEPRIMA DOCUMENTO ======== */}
           <div>
-            <div className="overflow-hidden rounded-xl border border-slate-300 bg-slate-50 p-4">
+            {/* Wrapper scrollabile */}
+            <div className="rounded-xl border border-slate-300 bg-slate-50 p-4 max-h-[700px] max-w-full overflow-auto">
               {previewHtml ? (
                 <div
                   id="doc-preview"
-                  className="mx-auto max-w-[800px] rounded-xl border bg-white p-6 shadow-sm"
+                  className="mx-auto min-w-[800px] rounded-xl border bg-white p-6 shadow-sm"
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               ) : (
@@ -1285,6 +1286,7 @@ export default function BackofficeUtilityDocumentiClient() {
           </div>
         </div>
       </div>
+
 
       {/* CSS di stampa: mostra solo #doc-preview */}
       <style jsx global>{`
