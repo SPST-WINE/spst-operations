@@ -17,7 +17,13 @@ export async function POST(req: Request) {
     const { width, height } = page.getSize();
 
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const title = doc.meta?.title ?? "Documento di trasporto";
+
+    // NON facciamo affidamento su meta.title (non esiste nel tipo)
+    const metaAny = (doc as any).meta || {};
+    const title: string =
+      metaAny.title ||
+      metaAny.docType ||
+      "Documento di trasporto";
 
     // Header molto semplice
     page.drawText("SPST – Documento", {
