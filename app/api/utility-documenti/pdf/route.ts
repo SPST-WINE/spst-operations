@@ -1,6 +1,4 @@
 // app/api/utility-documenti/pdf/route.ts
-
-import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import type { DocData } from "@/lib/docs/render/types";
 
@@ -8,24 +6,21 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    // Il client invia il DocData in JSON
     const doc: DocData = await req.json();
 
-    // Crea un nuovo PDF vuoto
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage();
     const { width, height } = page.getSize();
 
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    // NON facciamo affidamento su meta.title (non esiste nel tipo)
     const metaAny = (doc as any).meta || {};
-    const title: string =
+    const title =
       metaAny.title ||
       metaAny.docType ||
       "Documento di trasporto";
 
-    // Header molto semplice
+    // HEADER
     page.drawText("SPST – Documento", {
       x: 50,
       y: height - 80,
@@ -40,7 +35,7 @@ export async function POST(req: Request) {
       font,
     });
 
-    // Se c'è almeno una riga, stampiamo la descrizione
+    // Primo item
     const firstItem = doc.items?.[0];
     if (firstItem) {
       page.drawText(`Articolo: ${firstItem.description ?? ""}`, {
@@ -51,16 +46,13 @@ export async function POST(req: Request) {
       });
     }
 
-    // Salva il PDF in memoria
-    const pdfBytes = await pdfDoc.save();
+    // Salva → Uint8Array
+    const pdfBytes: Uint8Array = await pdfDoc.save();
 
-    // Converte il Uint8Array in ArrayBuffer per NextResponse
-    const pdfArrayBuffer = pdfBytes.buffer.slice(
-      pdfBytes.byteOffset,
-      pdfBytes.byteOffset + pdfBytes.byteLength
-    );
+    // CREA BLOB (supportato 100% in API ROUTES Next.js)
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
 
-    return new NextResponse(pdfArrayBuffer, {
+    return new Response(blob, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
@@ -70,8 +62,8 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("[utility-documenti] pdf error", err);
 
-    return NextResponse.json(
-      { ok: false, error: "Errore nella generazione del PDF" },
+    return new Response(
+      JSON.stringify({ ok: false, error: "Errore nella generazione del PDF" }),
       { status: 500 }
     );
   }
