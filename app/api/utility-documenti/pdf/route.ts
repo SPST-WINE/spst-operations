@@ -37,20 +37,18 @@ export async function POST(req: Request) {
       lineHeight: 14,
     });
 
-    const pdfBytes = await pdfDoc.save();
+   const pdfBytes = await pdfDoc.save();
 
-    return new NextResponse(pdfBytes, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${title || "document"}.pdf"`,
-      },
-    });
-  } catch (e) {
-    console.error("PDF generation error", e);
-    return NextResponse.json(
-      { error: "Errore nella generazione PDF", details: String(e) },
-      { status: 500 }
-    );
-  }
-}
+// Converte il Uint8Array in un ArrayBuffer "pulito"
+const pdfArrayBuffer = pdfBytes.buffer.slice(
+  pdfBytes.byteOffset,
+  pdfBytes.byteOffset + pdfBytes.byteLength
+);
+
+return new NextResponse(pdfArrayBuffer, {
+  status: 200,
+  headers: {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": 'attachment; filename="documento-spst.pdf"',
+  },
+});
