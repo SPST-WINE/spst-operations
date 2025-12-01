@@ -1,58 +1,56 @@
+// app/api/utility-documenti/pdf/route.ts
+
+import { NextResponse } from "next/server";
 import type { DocData } from "@/lib/docs/render/types";
-export const runtime = "nodejs";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
-// ⚡ Usa JSDOM invece di Chromium/Playwright (che non esiste più)
-import { JSDOM } from "jsdom";
-
-// Render HTML → PDF via jsPDF (solo lato server)
-import { jsPDF } from "jspdf";
+export const runtime = "nodejs"; // OK in Vercel
 
 export async function POST(req: Request) {
   try {
-    console.log("[utility-documenti] pdf route start");
-
     const body = await req.json();
-    const html: string | null = body?.html ?? null;
-    const filename: string = body?.filename ?? "document.pdf";
+    const { html, title } = body as { html: string; title: string };
 
     if (!html) {
-      console.error("[utility-documenti] Missing HTML");
-      return Response.json({ ok: false, error: "MISSING_HTML" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing HTML content" },
+        { status: 400 }
+      );
     }
 
-    // 1. Render HTML in JSDOM
-    const dom = new JSDOM(html);
-    const doc = dom.window.document;
+    // 📄 Create a PDF
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595, 842]); // A4
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    // 2. Genera PDF
-    const pdf = new jsPDF({
-      unit: "pt",
-      format: "a4"
+    const text = html
+      .replace(/<[^>]+>/g, " ") // rimuove i tag HTML
+      .replace(/\s+/g, " ")     // normalizza spazi
+      .trim();
+
+    page.setFont(font);
+    page.setFontSize(11);
+    page.drawText(text.slice(0, 5000), {
+      x: 40,
+      y: 780,
+      maxWidth: 515,
+      lineHeight: 14,
     });
 
-    pdf.html(doc.body, {
-      callback: function (pdfResult) {
-        console.log("[utility-documenti] PDF generated");
-      },
-      x: 10,
-      y: 10,
-      width: 575
-    });
+    const pdfBytes = await pdfDoc.save();
 
-    const pdfBytes = pdf.output("arraybuffer");
-
-    console.log("[utility-documenti] done, returning PDF");
-
-    return new Response(pdfBytes, {
+    return new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`
-      }
+        "Content-Disposition": `attachment; filename="${title || "document"}.pdf"`,
+      },
     });
-
-  } catch (err: any) {
-    console.error("[utility-documenti] error:", err);
-    return Response.json({ ok: false, error: String(err) }, { status: 500 });
+  } catch (e) {
+    console.error("PDF generation error", e);
+    return NextResponse.json(
+      { error: "Errore nella generazione PDF", details: String(e) },
+      { status: 500 }
+    );
   }
 }
