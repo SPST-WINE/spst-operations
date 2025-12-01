@@ -239,7 +239,7 @@ export async function POST(req: Request) {
       const n = idx + 1;
       const desc = it.description ?? "";
       const bottles = it.bottles ?? "";
-      const volPerBottle = it.volumePerBottleL ?? it.volume_l ?? "";
+      const volPerBottle = it.volumePerBottleL ?? "";
       const totalVol = it.totalVolumeL ?? "";
       const unitPrice = it.unitPrice ?? "";
       const lineTotal = it.lineTotal ?? "";
