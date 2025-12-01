@@ -1,54 +1,72 @@
 // app/api/utility-documenti/pdf/route.ts
 
 import { NextResponse } from "next/server";
-import type { DocData } from "@/lib/docs/render/types";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import type { DocData } from "@/lib/docs/render/types";
 
-export const runtime = "nodejs"; // OK in Vercel
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { html, title } = body as { html: string; title: string };
+    // Il client invia il DocData in JSON
+    const doc: DocData = await req.json();
 
-    if (!html) {
-      return NextResponse.json(
-        { error: "Missing HTML content" },
-        { status: 400 }
-      );
-    }
-
-    // 📄 Create a PDF
+    // Crea un nuovo PDF vuoto
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595, 842]); // A4
+    const page = pdfDoc.addPage();
+    const { width, height } = page.getSize();
+
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const title = doc.meta?.title ?? "Documento di trasporto";
 
-    const text = html
-      .replace(/<[^>]+>/g, " ") // rimuove i tag HTML
-      .replace(/\s+/g, " ")     // normalizza spazi
-      .trim();
-
-    page.setFont(font);
-    page.setFontSize(11);
-    page.drawText(text.slice(0, 5000), {
-      x: 40,
-      y: 780,
-      maxWidth: 515,
-      lineHeight: 14,
+    // Header molto semplice
+    page.drawText("SPST – Documento", {
+      x: 50,
+      y: height - 80,
+      size: 18,
+      font,
     });
 
-   const pdfBytes = await pdfDoc.save();
+    page.drawText(title, {
+      x: 50,
+      y: height - 110,
+      size: 14,
+      font,
+    });
 
-// Converte il Uint8Array in un ArrayBuffer "pulito"
-const pdfArrayBuffer = pdfBytes.buffer.slice(
-  pdfBytes.byteOffset,
-  pdfBytes.byteOffset + pdfBytes.byteLength
-);
+    // Se c'è almeno una riga, stampiamo la descrizione
+    const firstItem = doc.items?.[0];
+    if (firstItem) {
+      page.drawText(`Articolo: ${firstItem.description ?? ""}`, {
+        x: 50,
+        y: height - 150,
+        size: 12,
+        font,
+      });
+    }
 
-return new NextResponse(pdfArrayBuffer, {
-  status: 200,
-  headers: {
-    "Content-Type": "application/pdf",
-    "Content-Disposition": 'attachment; filename="documento-spst.pdf"',
-  },
-});
+    // Salva il PDF in memoria
+    const pdfBytes = await pdfDoc.save();
+
+    // Converte il Uint8Array in ArrayBuffer per NextResponse
+    const pdfArrayBuffer = pdfBytes.buffer.slice(
+      pdfBytes.byteOffset,
+      pdfBytes.byteOffset + pdfBytes.byteLength
+    );
+
+    return new NextResponse(pdfArrayBuffer, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": 'attachment; filename="documento-spst.pdf"',
+      },
+    });
+  } catch (err) {
+    console.error("[utility-documenti] pdf error", err);
+
+    return NextResponse.json(
+      { ok: false, error: "Errore nella generazione del PDF" },
+      { status: 500 }
+    );
+  }
+}
