@@ -372,49 +372,60 @@ export default function BackofficeUtilityDocumentiClient() {
     }
   };
 
-  const handleDownloadPdf = async () => {
-    if (!draftDoc) return;
+ const handleDownloadPdf = async () => {
+  if (!draftDoc) {
+    console.error("[utility-documenti] nessun documento in memoria");
+    alert("Nessun documento da scaricare. Genera prima il documento.");
+    return;
+  }
 
-    setGenerateError(null);
+  try {
+    console.log("[utility-documenti] download pdf start");
 
-    try {
-      const res = await fetch("/api/utility-documenti/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          doc_type:
-            (draftDoc.meta && draftDoc.meta.docType) ||
-            docType ||
-            "fattura_proforma",
-          doc_data: draftDoc,
-        }),
-      });
+    const res = await fetch("/api/utility-documenti/pdf", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      // 👇 QUI il punto chiave: passiamo doc
+      body: JSON.stringify({
+        doc: draftDoc,
+      }),
+    });
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(
-          text || `Errore ${res.status} nello scaricamento del PDF`
-        );
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      const safeNumber = draftDoc.meta?.docNumber || "documento";
-      a.download = `${safeNumber}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      console.error("[utility-documenti] download pdf error:", e);
-      setGenerateError(
-        e?.message || "Errore nella generazione / download del PDF"
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(
+        "[utility-documenti] download pdf error response:",
+        res.status,
+        text
       );
+      throw new Error(text || `Errore ${res.status} nello scaricamento del PDF`);
     }
-  };
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    const fileName =
+      ((draftDoc.meta?.docNumber as string | undefined) ||
+        "documento_spst") +
+      ".pdf";
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName.replace(/[^\w.-]+/g, "_");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    console.log("[utility-documenti] download pdf ok");
+  } catch (err) {
+    console.error("[utility-documenti] download pdf error:", err);
+    alert("Errore nello scaricamento del PDF. Controlla la console.");
+  }
+};
+
 
   // ---------- DERIVATI PER CARD 1 ----------
 
