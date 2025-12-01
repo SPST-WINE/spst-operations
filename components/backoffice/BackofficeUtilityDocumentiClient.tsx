@@ -372,60 +372,16 @@ export default function BackofficeUtilityDocumentiClient() {
     }
   };
 
- const handleDownloadPdf = async () => {
-  if (!draftDoc) {
-    console.error("[utility-documenti] nessun documento in memoria");
-    alert("Nessun documento da scaricare. Genera prima il documento.");
-    return;
-  }
+  // ---------- DOWNLOAD PDF (window.print) ----------
 
-  try {
-    console.log("[utility-documenti] download pdf start");
+  const handleDownloadPdf = () => {
+    if (typeof window === "undefined") return;
 
-    const res = await fetch("/api/utility-documenti/pdf", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      // 👇 QUI il punto chiave: passiamo doc
-      body: JSON.stringify({
-        doc: draftDoc,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error(
-        "[utility-documenti] download pdf error response:",
-        res.status,
-        text
-      );
-      throw new Error(text || `Errore ${res.status} nello scaricamento del PDF`);
-    }
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-
-    const fileName =
-      ((draftDoc.meta?.docNumber as string | undefined) ||
-        "documento_spst") +
-      ".pdf";
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName.replace(/[^\w.-]+/g, "_");
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-
-    console.log("[utility-documenti] download pdf ok");
-  } catch (err) {
-    console.error("[utility-documenti] download pdf error:", err);
-    alert("Errore nello scaricamento del PDF. Controlla la console.");
-  }
-};
-
+    // piccolo delay se l'anteprima è appena stata aggiornata
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
 
   // ---------- DERIVATI PER CARD 1 ----------
 
@@ -600,7 +556,7 @@ export default function BackofficeUtilityDocumentiClient() {
       </section>
 
       {/* Card 2: configurazione documento */}
-      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border bg_WHITE p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">
           2. Configura documento
         </h2>
@@ -699,7 +655,7 @@ export default function BackofficeUtilityDocumentiClient() {
           <div className="space-y-6">
             {/* JSON DEBUG COLLASSABILE */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-2 flex items-center justify_between">
                 <div className="text-sm font-medium text-slate-700">
                   API Response (debug)
                 </div>
@@ -808,7 +764,7 @@ export default function BackofficeUtilityDocumentiClient() {
                       </label>
                       <input
                         type="text"
-                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                        className="mt-1 w_full rounded-md border border-slate-300 px-2 py-1 text-xs"
                         value={draftDoc.meta?.incoterm ?? ""}
                         onChange={(e) =>
                           updateDraft((d) => ({
@@ -1098,9 +1054,7 @@ export default function BackofficeUtilityDocumentiClient() {
                       <input
                         type="number"
                         className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                        value={
-                          draftDoc.shipment?.totalGrossWeightKg ?? ""
-                        }
+                        value={draftDoc.shipment?.totalGrossWeightKg ?? ""}
                         onChange={(e) =>
                           updateDraft((d) => ({
                             ...d,
@@ -1253,7 +1207,7 @@ export default function BackofficeUtilityDocumentiClient() {
                           <input
                             type="number"
                             step="0.01"
-                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            className="mt-1 w_full rounded-md border border-slate-300 px-2 py-1 text-xs"
                             value={it.totalVolumeL ?? ""}
                             onChange={(e) =>
                               updateItemField(
@@ -1314,12 +1268,12 @@ export default function BackofficeUtilityDocumentiClient() {
 
           {/* ======== COLONNA DESTRA: ANTEPRIMA DOCUMENTO ======== */}
           <div>
-            <div className="overflow-hidden rounded-xl border border-slate-300">
+            <div className="overflow-hidden rounded-xl border border-slate-300 bg-slate-50 p-4">
               {previewHtml ? (
-                <iframe
-                  srcDoc={previewHtml}
-                  className="h-[1200px] w-full border-none"
-                  title="Anteprima documento"
+                <div
+                  id="doc-preview"
+                  className="mx-auto max-w-[800px] rounded-xl border bg-white p-6 shadow-sm"
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               ) : (
                 <div className="p-6 text-sm text-slate-500">
@@ -1331,6 +1285,29 @@ export default function BackofficeUtilityDocumentiClient() {
           </div>
         </div>
       </div>
+
+      {/* CSS di stampa: mostra solo #doc-preview */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+
+          #doc-preview,
+          #doc-preview * {
+            visibility: visible;
+          }
+
+          #doc-preview {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            padding: 20mm;
+            box-shadow: none !important;
+            border: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
