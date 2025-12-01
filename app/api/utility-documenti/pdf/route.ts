@@ -46,16 +46,18 @@ export async function POST(req: Request) {
       });
     }
 
-    // Salva → Uint8Array
+    // 👉 SALVA → Uint8Array
     const pdfBytes: Uint8Array = await pdfDoc.save();
 
-    // CREA BLOB (supportato 100% in API ROUTES Next.js)
-    const blob = new Blob([pdfBytes], { type: "application/pdf" });
+    // 👉 CONVERTI IN BUFFER (compatibile 100% con Vercel)
+    const buffer = Buffer.from(pdfBytes);
 
-    return new Response(blob, {
+    // 👉 RESTITUISCI PDF
+    return new Response(buffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
+        "Content-Length": buffer.length.toString(),
         "Content-Disposition": 'attachment; filename="documento-spst.pdf"',
       },
     });
