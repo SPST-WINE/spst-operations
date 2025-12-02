@@ -1,8 +1,32 @@
 // app/api/backoffice/links/[id]/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Params = { params: { id: string } };
+
+function envOrThrow(name: string): string {
+  const v = process.env[name];
+  if (!v || !v.trim()) {
+    throw new Error(`Missing env ${name}`);
+  }
+  return v;
+}
+
+function admin() {
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    envOrThrow("SUPABASE_SERVICE_ROLE");
+
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 export async function PATCH(req: Request, { params }: Params) {
   const { id } = params;
@@ -18,7 +42,7 @@ export async function PATCH(req: Request, { params }: Params) {
       );
     }
 
-    const supa = createSupabaseServer();
+    const supa = admin();
 
     const payload: any = {};
     if (label !== undefined) payload.label = label;
@@ -63,9 +87,9 @@ export async function DELETE(_req: Request, { params }: Params) {
       );
     }
 
-    const supa = createSupabaseServer();
+    const supa = admin();
 
-    // soft delete: set is_active = false
+    // soft delete: is_active = false
     const { data, error } = await supa
       .from("backoffice_links")
       .update({ is_active: false })
