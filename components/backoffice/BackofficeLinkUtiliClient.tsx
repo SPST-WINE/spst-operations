@@ -1,3 +1,4 @@
+// components/backoffice/BackofficeLinkUtiliClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -59,10 +60,12 @@ export default function BackofficeLinkUtiliClient() {
 
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-
   const [uploadingCategory, setUploadingCategory] = useState<Category | null>(
     null
   );
+
+  const [selectedCategory, setSelectedCategory] =
+    useState<Category>("internal_pricelist");
 
   const [formByCategory, setFormByCategory] = useState<
     Record<Category, FormState>
@@ -349,7 +352,7 @@ export default function BackofficeLinkUtiliClient() {
           {items.map((row) => {
             const isEditing = editingId === row.id;
             const shortUrl =
-              row.url.length > 60 ? row.url.slice(0, 57) + "..." : row.url;
+              row.url.length > 80 ? row.url.slice(0, 77) + "..." : row.url;
 
             if (isEditing) {
               return (
@@ -599,27 +602,73 @@ export default function BackofficeLinkUtiliClient() {
     );
   }
 
+  // Config per il menu/tab
+  let currentTitle = "";
+  let currentDescription = "";
+  let currentItems: BackofficeLink[] = [];
+
+  if (selectedCategory === "internal_pricelist") {
+    currentTitle = "Listini interni";
+    currentDescription =
+      "Listini e documenti ad uso interno SPST (non condividere con i clienti).";
+    currentItems = internalLinks;
+  } else if (selectedCategory === "external_pricelist") {
+    currentTitle = "Listini standard / esterni";
+    currentDescription =
+      "Listini di riferimento con prezzi standard validi per tutti i clienti.";
+    currentItems = externalLinks;
+  } else {
+    currentTitle = "Tutorial & guide operative";
+    currentDescription =
+      "PDF interni e link esterni (YouTube, Loom, ecc.) per usare SPST e preparare pacchi/pallet.";
+    currentItems = tutorialLinks;
+  }
+
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {renderSection(
-        "Listini interni",
-        "Listini e documenti ad uso interno SPST (non condividere con i clienti).",
-        "internal_pricelist",
-        internalLinks
-      )}
+    <div className="space-y-4">
+      {/* Menu a tab */}
+      <div className="inline-flex rounded-full border bg-slate-50 p-1 text-xs">
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("internal_pricelist")}
+          className={`px-3 py-1.5 rounded-full transition ${
+            selectedCategory === "internal_pricelist"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-700 hover:bg-white"
+          }`}
+        >
+          Listini interni
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("external_pricelist")}
+          className={`px-3 py-1.5 rounded-full transition ${
+            selectedCategory === "external_pricelist"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-700 hover:bg-white"
+          }`}
+        >
+          Listini standard / esterni
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedCategory("tutorial")}
+          className={`px-3 py-1.5 rounded-full transition ${
+            selectedCategory === "tutorial"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-700 hover:bg-white"
+          }`}
+        >
+          Tutorial & guide
+        </button>
+      </div>
 
+      {/* Sezione selezionata a tutta larghezza */}
       {renderSection(
-        "Listini standard / esterni",
-        "Listini di riferimento con prezzi standard validi per tutti i clienti.",
-        "external_pricelist",
-        externalLinks
-      )}
-
-      {renderSection(
-        "Tutorial & guide operative",
-        "PDF interni e link esterni (YouTube, Loom, ecc.) per usare SPST e preparare pacchi/pallet.",
-        "tutorial",
-        tutorialLinks
+        currentTitle,
+        currentDescription,
+        selectedCategory,
+        currentItems
       )}
     </div>
   );
