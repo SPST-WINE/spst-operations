@@ -1,8 +1,17 @@
-// components/backoffice/BackofficeLinkUtiliClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Link2, Plus, Trash2, Copy, Check, Edit3, ExternalLink } from "lucide-react";
+import {
+  Link2,
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  Edit3,
+  ExternalLink,
+  UploadCloud,
+} from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
 
 type Category = "internal_pricelist" | "external_pricelist" | "tutorial";
 
@@ -30,6 +39,19 @@ const emptyForm: FormState = {
   sort_order: "",
 };
 
+const SUPABASE_BUCKET = "backoffice-docs";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+const folderByCategory: Record<Category, string> = {
+  internal_pricelist: "internal",
+  external_pricelist: "external",
+  tutorial: "tutorials",
+};
+
 export default function BackofficeLinkUtiliClient() {
   const [rows, setRows] = useState<BackofficeLink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +59,10 @@ export default function BackofficeLinkUtiliClient() {
 
   const [copyingId, setCopyingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [uploadingCategory, setUploadingCategory] = useState<Category | null>(
+    null
+  );
 
   const [formByCategory, setFormByCategory] = useState<
     Record<Category, FormState>
@@ -235,6 +261,60 @@ export default function BackofficeLinkUtiliClient() {
     }
   }
 
+  // ----------- UPLOAD SU SUPABASE STORAGE -------------------------------
+
+  async function handleFileChange(category: Category, fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+
+    try {
+      setUploadingCategory(category);
+
+      const folder = folderByCategory[category];
+      const safeName = file.name.replace(/\s+/g, "-").toLowerCase();
+      const path = `${folder}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .upload(path, file);
+
+      if (uploadError) {
+        console.error("[BackofficeLinkUtiliClient] upload error:", uploadError);
+        alert("Errore nel caricamento del file su Supabase Storage.");
+        return;
+      }
+
+      const { data: publicData } = supabase.storage
+        .from(SUPABASE_BUCKET)
+        .getPublicUrl(path);
+
+      const publicUrl = publicData?.publicUrl;
+      if (!publicUrl) {
+        alert("Impossibile ottenere la URL pubblica del file.");
+        return;
+      }
+
+      // Precompiliamo URL e, se vuota, anche la label
+      setFormByCategory((prev) => {
+        const current = prev[category];
+        const labelFromFile = file.name.replace(/\.[^/.]+$/, "");
+        return {
+          ...prev,
+          [category]: {
+            ...current,
+            url: publicUrl,
+            label: current.label || labelFromFile,
+          },
+        };
+      });
+    } catch (e: any) {
+      console.error("[BackofficeLinkUtiliClient] upload unexpected:", e);
+      alert(e?.message || "Errore imprevisto durante l'upload del file.");
+    } finally {
+      setUploadingCategory((prev) => (prev === category ? null : prev));
+    }
+  }
+
   // ----------- RENDER ---------------------------------------------------
 
   function renderSection(
@@ -244,6 +324,7 @@ export default function BackofficeLinkUtiliClient() {
     items: BackofficeLink[]
   ) {
     const form = formByCategory[category];
+    const isUploading = uploadingCategory === category;
 
     return (
       <section className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -268,9 +349,7 @@ export default function BackofficeLinkUtiliClient() {
           {items.map((row) => {
             const isEditing = editingId === row.id;
             const shortUrl =
-              row.url.length > 60
-                ? row.url.slice(0, 57) + "..."
-                : row.url;
+              row.url.length > 60 ? row.url.slice(0, 57) + "..." : row.url;
 
             if (isEditing) {
               return (
@@ -417,7 +496,7 @@ export default function BackofficeLinkUtiliClient() {
           })}
         </div>
 
-        {/* Form aggiunta rapida */}
+        {/* Form aggiunta rapida + upload */}
         <div className="mt-4 border-t border-slate-200 pt-3">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Aggiungi nuovo link
@@ -433,15 +512,41 @@ export default function BackofficeLinkUtiliClient() {
                   handleChangeForm(category, "label", e.target.value)
                 }
               />
-              <input
-                type="text"
-                className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
-                placeholder="URL completo del PDF o del link (YouTube, ecc.)"
-                value={form.url}
-                onChange={(e) =>
-                  handleChangeForm(category, "url", e.target.value)
-                }
-              />
+              <div className="flex flex-col gap-1">
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                  placeholder="URL completo del PDF o del link (YouTube, ecc.)"
+                  value={form.url}
+                  onChange={(e) =>
+                    handleChangeForm(category, "url", e.target.value)
+                  }
+                />
+                <div className="flex items-center gap-2">
+                  <label className="inline-flex items-center gap-1 text-[11px] text-slate-600">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 hover:bg-slate-50 cursor-pointer">
+                      <UploadCloud className="h-3 w-3" />
+                      <span>
+                        {isUploading ? "Caricamento..." : "Carica file su Storage"}
+                      </span>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        disabled={isUploading}
+                        onChange={(e) =>
+                          handleFileChange(category, e.target.files)
+                        }
+                      />
+                    </span>
+                  </label>
+                  {form.url && (
+                    <span className="text-[10px] text-emerald-600">
+                      URL compilato dal file o da input.
+                    </span>
+                  )}
+                </div>
+              </div>
               <input
                 type="text"
                 className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
@@ -465,7 +570,8 @@ export default function BackofficeLinkUtiliClient() {
               <button
                 type="button"
                 onClick={() => handleAdd(category)}
-                className="inline-flex w-full items-center justify-center gap-1 rounded-md bg-slate-900 px-2 py-1.5 text-[11px] font-medium text-white"
+                className="inline-flex w-full items-center justify-center gap-1 rounded-md bg-slate-900 px-2 py-1.5 text-[11px] font-medium text-white disabled:opacity-60"
+                disabled={isUploading}
               >
                 <Plus className="h-3 w-3" />
                 Aggiungi link
