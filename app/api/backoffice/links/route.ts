@@ -1,10 +1,35 @@
 // app/api/backoffice/links/route.ts
 import { NextResponse } from "next/server";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function envOrThrow(name: string): string {
+  const v = process.env[name];
+  if (!v || !v.trim()) {
+    throw new Error(`Missing env ${name}`);
+  }
+  return v;
+}
+
+// Client ADMIN con service role, come in molte altre API SPST
+function admin() {
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    envOrThrow("SUPABASE_SERVICE_ROLE");
+
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 export async function GET() {
   try {
-    const supa = createSupabaseServer();
+    const supa = admin();
 
     const { data, error } = await supa
       .from("backoffice_links")
@@ -44,7 +69,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const supa = createSupabaseServer();
+    const supa = admin();
 
     const { data, error } = await supa
       .from("backoffice_links")
