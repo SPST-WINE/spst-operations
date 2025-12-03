@@ -1,3 +1,5 @@
+// app/api/usa-shipping-pay/create-checkout/route.ts
+
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -13,14 +15,26 @@ export async function POST(req: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customerEmail,
+
+      // 👇 Richiesta dati di spedizione + telefono
+      shipping_address_collection: {
+        allowed_countries: ["US"], // aggiungi altri paesi se ti servono
+      },
+      phone_number_collection: {
+        enabled: true,
+      },
+      // opzionale se vuoi anche indirizzo di fatturazione obbligatorio
+      // billing_address_collection: "required",
+
       line_items: [
         {
           price_data: {
             currency: "eur",
             unit_amount: Math.round(Number(amount) * 100),
             product_data: {
-              name: "US Customs Duties",
-              description: description || `Duties for shipment ${shipmentId || ""}`,
+              name: "US Wine Shipping",
+              description:
+                description || `Taxes, Duties and Excise included. Door-to-door US Shipment for winery ${shipmentId || ""}`,
             },
           },
           quantity: 1,
