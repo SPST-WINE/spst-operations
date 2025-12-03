@@ -25,7 +25,8 @@
     "react-day-picker": "^9.0.8",
     "react-dom": "^18.2.0",
     "react-hook-form": "^7.52.1",
-    "resend": "^6.0.2"
+    "resend": "^6.0.2",
+    "stripe": "^20.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
