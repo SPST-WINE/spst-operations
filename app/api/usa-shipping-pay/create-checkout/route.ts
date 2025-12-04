@@ -5,8 +5,19 @@ import { computeTotals, getShippingForBottleCount } from "@/lib/usa-shipping/cal
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+// helper per ricavare la base URL in modo robusto
+function getBaseUrl(req: NextRequest): string {
+  const origin = req.headers.get("origin");
+  if (origin) return origin;
 
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;
+  const host = req.headers.get("host");
+  if (host?.startsWith("http")) return host;
+
+  if (host) return `https://${host}`;
+
+  // fallback finale (local dev)
+  return "http://localhost:3000";
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,6 +44,8 @@ export async function POST(req: NextRequest) {
     }
 
     const breakdown = computeTotals(bottleCount, goodsValue);
+
+    const baseUrl = getBaseUrl(req);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -71,8 +84,8 @@ export async function POST(req: NextRequest) {
         stripe_fee: breakdown.stripeFee.toFixed(2),
         total: breakdown.total.toFixed(2),
       },
-      success_url: `${BASE_URL}/usa-shipping-pay/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${BASE_URL}/usa-shipping-pay/cancel`,
+      success_url: `${baseUrl}/usa-shipping-pay/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/usa-shipping-pay/cancel`,
     });
 
     return Response.json({ url: session.url });
