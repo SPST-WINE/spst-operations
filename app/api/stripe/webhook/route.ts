@@ -2,7 +2,6 @@
 import { headers } from "next/headers";
 import Stripe from "stripe";
 import { NextRequest } from "next/server";
-import { createSupabaseServer } from "@/lib/supabase/server";
 import { Resend } from "resend";
 
 export const dynamic = "force-dynamic";
@@ -35,8 +34,6 @@ export async function POST(req: NextRequest) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     await handleCheckoutCompleted(session);
-  } else {
-    // puoi aggiungere altri tipi in futuro
   }
 
   return new Response("ok", { status: 200 });
@@ -45,74 +42,78 @@ export async function POST(req: NextRequest) {
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     const metadata = session.metadata || {};
-    const dutiesPaymentId = metadata.duties_payment_id;
 
-    if (!dutiesPaymentId) {
-      console.warn("[webhook] missing duties_payment_id");
-      return;
-    }
+    const wineryName = metadata.winery_name || "Winery";
+    const wineryEmail = metadata.winery_email;
+    const customerEmail = metadata.customer_email;
 
-    const supa = createSupabaseServer();
-
-    const { data: payment, error: fetchErr } = await supa
-      .from("usa_duties_payments")
-      .select("*")
-      .eq("id", dutiesPaymentId)
-      .maybeSingle();
-
-    if (fetchErr || !payment) {
-      console.error("[webhook] payment not found", fetchErr);
-      return;
-    }
-
-    // aggiorna stato
-    const { error: updateErr } = await supa
-      .from("usa_duties_payments")
-      .update({
-        status: "paid",
-        paid_at: new Date().toISOString(),
-        stripe_payment_intent_id:
-          typeof session.payment_intent === "string"
-            ? session.payment_intent
-            : session.payment_intent?.id ?? null,
-      })
-      .eq("id", dutiesPaymentId);
-
-    if (updateErr) {
-      console.error("[webhook] update error", updateErr);
-    }
+    const bottleCount = metadata.bottle_count || "0";
+    const goodsValue = metadata.goods_value || "0";
+    const shipping = metadata.shipping || "0";
+    const duties = metadata.duties || "0";
+    const stripeFee = metadata.stripe_fee || "0";
+    const total = metadata.total || "0";
 
     const fromEmail = process.env.DUTIES_FROM_EMAIL || "no-reply@spst.it";
 
     // Mail al cliente (inglese)
-    await resend.emails.send({
-      from: `SPST <${fromEmail}>`,
-      to: payment.customer_email,
-      subject: "Your wine shipping & duties payment has been received",
-      html: buildCustomerEmail(payment),
-    });
+    if (customerEmail) {
+      await resend.emails.send({
+        from: `SPST <${fromEmail}>`,
+        to: customerEmail,
+        subject: "Your wine shipping & duties payment has been received",
+        html: buildCustomerEmail({
+          wineryName,
+          bottleCount,
+          goodsValue,
+          shipping,
+          duties,
+          stripeFee,
+          total,
+        }),
+      });
+    }
 
     // Mail alla cantina (italiano)
-    await resend.emails.send({
-      from: `SPST <${fromEmail}>`,
-      to: payment.winery_email,
-      subject:
-        "Pagamento trasporto + dazi confermato per il tuo cliente USA",
-      html: buildWineryEmail(payment),
-    });
+    if (wineryEmail) {
+      await resend.emails.send({
+        from: `SPST <${fromEmail}>`,
+        to: wineryEmail,
+        subject:
+          "Pagamento trasporto + dazi confermato per il tuo cliente USA",
+        html: buildWineryEmail({
+          wineryName,
+          customerEmail,
+          bottleCount,
+          goodsValue,
+          shipping,
+          duties,
+          stripeFee,
+          total,
+        }),
+      });
+    }
   } catch (err) {
     console.error("[webhook handleCheckoutCompleted] error", err);
   }
 }
 
-function formatEuro(n: number | string): string {
-  const num = typeof n === "number" ? n : Number(n);
+function formatEuro(n: string): string {
+  const num = Number(n);
   if (!Number.isFinite(num)) return "0,00";
   return num.toFixed(2).replace(".", ",");
 }
 
 // EMAIL CLIENTE (inglese)
-function buildCustomerEmail(payment: any): string {
+function buildCustomerEmail(data: {
+  wineryName: string;
+  bottleCount: string;
+  goodsValue: string;
+  shipping: string;
+  duties: string;
+  stripeFee: string;
+  total: string;
+}): string {
   return `
   <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 16px;">
     <h2 style="margin-bottom: 8px;">Thank you for your payment</h2>
@@ -125,31 +126,41 @@ function buildCustomerEmail(payment: any): string {
       <tbody>
         <tr>
           <td style="padding: 4px 0; color: #555;">Winery</td>
-          <td style="padding: 4px 0; text-align: right;">${payment.winery_name}</td>
+          <td style="padding: 4px 0; text-align: right;">${data.wineryName}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Bottles</td>
-          <td style="padding: 4px 0; text-align: right;">${payment.bottle_count}</td>
+          <td style="padding: 4px 0; text-align: right;">${data.bottleCount}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Declared goods value</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.goods_value_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.goodsValue
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Shipping</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.shipping_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.shipping
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Duties (15%)</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.duties_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.duties
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Stripe fees (included in total)</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.stripe_fee_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.stripeFee
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; border-top: 1px solid #ddd; font-weight: 600;">Total paid</td>
-          <td style="padding: 8px 0; border-top: 1px solid #ddd; text-align: right; font-weight: 600;">€ ${formatEuro(payment.total_charge_eur)}</td>
+          <td style="padding: 8px 0; border-top: 1px solid #ddd; text-align: right; font-weight: 600;">€ ${formatEuro(
+            data.total
+          )}</td>
         </tr>
       </tbody>
     </table>
@@ -166,7 +177,16 @@ function buildCustomerEmail(payment: any): string {
 }
 
 // EMAIL CANTINA (italiano)
-function buildWineryEmail(payment: any): string {
+function buildWineryEmail(data: {
+  wineryName: string;
+  customerEmail: string | undefined;
+  bottleCount: string;
+  goodsValue: string;
+  shipping: string;
+  duties: string;
+  stripeFee: string;
+  total: string;
+}): string {
   return `
   <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 16px;">
     <h2 style="margin-bottom: 8px;">Pagamento trasporto + dazi confermato</h2>
@@ -179,31 +199,43 @@ function buildWineryEmail(payment: any): string {
       <tbody>
         <tr>
           <td style="padding: 4px 0; color: #555;">Email cliente</td>
-          <td style="padding: 4px 0; text-align: right;">${payment.customer_email}</td>
+          <td style="padding: 4px 0; text-align: right;">${
+            data.customerEmail || "-"
+          }</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Bottiglie (equivalenti)</td>
-          <td style="padding: 4px 0; text-align: right;">${payment.bottle_count}</td>
+          <td style="padding: 4px 0; text-align: right;">${data.bottleCount}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Valore merce dichiarato</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.goods_value_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.goodsValue
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Trasporto</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.shipping_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.shipping
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Dazi (15%)</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.duties_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.duties
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 4px 0; color: #555;">Fee Stripe (incluse nel totale)</td>
-          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(payment.stripe_fee_eur)}</td>
+          <td style="padding: 4px 0; text-align: right;">€ ${formatEuro(
+            data.stripeFee
+          )}</td>
         </tr>
         <tr>
           <td style="padding: 8px 0; border-top: 1px solid #ddd; font-weight: 600;">Totale pagato dal cliente</td>
-          <td style="padding: 8px 0; border-top: 1px solid #ddd; text-align: right; font-weight: 600;">€ ${formatEuro(payment.total_charge_eur)}</td>
+          <td style="padding: 8px 0; border-top: 1px solid #ddd; text-align: right; font-weight: 600;">€ ${formatEuro(
+            data.total
+          )}</td>
         </tr>
       </tbody>
     </table>
