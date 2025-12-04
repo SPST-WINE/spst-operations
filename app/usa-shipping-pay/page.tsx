@@ -38,6 +38,7 @@ function SimpleHeader({
   return (
     <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
+        {/* LEFT: LOGO + TITLE */}
         <div className="flex items-center gap-3">
           <div className="relative h-8 w-8">
             <Image
@@ -58,19 +59,39 @@ function SimpleHeader({
           </div>
         </div>
 
-        {/* LANG SELECT */}
-        <select
-          value={lang}
-          onChange={(e) => setLang(e.target.value as "it" | "en")}
-          className="rounded-lg bg-black/40 border border-white/20 px-2 py-1 text-xs"
-        >
-          <option value="it">IT</option>
-          <option value="en">EN</option>
-        </select>
+        {/* RIGHT: LANGUAGE SWITCH */}
+        <div className="flex items-center gap-2 bg-black/40 border border-white/20 rounded-full px-1.5 py-1">
+          {/* IT BUTTON */}
+          <button
+            type="button"
+            onClick={() => setLang("it")}
+            className={`px-3 py-0.5 text-xs rounded-full transition font-semibold ${
+              lang === "it"
+                ? "bg-white text-black"
+                : "text-white/60 hover:text-white"
+            }`}
+          >
+            IT
+          </button>
+
+          {/* EN BUTTON */}
+          <button
+            type="button"
+            onClick={() => setLang("en")}
+            className={`px-3 py-0.5 text-xs rounded-full transition font-semibold ${
+              lang === "en"
+                ? "bg-white text-black"
+                : "text-white/60 hover:text-white"
+            }`}
+          >
+            EN
+          </button>
+        </div>
       </div>
     </header>
   );
 }
+
 
 function SimpleFooter() {
   return (
