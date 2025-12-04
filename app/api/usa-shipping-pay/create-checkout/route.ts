@@ -1,11 +1,10 @@
 // app/api/usa-shipping-pay/create-checkout/route.ts
 import Stripe from "stripe";
 import { NextRequest } from "next/server";
-import { createSupabaseServer } from "@/lib/supabase/server";
 import { computeTotals, getShippingForBottleCount } from "@/lib/usa-shipping/calc";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20", // o versione che usi
+  apiVersion: "2024-06-20", // usa la versione che hai in account
 });
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;
@@ -36,35 +35,6 @@ export async function POST(req: NextRequest) {
 
     const breakdown = computeTotals(bottleCount, goodsValue);
 
-    // 1) Salva su DB
-    const supa = createSupabaseServer();
-
-    const { data: inserted, error: insertErr } = await supa
-      .from("usa_duties_payments")
-      .insert({
-        winery_name: wineryName,
-        winery_email: wineryEmail,
-        customer_email: customerEmail,
-        bottle_count: bottleCount,
-        goods_value_eur: goodsValue,
-        shipping_eur: breakdown.shipping,
-        duties_eur: breakdown.duties,
-        base_charge_eur: breakdown.baseCharge,
-        stripe_fee_eur: breakdown.stripeFee,
-        total_charge_eur: breakdown.total,
-        status: "created",
-      })
-      .select("id")
-      .single();
-
-    if (insertErr || !inserted) {
-      console.error("[usa_duties_payments insert error]", insertErr);
-      return new Response("DB insert error", { status: 500 });
-    }
-
-    const paymentId = inserted.id as string;
-
-    // 2) Crea Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customerEmail,
@@ -78,7 +48,7 @@ export async function POST(req: NextRequest) {
         {
           price_data: {
             currency: "eur",
-            unit_amount: Math.round(breakdown.total * 100), // in cent
+            unit_amount: Math.round(breakdown.total * 100), // centesimi
             product_data: {
               name: "US Shipping & Duties",
               description: `${wineryName} – ${bottleCount} bottles, goods value €${goodsValue.toFixed(
@@ -91,7 +61,6 @@ export async function POST(req: NextRequest) {
       ],
       metadata: {
         type: "usa_shipping_pay",
-        duties_payment_id: paymentId,
         winery_name: wineryName,
         winery_email: wineryEmail,
         customer_email: customerEmail,
@@ -99,23 +68,13 @@ export async function POST(req: NextRequest) {
         goods_value: goodsValue.toFixed(2),
         shipping: breakdown.shipping.toFixed(2),
         duties: breakdown.duties.toFixed(2),
+        base_charge: breakdown.baseCharge.toFixed(2),
         stripe_fee: breakdown.stripeFee.toFixed(2),
         total: breakdown.total.toFixed(2),
       },
       success_url: `${BASE_URL}/usa-shipping-pay/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${BASE_URL}/usa-shipping-pay/cancel`,
     });
-
-    // 3) Aggiorna stripe_session_id
-    const { error: updateErr } = await supa
-      .from("usa_duties_payments")
-      .update({ stripe_session_id: session.id })
-      .eq("id", paymentId);
-
-    if (updateErr) {
-      console.error("[usa_duties_payments update error]", updateErr);
-      // non blocchiamo l'esperienza, ma logghiamo
-    }
 
     return Response.json({ url: session.url });
   } catch (err) {
