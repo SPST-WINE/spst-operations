@@ -21,9 +21,7 @@ export default function USAShippingPayPage(props: { searchParams?: SearchParams 
   const { searchParams } = props;
 
   // Lingua: prende da URL o default IT
-  const [lang, setLang] = useState(
-    (searchParams?.lang ?? "it").toLowerCase()
-  );
+const [lang, setLang] = useState<"it" | "en">("it");
 
   // Testi IT/EN
   const dict = {
