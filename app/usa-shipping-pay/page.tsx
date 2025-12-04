@@ -1,7 +1,8 @@
 // app/usa-shipping-pay/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Head from "next/head";
 import Image from "next/image";
 import USAChargesCalculator from "@/components/usa/USAChargesCalculator";
 
@@ -18,13 +19,11 @@ const dict = {
     pageTitle: "Spedizioni USA – Trasporto + Dazi",
     subtitle:
       "Genera un link di pagamento per il tuo cliente negli USA. Il totale include trasporto, dazi (15%) e commissioni Stripe.",
-    langLabel: "Lingua",
   },
   en: {
     pageTitle: "US Shipping – Transport + Duties",
     subtitle:
       "Generate a payment link for your US customer. Total includes shipping, duties (15%) and Stripe fees.",
-    langLabel: "Language",
   },
 };
 
@@ -38,6 +37,7 @@ function SimpleHeader({
   return (
     <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
+
         {/* LEFT: LOGO + TITLE */}
         <div className="flex items-center gap-3">
           <div className="relative h-8 w-8">
@@ -61,7 +61,6 @@ function SimpleHeader({
 
         {/* RIGHT: LANGUAGE SWITCH */}
         <div className="flex items-center gap-2 bg-black/40 border border-white/20 rounded-full px-1.5 py-1">
-          {/* IT BUTTON */}
           <button
             type="button"
             onClick={() => setLang("it")}
@@ -74,7 +73,6 @@ function SimpleHeader({
             IT
           </button>
 
-          {/* EN BUTTON */}
           <button
             type="button"
             onClick={() => setLang("en")}
@@ -91,7 +89,6 @@ function SimpleHeader({
     </header>
   );
 }
-
 
 function SimpleFooter() {
   return (
@@ -111,35 +108,54 @@ export default function USAShippingPayPage({
 }) {
   const [lang, setLang] = useState<"it" | "en">("it");
 
+  // Dynamic document.title
+  useEffect(() => {
+    document.title =
+      lang === "it"
+        ? "SPST – Spedizioni USA"
+        : "SPST US Shipping & Duties";
+  }, [lang]);
+
   const initialWineryName = searchParams?.wname ?? "";
   const initialWineryEmail = searchParams?.wemail ?? "";
 
   const t = dict[lang];
 
   return (
-    <main
-      className="min-h-screen text-white flex flex-col"
-      style={{ background: PAGE_GRADIENT }}
-    >
-      <SimpleHeader lang={lang} setLang={setLang} />
+    <>
+      {/* Static SEO title (fallback) */}
+      <Head>
+        <title>SPST US Shipping & Duties</title>
+        <meta
+          name="description"
+          content="Generate payment links for US shipping and duties."
+        />
+      </Head>
 
-      <div className="flex-1">
-        <div className="mx-auto w-full max-w-md px-5 py-8">
-          <h1 className="text-2xl font-semibold tracking-tight mb-2">
-            {t.pageTitle}
-          </h1>
+      <main
+        className="min-h-screen text-white flex flex-col"
+        style={{ background: PAGE_GRADIENT }}
+      >
+        <SimpleHeader lang={lang} setLang={setLang} />
 
-          <p className="text-sm text-white/70 mb-5">{t.subtitle}</p>
+        <div className="flex-1">
+          <div className="mx-auto w-full max-w-md px-5 py-8">
+            <h1 className="text-2xl font-semibold tracking-tight mb-2">
+              {t.pageTitle}
+            </h1>
 
-          <USAChargesCalculator
-            lang={lang}
-            initialWineryName={initialWineryName}
-            initialWineryEmail={initialWineryEmail}
-          />
+            <p className="text-sm text-white/70 mb-5">{t.subtitle}</p>
+
+            <USAChargesCalculator
+              lang={lang}
+              initialWineryName={initialWineryName}
+              initialWineryEmail={initialWineryEmail}
+            />
+          </div>
         </div>
-      </div>
 
-      <SimpleFooter />
-    </main>
+        <SimpleFooter />
+      </main>
+    </>
   );
 }
