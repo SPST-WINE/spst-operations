@@ -62,10 +62,9 @@ export async function POST(req: NextRequest) {
             currency: "eur",
             unit_amount: Math.round(breakdown.total * 100), // centesimi
             product_data: {
-              name: "US Shipping & Duties",
-              description: `${wineryName} – ${bottleCount} bottles, goods value €${goodsValue.toFixed(
-                2
-              )}`,
+  name: "US Shipping & Duties",
+  description: `SPST US Door-to-Door Shipping. Tax and duties included.\nWines from ${wineryName}. Goods value €${goodsValue.toFixed(
+    2
             },
           },
           quantity: 1,
