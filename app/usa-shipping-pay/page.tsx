@@ -1,8 +1,7 @@
 // app/usa-shipping-pay/page.tsx
 export const dynamic = "force-dynamic";
 
-import SiteHeader from "@/components/layout/SiteHeader";
-import SiteFooter from "@/components/layout/SiteFooter";
+import Image from "next/image";
 import USAChargesCalculator from "@/components/usa/USAChargesCalculator";
 
 const PAGE_GRADIENT =
@@ -12,6 +11,43 @@ type SearchParams = {
   wname?: string;
   wemail?: string;
 };
+
+function SimpleHeader() {
+  return (
+    <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center gap-3 px-5 py-3">
+        <div className="relative h-8 w-8">
+          <Image
+            src="/spst-logo.png"
+            alt="SPST logo"
+            fill
+            className="object-contain"
+            priority
+          />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold tracking-tight">
+            SPST – US Shipping & Duties
+          </span>
+          <span className="text-[11px] text-white/60">
+            Link di pagamento per trasporto + dazi verso gli USA
+          </span>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function SimpleFooter() {
+  return (
+    <footer className="mt-8 border-t border-white/10 bg-black/40">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-1 px-5 py-4 text-[11px] text-white/50">
+        <span>SPST · Specialized Wine Shipping & Trade</span>
+        <span>Powered by Stripe · Payments for US shipping & duties</span>
+      </div>
+    </footer>
+  );
+}
 
 export default function USAShippingPayPage({
   searchParams,
@@ -26,7 +62,7 @@ export default function USAShippingPayPage({
       className="min-h-screen text-white flex flex-col"
       style={{ background: PAGE_GRADIENT }}
     >
-      <SiteHeader />
+      <SimpleHeader />
 
       <div className="flex-1">
         <div className="mx-auto w-full max-w-md px-5 py-8">
@@ -45,7 +81,7 @@ export default function USAShippingPayPage({
         </div>
       </div>
 
-      <SiteFooter />
+      <SimpleFooter />
     </main>
   );
 }
