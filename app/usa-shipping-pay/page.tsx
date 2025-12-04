@@ -1,8 +1,8 @@
 // app/usa-shipping-pay/page.tsx
-export const dynamic = "force-dynamic";
+"use client";
 
-import Image from "next/image";
 import { useState } from "react";
+import Image from "next/image";
 import USAChargesCalculator from "@/components/usa/USAChargesCalculator";
 
 const PAGE_GRADIENT =
@@ -61,9 +61,7 @@ function SimpleHeader({
         {/* LANG SELECT */}
         <select
           value={lang}
-          onChange={(e) =>
-            setLang(e.target.value as "it" | "en")
-          }
+          onChange={(e) => setLang(e.target.value as "it" | "en")}
           className="rounded-lg bg-black/40 border border-white/20 px-2 py-1 text-xs"
         >
           <option value="it">IT</option>
@@ -90,7 +88,6 @@ export default function USAShippingPayPage({
 }: {
   searchParams?: SearchParams;
 }) {
-  // FIX TYPE ERROR
   const [lang, setLang] = useState<"it" | "en">("it");
 
   const initialWineryName = searchParams?.wname ?? "";
