@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import Image from "next/image";
+import Head from "next/head";
 import USAChargesCalculator from "@/components/usa/USAChargesCalculator";
 
 const PAGE_GRADIENT =
@@ -12,6 +13,7 @@ type SearchParams = {
   wemail?: string;
 };
 
+// HEADER
 function SimpleHeader() {
   return (
     <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
@@ -27,10 +29,10 @@ function SimpleHeader() {
         </div>
         <div className="flex flex-col">
           <span className="text-sm font-semibold tracking-tight">
-            SPST – US Shipping & Duties
+            SPST – US Shipping
           </span>
           <span className="text-[11px] text-white/60">
-            Link di pagamento per trasporto + dazi verso gli USA
+            Pagamento trasporto + dazi (USA)
           </span>
         </div>
       </div>
@@ -38,12 +40,13 @@ function SimpleHeader() {
   );
 }
 
+// FOOTER
 function SimpleFooter() {
   return (
     <footer className="mt-8 border-t border-white/10 bg-black/40">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-1 px-5 py-4 text-[11px] text-white/50">
         <span>SPST · Specialized Wine Shipping & Trade</span>
-        <span>Powered by Stripe · Payments for US shipping & duties</span>
+        <span>Powered by Stripe · US Shipping & Duties</span>
       </div>
     </footer>
   );
@@ -62,13 +65,19 @@ export default function USAShippingPayPage({
       className="min-h-screen text-white flex flex-col"
       style={{ background: PAGE_GRADIENT }}
     >
+      {/* HEAD TAG — Titolo Browser */}
+      <Head>
+        <title>SPST US Shipping</title>
+      </Head>
+
       <SimpleHeader />
 
       <div className="flex-1">
         <div className="mx-auto w-full max-w-md px-5 py-8">
           <h1 className="text-2xl font-semibold tracking-tight mb-2">
-            US Shipping & Duties
+            SPST US Shipping
           </h1>
+
           <p className="text-sm text-white/70 mb-5">
             Genera un link di pagamento per il tuo cliente negli USA. Il totale
             include trasporto, dazi (15%) e commissioni Stripe.
