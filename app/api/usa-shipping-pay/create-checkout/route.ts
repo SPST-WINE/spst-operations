@@ -3,9 +3,8 @@ import Stripe from "stripe";
 import { NextRequest } from "next/server";
 import { computeTotals, getShippingForBottleCount } from "@/lib/usa-shipping/calc";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20", // usa la versione che hai in account
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL!;
 
