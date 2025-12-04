@@ -1,11 +1,7 @@
 // app/usa-shipping-pay/page.tsx
-"use client";
-
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect } from "react";
 import Image from "next/image";
-import Head from "next/head";
 import USAChargesCalculator from "@/components/usa/USAChargesCalculator";
 
 const PAGE_GRADIENT =
@@ -14,98 +10,107 @@ const PAGE_GRADIENT =
 type SearchParams = {
   wname?: string;
   wemail?: string;
-  lang?: string;
 };
 
-export default function USAShippingPayPage(props: { searchParams?: SearchParams }) {
-  const { searchParams } = props;
+const dict = {
+  it: {
+    pageTitle: "Spedizioni USA – Trasporto + Dazi",
+    subtitle:
+      "Genera un link di pagamento per il tuo cliente negli USA. Il totale include trasporto, dazi (15%) e commissioni Stripe.",
+    langLabel: "Lingua",
+  },
+  en: {
+    pageTitle: "US Shipping – Transport + Duties",
+    subtitle:
+      "Generate a payment link for your US customer. Total includes shipping, duties (15%) and Stripe fees.",
+    langLabel: "Language",
+  },
+};
 
-  // Lingua: prende da URL o default IT
-const [lang, setLang] = useState<"it" | "en">("it");
+function SimpleHeader({
+  lang,
+  setLang,
+}: {
+  lang: "it" | "en";
+  setLang: (v: "it" | "en") => void;
+}) {
+  return (
+    <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
+        <div className="flex items-center gap-3">
+          <div className="relative h-8 w-8">
+            <Image
+              src="/spst-logo.png"
+              alt="SPST logo"
+              fill
+              className="object-contain"
+              priority
+            />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold tracking-tight">
+              SPST – US Shipping & Duties
+            </span>
+            <span className="text-[11px] text-white/60">
+              Fast & compliant US deliveries
+            </span>
+          </div>
+        </div>
 
-  // Testi IT/EN
-  const dict = {
-    it: {
-      headerTitle: "SPST – US Shipping",
-      headerSubtitle: "Pagamento trasporto + dazi (USA)",
-      pageTitle: "SPST US Shipping",
-      pageSubtitle:
-        "Genera un link di pagamento per il tuo cliente negli USA. Il totale include trasporto, dazi (15%) e commissioni Stripe.",
-      footerLine1: "SPST · Specialized Wine Shipping & Trade",
-      footerLine2: "Powered by Stripe · US Shipping & Duties",
-      browserTitle: "SPST US Shipping",
-      langLabel: "Lingua",
-    },
-    en: {
-      headerTitle: "SPST – US Shipping",
-      headerSubtitle: "Payment link for US shipping + duties",
-      pageTitle: "SPST US Shipping",
-      pageSubtitle:
-        "Generate a secure payment link for your US customer. Total includes shipping, duties (15%) and Stripe fees.",
-      footerLine1: "SPST · Specialized Wine Shipping & Trade",
-      footerLine2: "Powered by Stripe · US Shipping & Duties",
-      browserTitle: "SPST US Shipping",
-      langLabel: "Language",
-    },
-  };
+        {/* LANG SELECT */}
+        <select
+          value={lang}
+          onChange={(e) =>
+            setLang(e.target.value as "it" | "en")
+          }
+          className="rounded-lg bg-black/40 border border-white/20 px-2 py-1 text-xs"
+        >
+          <option value="it">IT</option>
+          <option value="en">EN</option>
+        </select>
+      </div>
+    </header>
+  );
+}
 
-  const t = dict[lang];
+function SimpleFooter() {
+  return (
+    <footer className="mt-8 border-t border-white/10 bg-black/40">
+      <div className="mx-auto flex max-w-5xl flex-col items-center gap-1 px-5 py-4 text-[11px] text-white/50">
+        <span>SPST · Specialized Wine Shipping & Trade</span>
+        <span>Powered by Stripe · Payments for US shipping & duties</span>
+      </div>
+    </footer>
+  );
+}
+
+export default function USAShippingPayPage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
+  // FIX TYPE ERROR
+  const [lang, setLang] = useState<"it" | "en">("it");
 
   const initialWineryName = searchParams?.wname ?? "";
   const initialWineryEmail = searchParams?.wemail ?? "";
+
+  const t = dict[lang];
 
   return (
     <main
       className="min-h-screen text-white flex flex-col"
       style={{ background: PAGE_GRADIENT }}
     >
-      <Head>
-        <title>{t.browserTitle}</title>
-      </Head>
+      <SimpleHeader lang={lang} setLang={setLang} />
 
-      {/* HEADER */}
-      <header className="w-full border-b border-white/10 bg-black/30 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative h-8 w-8">
-              <Image
-                src="/spst-logo.png"
-                alt="SPST logo"
-                fill
-                className="object-contain"
-                priority
-              />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold tracking-tight">
-                {t.headerTitle}
-              </span>
-              <span className="text-[11px] text-white/60">
-                {t.headerSubtitle}
-              </span>
-            </div>
-          </div>
-
-          {/* LANGUAGE SELECT */}
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value)}
-            className="bg-black/20 border border-white/20 rounded px-2 py-1 text-xs"
-          >
-            <option value="it">🇮🇹 IT</option>
-            <option value="en">🇺🇸 EN</option>
-          </select>
-        </div>
-      </header>
-
-      {/* CONTENT */}
       <div className="flex-1">
         <div className="mx-auto w-full max-w-md px-5 py-8">
           <h1 className="text-2xl font-semibold tracking-tight mb-2">
             {t.pageTitle}
           </h1>
 
-          <p className="text-sm text-white/70 mb-5">{t.pageSubtitle}</p>
+          <p className="text-sm text-white/70 mb-5">{t.subtitle}</p>
 
           <USAChargesCalculator
             lang={lang}
@@ -115,13 +120,7 @@ const [lang, setLang] = useState<"it" | "en">("it");
         </div>
       </div>
 
-      {/* FOOTER */}
-      <footer className="mt-8 border-t border-white/10 bg-black/40">
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-1 px-5 py-4 text-[11px] text-white/50">
-          <span>{t.footerLine1}</span>
-          <span>{t.footerLine2}</span>
-        </div>
-      </footer>
+      <SimpleFooter />
     </main>
   );
 }
