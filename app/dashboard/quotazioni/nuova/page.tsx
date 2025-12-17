@@ -1,7 +1,9 @@
 // app/dashboard/quotazioni/nuova/page.tsx
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+export const dynamic = "force-dynamic";
+
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
@@ -198,17 +200,32 @@ function isPhoneValid(raw?: string) {
 
 function setPartyFieldErrorBorder(el: HTMLElement | null, on: boolean) {
   if (!el) return;
-  if (on) {
-    el.classList.add("ring-2", "ring-rose-300", "border-rose-300");
-  } else {
-    el.classList.remove("ring-2", "ring-rose-300", "border-rose-300");
-  }
+  if (on) el.classList.add("ring-2", "ring-rose-300", "border-rose-300");
+  else el.classList.remove("ring-2", "ring-rose-300", "border-rose-300");
 }
 
 // ------------------------------------------------------------
-// Page
+// ✅ Wrapper con Suspense (FIX BUILD) — come /nuova/vino
 // ------------------------------------------------------------
 export default function NuovaQuotazionePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="space-y-3">
+          <h1 className="text-2xl font-semibold text-slate-800">Nuova quotazione</h1>
+          <div className="text-sm text-slate-500">Caricamento…</div>
+        </div>
+      }
+    >
+      <NuovaQuotazionePageInner />
+    </Suspense>
+  );
+}
+
+// ------------------------------------------------------------
+// Inner: qui dentro possiamo usare useSearchParams()
+// ------------------------------------------------------------
+function NuovaQuotazionePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const forcedEmail = searchParams.get("for"); // compat: come /nuova/vino
@@ -310,11 +327,7 @@ export default function NuovaQuotazionePage() {
   }, [forcedEmail]);
 
   // ------------------------------------------------------------
-  // Autocomplete (stessa logica /nuova/vino) — si aggancia ai data attr
-  // PartyCard deve rendere l'input indirizzo con:
-  //  - data-gmaps="indirizzo-mittente"
-  //  - data-gmaps="indirizzo-destinatario"
-  // oppure via prop gmapsTag="mittente"/"destinatario"
+  // Autocomplete (stessa logica /nuova/vino)
   // ------------------------------------------------------------
   const attachPlacesToInput = useCallback(
     (input: HTMLInputElement, who: "mittente" | "destinatario") => {
@@ -414,8 +427,6 @@ export default function NuovaQuotazionePage() {
         if (!sel) return;
         close();
 
-        // non forziamo value qui: PartyCard è controlled,
-        // ma mettiamo un hint nell'input (UX) e poi settiamo i campi con setParty.
         input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
 
         const details = await fetchPlaceDetails(sel.id, session);
@@ -433,12 +444,8 @@ export default function NuovaQuotazionePage() {
           } catch {}
         }
 
-        log.info("fill →", who, addr);
-        if (who === "mittente") {
-          setMittente((prev) => ({ ...prev, ...addr }));
-        } else {
-          setDestinatario((prev) => ({ ...prev, ...addr }));
-        }
+        if (who === "mittente") setMittente((prev) => ({ ...prev, ...addr }));
+        else setDestinatario((prev) => ({ ...prev, ...addr }));
       };
 
       const onInput = async () => {
@@ -528,14 +535,9 @@ export default function NuovaQuotazionePage() {
     };
   }, [attachPlacesToInput]);
 
-  // ------------------------------------------------------------
-  // Validazione con “campi obbligatori più stretti + alert”
-  // (non modifichiamo PartyCard internamente: evidenziamo card + lista errori)
-  // ------------------------------------------------------------
   function validate(): string[] {
     const errs: string[] = [];
 
-    // Mittente
     if (!mittente.ragioneSociale?.trim()) errs.push("Mittente: ragione sociale obbligatoria.");
     if (!mittente.indirizzo?.trim()) errs.push("Mittente: indirizzo obbligatorio.");
     if (!mittente.cap?.trim()) errs.push("Mittente: CAP obbligatorio.");
@@ -545,7 +547,6 @@ export default function NuovaQuotazionePage() {
     if (!isPhoneValid(mittente.telefono))
       errs.push("Mittente: telefono obbligatorio in formato internazionale (es. +393201441789).");
 
-    // Destinatario
     if (!destinatario.ragioneSociale?.trim())
       errs.push("Destinatario: ragione sociale obbligatoria.");
     if (!destinatario.indirizzo?.trim()) errs.push("Destinatario: indirizzo obbligatorio.");
@@ -555,7 +556,6 @@ export default function NuovaQuotazionePage() {
     if (!isPhoneValid(destinatario.telefono))
       errs.push("Destinatario: telefono obbligatorio in formato internazionale.");
 
-    // Colli
     const invalidColli = colli.some(
       (c) =>
         c.lunghezza_cm == null ||
@@ -569,10 +569,8 @@ export default function NuovaQuotazionePage() {
     );
     if (invalidColli) errs.push("Colli: inserisci misure e pesi > 0 per ogni collo.");
 
-    // Ritiro
     if (!ritiroData) errs.push("Ritiro: seleziona il giorno di ritiro.");
 
-    // Pallet + assicurazione => valore
     if (formato === "Pallet" && assicurazioneAttiva) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
         errs.push("Assicurazione: valore assicurato mancante/non valido (assicurazione attiva).");
@@ -582,7 +580,6 @@ export default function NuovaQuotazionePage() {
     return errs;
   }
 
-  // Evidenzia card obbligatorie
   useEffect(() => {
     const has = (prefix: string) => errors.some((e) => e.startsWith(prefix));
     const mittCard = document.querySelector<HTMLElement>('[data-card="mittente"]');
@@ -609,8 +606,6 @@ export default function NuovaQuotazionePage() {
 
     setSaving(true);
     try {
-      // Manteniamo payload compat con postPreventivo “vecchio”,
-      // senza cambiare il tipo: aggiungiamo SOLO ciò che già accetta.
       const res: any = await postPreventivo(
         {
           mittente: {
@@ -643,10 +638,6 @@ export default function NuovaQuotazionePage() {
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
           tipoSped,
           incoterm,
-
-          // NOTA: formato/contenuto/assicurazione/valore NON li aggiungo qui
-          // finché non estendi QuoteCreatePayload + backend, come nel commento originale.
-          // Quando lo estendi, li puoi aggiungere in modo identico a /nuova/vino.
         },
         getIdToken
       );
@@ -661,9 +652,6 @@ export default function NuovaQuotazionePage() {
     }
   }
 
-  // ------------------------------------------------------------
-  // Success UI
-  // ------------------------------------------------------------
   if (ok?.id) {
     return (
       <div ref={topRef} className="space-y-4">
@@ -692,9 +680,6 @@ export default function NuovaQuotazionePage() {
     );
   }
 
-  // ------------------------------------------------------------
-  // Form UI
-  // ------------------------------------------------------------
   return (
     <div ref={topRef} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -718,7 +703,6 @@ export default function NuovaQuotazionePage() {
         </div>
       )}
 
-      {/* Tipo spedizione con definizione chiara */}
       <div className="rounded-2xl border bg-white p-4">
         <Select
           label="Tipo spedizione"
@@ -732,15 +716,9 @@ export default function NuovaQuotazionePage() {
         />
       </div>
 
-      {/* Mittente / Destinatario (con gmapsTag + data-card per highlight) */}
       <div className="grid gap-4 md:grid-cols-2">
         <div data-card="mittente" className="rounded-2xl border bg-white p-4">
-          <PartyCard
-            title="Mittente"
-            value={mittente}
-            onChange={setMittente}
-            gmapsTag="mittente"
-          />
+          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
         </div>
         <div data-card="destinatario" className="rounded-2xl border bg-white p-4">
           <PartyCard
@@ -752,7 +730,6 @@ export default function NuovaQuotazionePage() {
         </div>
       </div>
 
-      {/* Colli / Contenuto */}
       <div data-card="colli" className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Colli e contenuto</h2>
         <ColliCard
@@ -769,7 +746,6 @@ export default function NuovaQuotazionePage() {
         />
       </div>
 
-      {/* Dettagli spedizione */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
 
@@ -804,27 +780,17 @@ export default function NuovaQuotazionePage() {
             />
           </div>
 
-          <div>
-            {/* Placeholder “spazio” per future campi */}
-            <div className="h-full rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-[12px] text-slate-500 flex items-center">
-              (Spazio per campi extra)
-            </div>
+          <div className="h-full rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-[12px] text-slate-500 flex items-center">
+            (Spazio per campi extra)
           </div>
         </div>
       </div>
 
-      {/* Ritiro */}
       <div data-card="ritiro" className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
-        <RitiroCard
-          date={ritiroData}
-          setDate={setRitiroData}
-          note={ritiroNote}
-          setNote={setRitiroNote}
-        />
+        <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
       </div>
 
-      {/* Note */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Note</h2>
         <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -839,7 +805,6 @@ export default function NuovaQuotazionePage() {
         />
       </div>
 
-      {/* CTA */}
       <div className="flex justify-end">
         <button
           type="button"
