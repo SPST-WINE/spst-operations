@@ -9,9 +9,13 @@ export const revalidate = 0;
 const SUPABASE_URL =
   process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  "";
 const SUPABASE_SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  process.env.SUPABASE_SERVICE_ROLE ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  "";
 
 function makeSupabase() {
   if (!SUPABASE_URL || (!SUPABASE_ANON_KEY && !SUPABASE_SERVICE_ROLE)) {
@@ -68,7 +72,7 @@ export async function GET(
         `
         id,created_at,human_id,
         email_cliente,email_norm,
-        status,carrier,tracking_code,
+        status,carrier,tracking_code,declared_value,
         tipo_spedizione,incoterm,giorno_ritiro,note_ritiro,
         mittente_rs,mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
         mittente_telefono,mittente_piva,
@@ -118,6 +122,9 @@ export async function GET(
       carrier: data.carrier,
       tracking_code: data.tracking_code,
 
+      // ✅ PATCH: declared_value in response
+      declared_value: (data as any).declared_value ?? null,
+
       tipo_spedizione: data.tipo_spedizione,
       incoterm: data.incoterm,
       giorno_ritiro: data.giorno_ritiro,
@@ -128,8 +135,7 @@ export async function GET(
       mittente_paese: data.mittente_paese || mittente.paese || null,
       mittente_citta: data.mittente_citta || mittente.citta || null,
       mittente_cap: data.mittente_cap || mittente.cap || null,
-      mittente_indirizzo:
-        data.mittente_indirizzo || mittente.indirizzo || null,
+      mittente_indirizzo: data.mittente_indirizzo || mittente.indirizzo || null,
       mittente_telefono: data.mittente_telefono || mittente.telefono || null,
       mittente_piva: data.mittente_piva || mittente.piva || null,
 
@@ -157,11 +163,10 @@ export async function GET(
       peso_reale_kg: data.peso_reale_kg,
       formato_sped: data.formato_sped || fields.formato || null,
       contenuto_generale: data.contenuto_generale || fields.contenuto || null,
-       dest_abilitato_import:
-        data.dest_abilitato_import ??
-        (typeof fields.destAbilitato === "boolean"
-          ? fields.destAbilitato
-          : null),
+
+      dest_abilitato_import:
+        (data as any).dest_abilitato_import ??
+        (typeof fields.destAbilitato === "boolean" ? fields.destAbilitato : null),
 
       // Espongo anche il jsonb completo per packing list & debug
       fields,
