@@ -266,7 +266,11 @@ export async function GET(req: Request) {
       fatt_rs: r.fatt_rs,
       fatt_piva: r.fatt_piva,
       fatt_valuta: r.fatt_valuta,
-      formato_sped: r.formato_sped,
+      formato_sped:
+  r.formato_sped ??
+  r.fields?.formato ??
+  r.fields?.formato_sped ??
+  null,
       contenuto_generale: r.contenuto_generale,
       dest_abilitato_import: r.dest_abilitato_import,
       attachments: {
