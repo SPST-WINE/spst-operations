@@ -1,35 +1,34 @@
-// app/dashboard/quotazioni/nuova/page.tsx
-'use client';
+// dashboard/quotazioni/nuova/page.tsx
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import PartyCard, { Party } from '@/components/nuova/PartyCard';
-import ColliCard, { Collo } from '@/components/nuova/ColliCard';
-import RitiroCard from '@/components/nuova/RitiroCard';
+import PartyCard, { Party } from "@/components/nuova/PartyCard";
+import ColliCard, { Collo } from "@/components/nuova/ColliCard";
+import RitiroCard from "@/components/nuova/RitiroCard";
 
-import { getUserProfile } from '@/lib/api';
-import { getIdToken } from '@/lib/firebase-client-auth';
-import { postPreventivo } from '@/lib/api';
+import { getUserProfile, postPreventivo } from "@/lib/api";
+import { getIdToken } from "@/lib/firebase-client-auth";
 
 const blankParty: Party = {
-  ragioneSociale: '',
-  referente: '',
-  paese: '',
-  citta: '',
-  cap: '',
-  indirizzo: '',
-  telefono: '',
-  piva: '',
+  ragioneSociale: "",
+  referente: "",
+  paese: "",
+  citta: "",
+  cap: "",
+  indirizzo: "",
+  telefono: "",
+  piva: "",
 };
 
 export default function NuovaQuotazionePage() {
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
 
-  // email (dal profilo)
-  const [email, setEmail] = useState<string>('');
+  // email (dal profilo) — utile se vuoi mostrarla o loggarla
+  const [email, setEmail] = useState<string>("");
 
   // Parti
   const [mittente, setMittente] = useState<Party>(blankParty);
@@ -39,20 +38,28 @@ export default function NuovaQuotazionePage() {
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
-  const [formato, setFormato] = useState<'Pacco' | 'Pallet'>('Pacco');
-  const [contenuto, setContenuto] = useState<string>('');
+  const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
+  const [contenuto, setContenuto] = useState<string>("");
+
+  // ✅ NEW: richiesto da ColliCard Props
+  const [assicurazioneAttiva, setAssicurazioneAttiva] = useState<boolean>(false);
+
+  // Se non è Pallet, spegniamo l’assicurazione (evita stati incoerenti)
+  useEffect(() => {
+    if (formato !== "Pallet" && assicurazioneAttiva) setAssicurazioneAttiva(false);
+  }, [formato, assicurazioneAttiva]);
 
   // Dettagli spedizione
-  const [valuta, setValuta] = useState<'EUR' | 'USD' | 'GBP'>('EUR');
-  const [tipoSped, setTipoSped] = useState<'B2B' | 'B2C' | 'Sample'>('B2C');
-  const [incoterm, setIncoterm] = useState<'DAP' | 'DDP' | 'EXW'>('DAP');
+  const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
+  const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2C");
+  const [incoterm, setIncoterm] = useState<"DAP" | "DDP" | "EXW">("DAP");
 
   // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>(undefined);
-  const [ritiroNote, setRitiroNote] = useState('');
+  const [ritiroNote, setRitiroNote] = useState("");
 
   // Note generiche
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
 
   // UI
   const [saving, setSaving] = useState(false);
@@ -67,83 +74,100 @@ export default function NuovaQuotazionePage() {
         const r = await getUserProfile(getIdToken);
         if (!cancelled && r?.ok) {
           if (r.email) setEmail(r.email);
-          if (r.party) {
-            setMittente(prev => ({ ...prev, ...r.party }));
-          }
+          if (r.party) setMittente((prev) => ({ ...prev, ...r.party }));
         }
       } catch {
-        // Ignora, utente compila a mano
+        // ignora
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Validazione minima per la quotazione
+  // Validazione minima
   function validate(): string[] {
     const errs: string[] = [];
-    if (!mittente.ragioneSociale?.trim()) errs.push('Inserisci la ragione sociale del mittente.');
-    if (!destinatario.ragioneSociale?.trim()) errs.push('Inserisci la ragione sociale del destinatario.');
-    if (!ritiroData) errs.push('Seleziona il giorno di ritiro.');
-    // Almeno un collo completo e valido
-    const invalid = colli.some(c =>
-      c.lunghezza_cm == null || c.larghezza_cm == null || c.altezza_cm == null || c.peso_kg == null ||
-      (c.lunghezza_cm ?? 0) <= 0 || (c.larghezza_cm ?? 0) <= 0 || (c.altezza_cm ?? 0) <= 0 || (c.peso_kg ?? 0) <= 0
+    if (!mittente.ragioneSociale?.trim())
+      errs.push("Inserisci la ragione sociale del mittente.");
+    if (!destinatario.ragioneSociale?.trim())
+      errs.push("Inserisci la ragione sociale del destinatario.");
+    if (!ritiroData) errs.push("Seleziona il giorno di ritiro.");
+
+    const invalid = colli.some(
+      (c) =>
+        c.lunghezza_cm == null ||
+        c.larghezza_cm == null ||
+        c.altezza_cm == null ||
+        c.peso_kg == null ||
+        (c.lunghezza_cm ?? 0) <= 0 ||
+        (c.larghezza_cm ?? 0) <= 0 ||
+        (c.altezza_cm ?? 0) <= 0 ||
+        (c.peso_kg ?? 0) <= 0
     );
-    if (invalid) errs.push('Inserisci misure e pesi > 0 per ogni collo.');
+    if (invalid) errs.push("Inserisci misure e pesi > 0 per ogni collo.");
+
     return errs;
   }
 
   async function salva() {
     if (saving) return;
+
     const v = validate();
     if (v.length) {
       setErrors(v);
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
-    } else {
-      setErrors([]);
     }
+    setErrors([]);
 
     setSaving(true);
     try {
-      await postPreventivo({
-        mittente: {
-          ragioneSociale: mittente.ragioneSociale,
-          paese: mittente.paese,
-          citta: mittente.citta,
-          cap: mittente.cap,
-          indirizzo: mittente.indirizzo,
-          telefono: mittente.telefono || undefined,
-          taxId: mittente.piva || undefined,
+      // ⚠️ Se il tuo postPreventivo tipizzato non accetta formato/contenuto/assicurazione
+      // NON passarli qui, oppure aggiorna i tipi + backend.
+      const res: any = await postPreventivo(
+        {
+          mittente: {
+            ragioneSociale: mittente.ragioneSociale,
+            paese: mittente.paese,
+            citta: mittente.citta,
+            cap: mittente.cap,
+            indirizzo: mittente.indirizzo,
+            telefono: mittente.telefono || undefined,
+            taxId: mittente.piva || undefined,
+          },
+          destinatario: {
+            ragioneSociale: destinatario.ragioneSociale,
+            paese: destinatario.paese,
+            citta: destinatario.citta,
+            cap: destinatario.cap,
+            indirizzo: destinatario.indirizzo,
+            telefono: destinatario.telefono || undefined,
+            taxId: destinatario.piva || undefined,
+          },
+          colli: (colli || []).map((c) => ({
+            quantita: 1,
+            lunghezza_cm: c.lunghezza_cm ?? null,
+            larghezza_cm: c.larghezza_cm ?? null,
+            altezza_cm: c.altezza_cm ?? null,
+            peso_kg: c.peso_kg ?? null,
+            // se vuoi: contenuto per collo lo puoi mettere nel fields del backend
+          })),
+          valuta,
+          noteGeneriche: note,
+          ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
+          tipoSped,
+          incoterm,
+          // ❌ NON aggiungere qui formato/contenuto/assicurazione se i tipi non lo prevedono
         },
-        destinatario: {
-          ragioneSociale: destinatario.ragioneSociale,
-          paese: destinatario.paese,
-          citta: destinatario.citta,
-          cap: destinatario.cap,
-          indirizzo: destinatario.indirizzo,
-          telefono: destinatario.telefono || undefined,
-          taxId: destinatario.piva || undefined,
-        },
-        colli: (colli || []).map(c => ({
-          quantita: 1,
-          lunghezza_cm: c.lunghezza_cm ?? null,
-          larghezza_cm: c.larghezza_cm ?? null,
-          altezza_cm: c.altezza_cm ?? null,
-          peso_kg: c.peso_kg ?? null,
-        })),
-        valuta, // 'EUR' | 'USD' | 'GBP'
-        noteGeneriche: note,
-        ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-        tipoSped, // 'B2B' | 'B2C' | 'Sample'
-        incoterm, // 'DAP' | 'DDP' | 'EXW'
-      }, getIdToken).then((res: any) => {
-        setOk({ id: res?.id, displayId: res?.displayId });
-        topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
+        getIdToken
+      );
+
+      setOk({ id: res?.id, displayId: res?.displayId });
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
-      console.error('Errore creazione preventivo', e);
-      setErrors(['Errore durante la creazione della quotazione. Riprova.']);
+      console.error("Errore creazione preventivo", e);
+      setErrors(["Errore durante la creazione della quotazione. Riprova."]);
     } finally {
       setSaving(false);
     }
@@ -177,7 +201,7 @@ export default function NuovaQuotazionePage() {
     );
   }
 
-  // FORM (layout “di prima” + titoli blu)
+  // FORM
   return (
     <div ref={topRef} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -194,7 +218,9 @@ export default function NuovaQuotazionePage() {
         <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
           <div className="font-medium mb-1">Controlla questi campi:</div>
           <ul className="list-disc ml-5 space-y-1">
-            {errors.map((e, i) => <li key={i}>{e}</li>)}
+            {errors.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
           </ul>
         </div>
       )}
@@ -221,10 +247,13 @@ export default function NuovaQuotazionePage() {
           setFormato={setFormato}
           contenuto={contenuto}
           setContenuto={setContenuto}
+          // ✅ FIX build
+          assicurazioneAttiva={assicurazioneAttiva}
+          setAssicurazioneAttiva={setAssicurazioneAttiva}
         />
       </div>
 
-      {/* Dettagli spedizione (tipo + incoterm + valuta) */}
+      {/* Dettagli spedizione */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
         <div className="grid gap-3 md:grid-cols-3">
@@ -233,31 +262,33 @@ export default function NuovaQuotazionePage() {
             <select
               className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
               value={tipoSped}
-              onChange={(e) => setTipoSped(e.target.value as 'B2B'|'B2C'|'Sample')}
+              onChange={(e) => setTipoSped(e.target.value as "B2B" | "B2C" | "Sample")}
             >
               <option value="B2C">B2C</option>
               <option value="B2B">B2B</option>
               <option value="Sample">Sample</option>
             </select>
           </div>
+
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Incoterm</label>
             <select
               className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
               value={incoterm}
-              onChange={(e) => setIncoterm(e.target.value as 'DAP'|'DDP'|'EXW')}
+              onChange={(e) => setIncoterm(e.target.value as "DAP" | "DDP" | "EXW")}
             >
               <option value="DAP">DAP</option>
               <option value="DDP">DDP</option>
               <option value="EXW">EXW</option>
             </select>
           </div>
+
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Valuta</label>
             <select
               className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
               value={valuta}
-              onChange={(e) => setValuta(e.target.value as 'EUR'|'USD'|'GBP')}
+              onChange={(e) => setValuta(e.target.value as "EUR" | "USD" | "GBP")}
             >
               <option value="EUR">EUR</option>
               <option value="USD">USD</option>
@@ -278,10 +309,12 @@ export default function NuovaQuotazionePage() {
         />
       </div>
 
-      {/* Note generiche */}
+      {/* Note */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Note</h2>
-        <label className="mb-1 block text-sm font-medium text-slate-700">Note generiche sulla spedizione</label>
+        <label className="mb-1 block text-sm font-medium text-slate-700">
+          Note generiche sulla spedizione
+        </label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -303,7 +336,7 @@ export default function NuovaQuotazionePage() {
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
           )}
-          {saving ? 'Invio…' : 'Invia richiesta'}
+          {saving ? "Invio…" : "Invia richiesta"}
         </button>
       </div>
     </div>
