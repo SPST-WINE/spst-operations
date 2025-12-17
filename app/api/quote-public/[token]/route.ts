@@ -27,19 +27,8 @@ function makeSupabase() {
   });
 }
 
-function jsonError(
-  status: number,
-  error: string,
-  extra?: Record<string, any>
-) {
-  return NextResponse.json(
-    {
-      ok: false,
-      error,
-      ...(extra || {}),
-    },
-    { status }
-  );
+function jsonError(status: number, error: string, extra?: Record<string, any>) {
+  return NextResponse.json({ ok: false, error, ...(extra || {}) }, { status });
 }
 
 export type PublicQuote = {
@@ -55,6 +44,11 @@ export type PublicQuote = {
   mittente: any | null;
   destinatario: any | null;
   accepted_option_id: string | null;
+
+  // ✅ NEW
+  colli: any[] | null;
+  contenuto_colli: string | null;
+  declared_value: number | null;
 };
 
 export type PublicQuoteOption = {
@@ -79,18 +73,12 @@ export async function GET(
   context: { params: { token: string } }
 ) {
   const { token } = context.params;
-
-  if (!token) {
-    return jsonError(400, "MISSING_TOKEN");
-  }
+  if (!token) return jsonError(400, "MISSING_TOKEN");
 
   const supabase = makeSupabase();
-  if (!supabase) {
-    return jsonError(500, "NO_SUPABASE_CONFIG");
-  }
+  if (!supabase) return jsonError(500, "NO_SUPABASE_CONFIG");
 
   try {
-    // 1) prendo la quote tramite public_token
     const { data: quote, error: qErr } = await supabase
       .from("quotes")
       .select(
@@ -107,47 +95,45 @@ export async function GET(
           "mittente",
           "destinatario",
           "accepted_option_id",
+          // ✅ NEW
+          "colli",
+          "contenuto_colli",
+          "declared_value",
         ].join(", ")
       )
       .eq("public_token", token)
       .single();
 
-    if (qErr) {
+    if (qErr || !quote) {
       console.error("[API/quote-public/:token:GET] quote error", qErr);
       return jsonError(404, "QUOTE_NOT_FOUND");
     }
 
-    if (!quote) {
-      return jsonError(404, "QUOTE_NOT_FOUND");
-    }
+    const quoteRow = quote as any;
 
-   // 2) opzioni visibili al cliente
-const quoteRow = quote as any; // workaround per i tipi Supabase/TS
-
-const { data: options, error: oErr } = await supabase
-  .from("quote_options")
-  .select(
-    [
-"id",
-  "quote_id",
-  "label",
-  "carrier",
-  "service_name",
-  "transit_time",
-  "freight_price",
-  "customs_price",
-  "total_price",
-  "currency",
-  "public_notes",
-  "status",
-  "show_vat",
-  "vat_rate",
-    ].join(", ")
-  )
-  .eq("quote_id", quoteRow.id)
-  .eq("visible_to_client", true)
-  .order("total_price", { ascending: true });
-
+    const { data: options, error: oErr } = await supabase
+      .from("quote_options")
+      .select(
+        [
+          "id",
+          "quote_id",
+          "label",
+          "carrier",
+          "service_name",
+          "transit_time",
+          "freight_price",
+          "customs_price",
+          "total_price",
+          "currency",
+          "public_notes",
+          "status",
+          "show_vat",
+          "vat_rate",
+        ].join(", ")
+      )
+      .eq("quote_id", quoteRow.id)
+      .eq("visible_to_client", true)
+      .order("total_price", { ascending: true });
 
     if (oErr) {
       console.error("[API/quote-public/:token:GET] options error", oErr);
