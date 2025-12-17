@@ -45,10 +45,16 @@ export default function NuovaQuotazionePage() {
   // Assicurazione (richiesta da ColliCard)
   const [assicurazionePallet, setAssicurazionePallet] = useState(false);
 
-  // Reset assicurazione se non Pallet
+  // ✅ NEW: valore assicurato (EUR) — richiesto da ColliCard
+  const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
+
+  // ✅ auto-reset se torno a Pacco (evita doppioni)
   useEffect(() => {
-    if (formato !== "Pallet" && assicurazionePallet) setAssicurazionePallet(false);
-  }, [formato, assicurazionePallet]);
+    if (formato !== "Pallet") {
+      if (assicurazionePallet) setAssicurazionePallet(false);
+      if (valoreAssicurato != null) setValoreAssicurato(null);
+    }
+  }, [formato, assicurazionePallet, valoreAssicurato]);
 
   // Dettagli spedizione
   const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
@@ -108,6 +114,13 @@ export default function NuovaQuotazionePage() {
     );
     if (invalid) errs.push("Inserisci misure e pesi > 0 per ogni collo.");
 
+    // ✅ opzionale ma consigliato: se pallet + assicurazione ON, valore assicurato obbligatorio > 0
+    if (formato === "Pallet" && assicurazionePallet) {
+      if (valoreAssicurato == null || valoreAssicurato <= 0) {
+        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
+      }
+    }
+
     return errs;
   }
 
@@ -151,6 +164,16 @@ export default function NuovaQuotazionePage() {
             altezza_cm: c.altezza_cm ?? null,
             peso_kg: c.peso_kg ?? null,
           })),
+
+          // ✅ (non cambia nulla lato preventivo se non la usi; utile per uniformare schema)
+          formato,
+          contenuto,
+          assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+          valoreAssicurato:
+            formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+          declared_value:
+            formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+
           valuta, // 'EUR' | 'USD' | 'GBP'
           noteGeneriche: note,
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
@@ -246,6 +269,8 @@ export default function NuovaQuotazionePage() {
           setContenuto={setContenuto}
           assicurazioneAttiva={assicurazionePallet}
           setAssicurazioneAttiva={setAssicurazionePallet}
+          valoreAssicurato={valoreAssicurato}
+          setValoreAssicurato={setValoreAssicurato}
         />
       </div>
 
