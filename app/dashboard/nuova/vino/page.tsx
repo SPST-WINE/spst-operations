@@ -1,13 +1,7 @@
 // app/dashboard/nuova/vino/page.tsx
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  Suspense,
-} from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
@@ -167,9 +161,7 @@ async function fetchPostalCodeByLatLng(
 function parseAddressFromDetails(d: any) {
   const comps: any[] = d?.addressComponents || [];
   const get = (type: string) =>
-    comps.find(
-      (c) => Array.isArray(c.types) && c.types.includes(type)
-    ) || null;
+    comps.find((c) => Array.isArray(c.types) && c.types.includes(type)) || null;
 
   const country = get("country");
   const locality = get("locality") || get("postal_town");
@@ -245,9 +237,7 @@ async function createShipmentWithAuth(payload: any, emailOverride?: string) {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(rawEmail
-        ? { "x-user-email": rawEmail, "x-client-email": rawEmail }
-        : {}),
+      ...(rawEmail ? { "x-user-email": rawEmail, "x-client-email": rawEmail } : {}),
     },
     body: JSON.stringify({
       ...payload,
@@ -272,22 +262,15 @@ async function createShipmentWithAuth(payload: any, emailOverride?: string) {
 // ------------------------------------------------------------
 // UPLOAD DOCUMENTI → stessa API del Back Office (/upload)
 // ------------------------------------------------------------
-async function uploadShipmentDocument(
-  shipmentId: string,
-  file: File,
-  docType: DocType
-) {
+async function uploadShipmentDocument(shipmentId: string, file: File, docType: DocType) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("type", docType);
 
-  const res = await fetch(
-    `/api/spedizioni/${encodeURIComponent(shipmentId)}/upload`,
-    {
-      method: "POST",
-      body: formData,
-    }
-  );
+  const res = await fetch(`/api/spedizioni/${encodeURIComponent(shipmentId)}/upload`, {
+    method: "POST",
+    body: formData,
+  });
 
   const json = await res.json().catch(() => null);
 
@@ -392,6 +375,17 @@ function NuovaVinoPageInner() {
   ]);
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState<string>("");
+
+  // ✅ NEW: assicurazione pallet (richiesta da ColliCard props)
+  const [assicurazionePallet, setAssicurazionePallet] = useState(false);
+
+  // ✅ auto-reset assicurazione se torno a Pacco
+  useEffect(() => {
+    if (formato !== "Pallet" && assicurazionePallet) {
+      setAssicurazionePallet(false);
+    }
+  }, [formato, assicurazionePallet]);
+
   const [ritiroData, setRitiroData] = useState<Date | undefined>(undefined);
   const [ritiroNote, setRitiroNote] = useState("");
   const [incoterm, setIncoterm] = useState<"DAP" | "DDP" | "EXW">("DAP");
@@ -415,7 +409,6 @@ function NuovaVinoPageInner() {
       peso_lordo_bott: 1.5,
     },
   ]);
-  // Niente upload file PL lato cliente: la packing list “file” la gestiamo da back office
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -457,17 +450,11 @@ function NuovaVinoPageInner() {
       const isBrochure = r["tipologia"] === "brochure/depliant";
       if (isBrochure) {
         if (!r.bottiglie || r.bottiglie <= 0)
-          out.push(
-            `${idx}: quantità (pezzi) > 0 obbligatoria per brochure/depliant.`
-          );
+          out.push(`${idx}: quantità (pezzi) > 0 obbligatoria per brochure/depliant.`);
         if (r.peso_netto_bott == null || r.peso_netto_bott <= 0)
-          out.push(
-            `${idx}: peso netto/pezzo (kg) obbligatorio per brochure/depliant.`
-          );
+          out.push(`${idx}: peso netto/pezzo (kg) obbligatorio per brochure/depliant.`);
         if (r.peso_lordo_bott == null || r.peso_lordo_bott <= 0)
-          out.push(
-            `${idx}: peso lordo/pezzo (kg) obbligatorio per brochure/depliant.`
-          );
+          out.push(`${idx}: peso lordo/pezzo (kg) obbligatorio per brochure/depliant.`);
       } else {
         if (!r.bottiglie || r.bottiglie <= 0)
           out.push(`${idx}: numero bottiglie > 0 obbligatorio.`);
@@ -489,15 +476,10 @@ function NuovaVinoPageInner() {
   function validate(): string[] {
     const errs: string[] = [];
     if (!isPhoneValid(mittente.telefono))
-      errs.push(
-        "Telefono mittente obbligatorio in formato internazionale (es. +393201441789)."
-      );
+      errs.push("Telefono mittente obbligatorio in formato internazionale (es. +393201441789).");
     if (!isPhoneValid(destinatario.telefono))
       errs.push("Telefono destinatario obbligatorio in formato internazionale.");
-    if (
-      (tipoSped === "B2B" || tipoSped === "Sample") &&
-      !destinatario.piva?.trim()
-    ) {
+    if ((tipoSped === "B2B" || tipoSped === "Sample") && !destinatario.piva?.trim()) {
       errs.push(DEST_PIVA_MSG);
     }
     if (!mittente.piva?.trim())
@@ -522,13 +504,8 @@ function NuovaVinoPageInner() {
       const fatt = sameAsDest ? destinatario : fatturazione;
       if (!fatt.ragioneSociale?.trim())
         errs.push("Dati fattura: ragione sociale mancante.");
-      if (
-        (tipoSped === "B2B" || tipoSped === "Sample") &&
-        !fatt.piva?.trim()
-      ) {
-        errs.push(
-          "Dati fattura: P.IVA/CF obbligatoria per B2B e Campionatura."
-        );
+      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
+        errs.push("Dati fattura: P.IVA/CF obbligatoria per B2B e Campionatura.");
       }
     }
     return errs;
@@ -551,6 +528,10 @@ function NuovaVinoPageInner() {
         destAbilitato,
         contenuto,
         formato,
+
+        // ✅ NEW: assicurazione pallet (solo se formato pallet)
+        assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false,
+
         ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
         ritiroNote,
         mittente,
@@ -567,20 +548,13 @@ function NuovaVinoPageInner() {
       };
 
       // 1) Crea spedizione (Supabase Auth, eventualmente forzando mail cliente da ?for=)
-      const created = await createShipmentWithAuth(
-        payload,
-        forcedEmail || undefined
-      );
+      const created = await createShipmentWithAuth(payload, forcedEmail || undefined);
 
       // 2) Upload documenti usando la stessa API del Back Office
       try {
         // Fattura (qui usiamo sempre "fattura_proforma" come tipo documento)
         if (fatturaFile) {
-          await uploadShipmentDocument(
-            created.id,
-            fatturaFile,
-            "fattura_proforma"
-          );
+          await uploadShipmentDocument(created.id, fatturaFile, "fattura_proforma");
         }
       } catch (err) {
         console.error("Errore upload documenti:", err);
@@ -590,8 +564,7 @@ function NuovaVinoPageInner() {
       }
 
       // 3) Success UI
-      const id =
-        created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
+      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
@@ -603,10 +576,7 @@ function NuovaVinoPageInner() {
         destinatario,
       });
       if (topRef.current) {
-        topRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
+        topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       }
     } catch (e: any) {
       const msg =
@@ -644,6 +614,7 @@ function NuovaVinoPageInner() {
         "padding:6px",
         "display:none",
       ].join(";");
+
       const ul = document.createElement("ul");
       ul.style.listStyle = "none";
       ul.style.margin = "0";
@@ -718,8 +689,9 @@ function NuovaVinoPageInner() {
         const sel = items[idx];
         if (!sel) return;
         close();
-        input.value =
-          sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
+
+        input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
+
         const details = await fetchPlaceDetails(sel.id, session);
         session = newSessionToken();
         if (!details) return;
@@ -730,11 +702,7 @@ function NuovaVinoPageInner() {
         const lng = (details as any)?.location?.longitude;
         if (!addr.cap && typeof lat === "number" && typeof lng === "number") {
           try {
-            const cap = await fetchPostalCodeByLatLng(
-              lat,
-              lng,
-              GMAPS_LANG
-            );
+            const cap = await fetchPostalCodeByLatLng(lat, lng, GMAPS_LANG);
             if (cap) addr.cap = cap;
           } catch {}
         }
@@ -765,10 +733,7 @@ function NuovaVinoPageInner() {
         if (!open) return;
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          activeIndex = Math.min(
-            activeIndex + 1,
-            Math.max(items.length - 1, 0)
-          );
+          activeIndex = Math.min(activeIndex + 1, Math.max(items.length - 1, 0));
           highlight();
         } else if (e.key === "ArrowUp") {
           e.preventDefault();
@@ -816,14 +781,12 @@ function NuovaVinoPageInner() {
     log.info("🧭 Bootstrap autocomplete");
 
     const attachAll = () => {
-      const mitt =
-        document.querySelector<HTMLInputElement>(
-          'input[data-gmaps="indirizzo-mittente"]'
-        );
-      const dest =
-        document.querySelector<HTMLInputElement>(
-          'input[data-gmaps="indirizzo-destinatario"]'
-        );
+      const mitt = document.querySelector<HTMLInputElement>(
+        'input[data-gmaps="indirizzo-mittente"]'
+      );
+      const dest = document.querySelector<HTMLInputElement>(
+        'input[data-gmaps="indirizzo-destinatario"]'
+      );
       if (mitt) attachPlacesToInput(mitt, "mittente");
       if (dest) attachPlacesToInput(dest, "destinatario");
     };
@@ -850,11 +813,9 @@ function NuovaVinoPageInner() {
   // Render
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL =
-      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
+    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
-      "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
     )}`;
@@ -874,23 +835,18 @@ function NuovaVinoPageInner() {
               <span className="text-slate-500">Tipo:</span> {success.tipoSped}
             </div>
             <div>
-              <span className="text-slate-500">Incoterm:</span>{" "}
-              {success.incoterm}
+              <span className="text-slate-500">Incoterm:</span> {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span>{" "}
-              {success.dataRitiro ?? "—"}
+              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} (
-              {success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
               {success.destinatario.ragioneSociale || "—"}
-              {success.destinatario.citta
-                ? ` — ${success.destinatario.citta}`
-                : ""}
+              {success.destinatario.citta ? ` — ${success.destinatario.citta}` : ""}
             </div>
           </div>
 
@@ -920,14 +876,11 @@ function NuovaVinoPageInner() {
               Supporto WhatsApp
             </a>
 
-            <span className="text-sm text-green-700">
-              Email di conferma inviata ✅
-            </span>
+            <span className="text-sm text-green-700">Email di conferma inviata ✅</span>
           </div>
 
           <div className="mt-6 text-xs text-slate-500">
-            Suggerimento: conserva l’ID per future comunicazioni. Puoi chiudere
-            questa pagina.
+            Suggerimento: conserva l’ID per future comunicazioni. Puoi chiudere questa pagina.
           </div>
         </div>
       </div>
@@ -964,12 +917,7 @@ function NuovaVinoPageInner() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
-          <PartyCard
-            title="Mittente"
-            value={mittente}
-            onChange={setMittente}
-            gmapsTag="mittente"
-          />
+          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
         </div>
         <div className="rounded-2xl border bg-white p-4">
           <PartyCard
@@ -988,6 +936,7 @@ function NuovaVinoPageInner() {
 
       <PackingListVino value={pl} onChange={setPl} />
 
+      {/* ✅ FIX: nuove props richieste da ColliCard */}
       <ColliCard
         colli={colli}
         onChange={setColli}
@@ -995,14 +944,11 @@ function NuovaVinoPageInner() {
         setFormato={setFormato}
         contenuto={contenuto}
         setContenuto={setContenuto}
+        assicurazioneAttiva={assicurazionePallet}
+        setAssicurazioneAttiva={setAssicurazionePallet}
       />
 
-      <RitiroCard
-        date={ritiroData}
-        setDate={setRitiroData}
-        note={ritiroNote}
-        setNote={setRitiroNote}
-      />
+      <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
 
       <FatturaCard
         incoterm={incoterm}
