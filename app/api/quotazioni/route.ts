@@ -62,8 +62,13 @@ type QuoteCreatePayload = {
   incoterm?: "DAP" | "DDP" | "EXW";
   createdByEmail?: string;
   customerEmail?: string;
-  // 👇 NUOVO
+
+  // 👇 GIÀ PRESENTE
   contenutoColli?: string;
+
+  // 👇 NUOVI
+  assicurazioneAttiva?: boolean;
+  valoreAssicurato?: number | null;
 };
 
 // ---------- POST: crea preventivo -----------------------------------
@@ -90,24 +95,45 @@ export async function POST(req: NextRequest) {
       body.createdByEmail || body.customerEmail || "info@spst.it";
     const customerEmail = body.customerEmail || createdByEmail;
 
+    // Normalizzo boolean/numeri
+    const assicurazioneAttiva =
+      typeof body.assicurazioneAttiva === "boolean" ? body.assicurazioneAttiva : false;
+
+    const valoreAssicurato =
+      body.valoreAssicurato == null ? null : Number(body.valoreAssicurato);
+
+    // Se assicurazione ON, valore deve essere valido > 0
+    if (assicurazioneAttiva) {
+      if (!valoreAssicurato || !Number.isFinite(valoreAssicurato) || valoreAssicurato <= 0) {
+        return jsonError(400, "INVALID_INSURANCE_VALUE", {
+          message:
+            "Assicurazione attiva: valore assicurato mancante o non valido (> 0).",
+        });
+      }
+    }
+
     const fields = {
       ...body,
       createdByEmail,
       customerEmail,
+      assicurazioneAttiva,
+      valoreAssicurato: assicurazioneAttiva ? valoreAssicurato : null,
     };
 
-        // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
+    // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
     const dataRitiroDate =
       body.ritiroData ? new Date(body.ritiroData).toISOString().slice(0, 10) : null;
 
-        const { data, error } = await supabase
+    const { data, error } = await supabase
       .from("quotes")
       .insert({
         status: "In lavorazione",
         incoterm: body.incoterm,
-        declared_value: null,
+        // ✅ riuso declared_value come "valore assicurato" (senza migrazioni DB)
+        declared_value: assicurazioneAttiva ? valoreAssicurato : null,
+
         // colonne normalizzate
-        data_ritiro: body.ritiroData ? body.ritiroData.slice(0, 10) : null,
+        data_ritiro: dataRitiroDate,
         tipo_spedizione: body.tipoSped || null,
         valuta: body.valuta || null,
         note_generiche: body.noteGeneriche || null,
@@ -116,14 +142,15 @@ export async function POST(req: NextRequest) {
         mittente: body.mittente || null,
         destinatario: body.destinatario || null,
         colli: Array.isArray(body.colli) ? body.colli : null,
-        // 👇 nuova colonna
+
+        // contenuto colli
         contenuto_colli: body.contenutoColli || null,
-        // JSON completo (lasciamo tutto anche qui)
+
+        // JSON completo
         fields,
       })
       .select("id")
       .single();
-
 
     if (error || !data) {
       console.error("[API/quotazioni:POST] DB_ERROR", error);
@@ -157,7 +184,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm")
+      .select("id, status, fields, created_at, incoterm, declared_value")
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -178,17 +205,30 @@ export async function GET(req: NextRequest) {
         const mitt = f.mittente || {};
         const dest = f.destinatario || {};
 
+        const assicurazioneAttiva =
+          typeof f.assicurazioneAttiva === "boolean" ? f.assicurazioneAttiva : false;
+
+        const valoreAssicurato =
+          row.declared_value ??
+          (f.valoreAssicurato != null ? Number(f.valoreAssicurato) : null);
+
         const aliasedFields = {
           ...f,
+
+          // alias esistenti
           Stato: row.status || "In lavorazione",
-          "Destinatario_Nome": dest.ragioneSociale,
-          "Destinatario_Citta": dest.citta,
-          "Destinatario_Paese": dest.paese,
-          "Mittente_Nome": mitt.ragioneSociale,
+          Destinatario_Nome: dest.ragioneSociale,
+          Destinatario_Citta: dest.citta,
+          Destinatario_Paese: dest.paese,
+          Mittente_Nome: mitt.ragioneSociale,
           "Creato il": row.created_at,
           "Creato da Email": f.createdByEmail,
           Slug_Pubblico: row.id,
           Incoterm: row.incoterm,
+
+          // ✅ nuovi alias comodi per UI/Backoffice
+          Assicurazione_Attiva: assicurazioneAttiva ? "Sì" : "No",
+          Valore_Assicurato: valoreAssicurato,
         };
 
         return { id: row.id, fields: aliasedFields };
