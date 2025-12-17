@@ -1,33 +1,34 @@
 // app/dashboard/quotazioni/nuova/page.tsx
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
-import PartyCard, { Party } from '@/components/nuova/PartyCard';
-import ColliCard, { Collo } from '@/components/nuova/ColliCard';
-import RitiroCard from '@/components/nuova/RitiroCard';
+import PartyCard, { Party } from "@/components/nuova/PartyCard";
+import ColliCard, { Collo } from "@/components/nuova/ColliCard";
+import RitiroCard from "@/components/nuova/RitiroCard";
 
-import { postPreventivo } from '@/lib/api';
+import { getUserProfile, postPreventivo } from "@/lib/api";
+import { getIdToken } from "@/lib/firebase-client-auth";
 
 const blankParty: Party = {
-  ragioneSociale: '',
-  referente: '',
-  paese: '',
-  citta: '',
-  cap: '',
-  indirizzo: '',
-  telefono: '',
-  piva: '',
+  ragioneSociale: "",
+  referente: "",
+  paese: "",
+  citta: "",
+  cap: "",
+  indirizzo: "",
+  telefono: "",
+  piva: "",
 };
 
 export default function NuovaQuotazionePage() {
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
 
-  // email (per ora stub, stessa delle impostazioni)
-  const [email, setEmail] = useState<string>('');
+  // email utente (da profilo)
+  const [email, setEmail] = useState<string>("");
 
   // Parti
   const [mittente, setMittente] = useState<Party>(blankParty);
@@ -37,77 +38,52 @@ export default function NuovaQuotazionePage() {
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
-  const [formato, setFormato] = useState<'Pacco' | 'Pallet'>('Pacco');
-  const [contenuto, setContenuto] = useState<string>('');
+
+  const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
+  const [contenuto, setContenuto] = useState<string>("");
+
+  // ✅ Assicurazione (richiesta da ColliCard + riconosciuta da /api/spedizioni)
+  const [assicurazioneAttiva, setAssicurazioneAttiva] = useState(false);
+
+  // ✅ reset assicurazione se torno a "Pacco"
+  useEffect(() => {
+    if (formato !== "Pallet" && assicurazioneAttiva) {
+      setAssicurazioneAttiva(false);
+    }
+  }, [formato, assicurazioneAttiva]);
 
   // Dettagli spedizione
-  const [valuta, setValuta] = useState<'EUR' | 'USD' | 'GBP'>('EUR');
-  const [tipoSped, setTipoSped] = useState<'B2B' | 'B2C' | 'Sample'>('B2C');
-  const [incoterm, setIncoterm] = useState<'DAP' | 'DDP' | 'EXW'>('DAP');
+  const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
+  const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2C");
+  const [incoterm, setIncoterm] = useState<"DAP" | "DDP" | "EXW">("DAP");
 
   // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>(undefined);
-  const [ritiroNote, setRitiroNote] = useState('');
+  const [ritiroNote, setRitiroNote] = useState("");
 
   // Note generiche
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
 
   // UI
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [ok, setOk] = useState<{ id: string; displayId?: string } | null>(null);
 
-  // Prefill mittente dai dati di /api/impostazioni (stessa email di impostazioni)
+  // Prefill mittente da profilo & email utente
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const emailNorm = 'info@spst.it';
-        setEmail(emailNorm);
+        const r = await getUserProfile(getIdToken);
+        if (cancelled) return;
 
-        const res = await fetch(
-          `/api/impostazioni?email=${encodeURIComponent(emailNorm)}`,
-          {
-            method: 'GET',
-            cache: 'no-store',
-          }
-        );
-
-        const body = (await res.json().catch(() => null)) as
-          | { ok?: boolean; email?: string; mittente?: any }
-          | null;
-
-        console.log(
-          'SPST[quotazioni-nuova] GET /api/impostazioni response:',
-          {
-            status: res.status,
-            body,
-          }
-        );
-
-        if (!res.ok || !body?.ok || cancelled) return;
-
-        // aggiorno mittente con i dati salvati nelle impostazioni
-        if (body.mittente) {
-          const m = body.mittente;
-          setMittente(prev => ({
-            ...prev,
-            ragioneSociale: m.mittente ?? prev.ragioneSociale ?? '',
-            paese: m.paese ?? prev.paese ?? '',
-            citta: m.citta ?? prev.citta ?? '',
-            cap: m.cap ?? prev.cap ?? '',
-            indirizzo: m.indirizzo ?? prev.indirizzo ?? '',
-            telefono: m.telefono ?? prev.telefono ?? '',
-            piva: m.piva ?? prev.piva ?? '',
-          }));
+        if (r?.ok) {
+          if (r.email) setEmail(r.email);
+          if (r.party) setMittente((prev) => ({ ...prev, ...r.party }));
         }
-      } catch (e) {
-        console.error(
-          'SPST[quotazioni-nuova] errore prefill impostazioni',
-          e
-        );
-        // se fallisce, l’utente compila a mano il mittente
+      } catch {
+        // Ignora: utente compila a mano
       }
     })();
 
@@ -116,18 +92,17 @@ export default function NuovaQuotazionePage() {
     };
   }, []);
 
-  // Validazione minima per la quotazione
   function validate(): string[] {
     const errs: string[] = [];
-    if (!mittente.ragioneSociale?.trim())
-      errs.push('Inserisci la ragione sociale del mittente.');
-    if (!destinatario.ragioneSociale?.trim())
-      errs.push('Inserisci la ragione sociale del destinatario.');
-    if (!ritiroData) errs.push('Seleziona il giorno di ritiro.');
 
-    // Almeno un collo completo e valido
+    if (!mittente.ragioneSociale?.trim())
+      errs.push("Inserisci la ragione sociale del mittente.");
+    if (!destinatario.ragioneSociale?.trim())
+      errs.push("Inserisci la ragione sociale del destinatario.");
+    if (!ritiroData) errs.push("Seleziona il giorno di ritiro.");
+
     const invalid = colli.some(
-      c =>
+      (c) =>
         c.lunghezza_cm == null ||
         c.larghezza_cm == null ||
         c.altezza_cm == null ||
@@ -137,67 +112,96 @@ export default function NuovaQuotazionePage() {
         (c.altezza_cm ?? 0) <= 0 ||
         (c.peso_kg ?? 0) <= 0
     );
-    if (invalid) errs.push('Inserisci misure e pesi > 0 per ogni collo.');
+    if (invalid) errs.push("Inserisci misure e pesi > 0 per ogni collo.");
 
     return errs;
   }
 
   async function salva() {
     if (saving) return;
+
     const v = validate();
     if (v.length) {
       setErrors(v);
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
-    } else {
-      setErrors([]);
     }
+    setErrors([]);
 
     setSaving(true);
     try {
-            const res = await postPreventivo({
-        mittente: {
-          ragioneSociale: mittente.ragioneSociale,
-          paese: mittente.paese,
-          citta: mittente.citta,
-          cap: mittente.cap,
-          indirizzo: mittente.indirizzo,
-          telefono: mittente.telefono || undefined,
-          taxId: mittente.piva || undefined,
-        },
-        destinatario: {
-          ragioneSociale: destinatario.ragioneSociale,
-          paese: destinatario.paese,
-          citta: destinatario.citta,
-          cap: destinatario.cap,
-          indirizzo: destinatario.indirizzo,
-          telefono: destinatario.telefono || undefined,
-          taxId: destinatario.piva || undefined,
-        },
-        colli: (colli || []).map(c => ({
-          quantita: 1,
-          lunghezza_cm: c.lunghezza_cm ?? null,
-          larghezza_cm: c.larghezza_cm ?? null,
-          altezza_cm: c.altezza_cm ?? null,
-          peso_kg: c.peso_kg ?? null,
-        })),
-        valuta, // 'EUR' | 'USD' | 'GBP'
-        noteGeneriche: note,
-        ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-        tipoSped, // 'B2B' | 'B2C' | 'Sample'
-        incoterm, // 'DAP' | 'DDP' | 'EXW'
-        // 👇 nuovo campo: prendiamo lo state `contenuto`
-        contenutoColli: contenuto || undefined,
-        createdByEmail: email || undefined,
-        // customerEmail lo potremo gestire in futuro se aggiungi un campo email cliente
-      });
+      // ✅ Contenuto: lo mettiamo anche dentro ogni collo così l'API lo salva nei packages.fields
+      const colliPayload = (colli || []).map((c) => ({
+        quantita: 1,
+        lunghezza_cm: c.lunghezza_cm ?? null,
+        larghezza_cm: c.larghezza_cm ?? null,
+        altezza_cm: c.altezza_cm ?? null,
+        peso_kg: c.peso_kg ?? null,
+        // alias supportati dal tuo API: c.contenuto oppure c.contenuto_colli
+        contenuto: contenuto?.trim() ? contenuto.trim() : null,
+      }));
 
+      const res: any = await postPreventivo(
+        {
+          // ✅ IMPORTANTISSIMO: la tua API legge body.email / body.email_cliente
+          email: email || undefined,
 
-      setOk({ id: res?.id, displayId: res?.displayId });
-      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          mittente: {
+            ragioneSociale: mittente.ragioneSociale,
+            paese: mittente.paese,
+            citta: mittente.citta,
+            cap: mittente.cap,
+            indirizzo: mittente.indirizzo,
+            telefono: mittente.telefono || undefined,
+            piva: mittente.piva || undefined,
+            taxId: mittente.piva || undefined,
+          },
+
+          destinatario: {
+            ragioneSociale: destinatario.ragioneSociale,
+            paese: destinatario.paese,
+            citta: destinatario.citta,
+            cap: destinatario.cap,
+            indirizzo: destinatario.indirizzo,
+            telefono: destinatario.telefono || undefined,
+            piva: destinatario.piva || undefined,
+            taxId: destinatario.piva || undefined,
+          },
+
+          colli: colliPayload,
+
+          valuta,
+          tipoSped,
+          incoterm,
+
+          // Ritiro
+          ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
+          ritiroNote: ritiroNote || undefined,
+
+          // Note
+          noteGeneriche: note || undefined,
+
+          // ✅ Questi finiscono in fields JSONB (e li vedi nel BO/log)
+          formato,
+          contenuto: contenuto || undefined,
+
+          // ✅ Nome campo riconosciuto dalla tua API
+          assicurazioneAttiva: formato === "Pallet" ? assicurazioneAttiva : false,
+        },
+        getIdToken
+      );
+
+      // la tua API spesso ritorna { ok:true, shipment, id: human_id || id }
+      const displayId =
+        res?.shipment?.human_id || res?.shipment?.id || res?.id || undefined;
+      const internalId = res?.shipment?.id || res?.id || displayId;
+
+      setOk({ id: String(internalId), displayId: displayId ? String(displayId) : undefined });
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
-      console.error('Errore creazione preventivo', e);
-      setErrors(['Errore durante la creazione della quotazione. Riprova.']);
+      console.error("Errore creazione preventivo", e);
+      setErrors(["Errore durante la creazione della quotazione. Riprova."]);
+      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } finally {
       setSaving(false);
     }
@@ -210,8 +214,7 @@ export default function NuovaQuotazionePage() {
         <h2 className="text-lg font-semibold">Quotazione inviata</h2>
         <div className="rounded-2xl border bg-white p-4">
           <p className="text-sm">
-            ID preventivo:{' '}
-            <span className="font-mono">{ok.displayId || ok.id}</span>
+            ID preventivo: <span className="font-mono">{ok.displayId || ok.id}</span>
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
@@ -236,9 +239,7 @@ export default function NuovaQuotazionePage() {
   return (
     <div ref={topRef} className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-slate-800">
-          Nuova quotazione
-        </h1>
+        <h1 className="text-2xl font-semibold text-slate-800">Nuova quotazione</h1>
         <Link
           href="/dashboard/quotazioni"
           className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"
@@ -261,25 +262,20 @@ export default function NuovaQuotazionePage() {
       {/* Mittente / Destinatario */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Mittente
-          </h2>
+          <h2 className="mb-3 text-base font-semibold text-spst-blue">Mittente</h2>
           <PartyCard value={mittente} onChange={setMittente} title="" />
         </div>
         <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Destinatario
-          </h2>
+          <h2 className="mb-3 text-base font-semibold text-spst-blue">Destinatario</h2>
           <PartyCard value={destinatario} onChange={setDestinatario} title="" />
         </div>
       </div>
 
-      {/* Colli / contenuto */}
+      {/* Colli */}
       <div className="space-y-4">
         <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Colli
-          </h2>
+          <h2 className="mb-3 text-base font-semibold text-spst-blue">Colli</h2>
+
           <ColliCard
             colli={colli}
             onChange={setColli}
@@ -287,6 +283,9 @@ export default function NuovaQuotazionePage() {
             setFormato={setFormato}
             contenuto={contenuto}
             setContenuto={setContenuto}
+            // ✅ FIX: props obbligatorie che ti rompono il build
+            assicurazioneAttiva={assicurazioneAttiva}
+            setAssicurazioneAttiva={setAssicurazioneAttiva}
           />
         </div>
 
@@ -304,15 +303,14 @@ export default function NuovaQuotazionePage() {
                 <select
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   value={valuta}
-                  onChange={e =>
-                    setValuta(e.target.value as 'EUR' | 'USD' | 'GBP')
-                  }
+                  onChange={(e) => setValuta(e.target.value as "EUR" | "USD" | "GBP")}
                 >
                   <option value="EUR">EUR</option>
                   <option value="USD">USD</option>
                   <option value="GBP">GBP</option>
                 </select>
               </div>
+
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">
                   Formato
@@ -320,9 +318,7 @@ export default function NuovaQuotazionePage() {
                 <select
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   value={formato}
-                  onChange={e =>
-                    setFormato(e.target.value as 'Pacco' | 'Pallet')
-                  }
+                  onChange={(e) => setFormato(e.target.value as "Pacco" | "Pallet")}
                 >
                   <option value="Pacco">Pacco</option>
                   <option value="Pallet">Pallet</option>
@@ -338,8 +334,8 @@ export default function NuovaQuotazionePage() {
                 <select
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   value={tipoSped}
-                  onChange={e =>
-                    setTipoSped(e.target.value as 'B2B' | 'B2C' | 'Sample')
+                  onChange={(e) =>
+                    setTipoSped(e.target.value as "B2B" | "B2C" | "Sample")
                   }
                 >
                   <option value="B2B">B2B</option>
@@ -347,6 +343,7 @@ export default function NuovaQuotazionePage() {
                   <option value="Sample">Campionatura</option>
                 </select>
               </div>
+
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-600">
                   Incoterm
@@ -354,9 +351,7 @@ export default function NuovaQuotazionePage() {
                 <select
                   className="w-full rounded-lg border px-3 py-2 text-sm"
                   value={incoterm}
-                  onChange={e =>
-                    setIncoterm(e.target.value as 'DAP' | 'DDP' | 'EXW')
-                  }
+                  onChange={(e) => setIncoterm(e.target.value as "DAP" | "DDP" | "EXW")}
                 >
                   <option value="DAP">DAP</option>
                   <option value="DDP">DDP</option>
@@ -372,7 +367,7 @@ export default function NuovaQuotazionePage() {
               <textarea
                 className="min-h-[60px] w-full rounded-lg border px-3 py-2 text-sm"
                 value={contenuto}
-                onChange={e => setContenuto(e.target.value)}
+                onChange={(e) => setContenuto(e.target.value)}
                 placeholder="Descrizione sintetica della merce…"
               />
             </div>
@@ -383,9 +378,7 @@ export default function NuovaQuotazionePage() {
       {/* Ritiro + note */}
       <div className="space-y-4">
         <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Ritiro
-          </h2>
+          <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
           <RitiroCard
             date={ritiroData}
             setDate={setRitiroData}
@@ -401,7 +394,7 @@ export default function NuovaQuotazionePage() {
           <textarea
             className="min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm"
             value={note}
-            onChange={e => setNote(e.target.value)}
+            onChange={(e) => setNote(e.target.value)}
             placeholder="Aggiungi eventuali note sulla spedizione…"
           />
         </div>
@@ -419,7 +412,7 @@ export default function NuovaQuotazionePage() {
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
           )}
-          {saving ? 'Invio…' : 'Invia richiesta'}
+          {saving ? "Invio…" : "Invia richiesta"}
         </button>
       </div>
     </div>
