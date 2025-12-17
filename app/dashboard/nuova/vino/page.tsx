@@ -379,12 +379,16 @@ function NuovaVinoPageInner() {
   // ✅ NEW: assicurazione pallet (richiesta da ColliCard props)
   const [assicurazionePallet, setAssicurazionePallet] = useState(false);
 
-  // ✅ auto-reset assicurazione se torno a Pacco
+  // ✅ NEW: valore assicurato (EUR) — richiesto da ColliCard
+  const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
+
+  // ✅ auto-reset se torno a Pacco (sostituisce il vecchio useEffect)
   useEffect(() => {
-    if (formato !== "Pallet" && assicurazionePallet) {
-      setAssicurazionePallet(false);
+    if (formato !== "Pallet") {
+      if (assicurazionePallet) setAssicurazionePallet(false);
+      if (valoreAssicurato != null) setValoreAssicurato(null);
     }
-  }, [formato, assicurazionePallet]);
+  }, [formato, assicurazionePallet, valoreAssicurato]);
 
   const [ritiroData, setRitiroData] = useState<Date | undefined>(undefined);
   const [ritiroNote, setRitiroNote] = useState("");
@@ -508,6 +512,14 @@ function NuovaVinoPageInner() {
         errs.push("Dati fattura: P.IVA/CF obbligatoria per B2B e Campionatura.");
       }
     }
+
+    // ✅ NEW (consigliato): se pallet + assicurazione ON, valore assicurato obbligatorio > 0
+    if (formato === "Pallet" && assicurazionePallet) {
+      if (valoreAssicurato == null || valoreAssicurato <= 0) {
+        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
+      }
+    }
+
     return errs;
   }
 
@@ -529,7 +541,14 @@ function NuovaVinoPageInner() {
         contenuto,
         formato,
 
-        // ✅ NEW: assicurazione pallet (solo se formato pallet)
+        // ✅ NEW: schema uniforme (come “altro”)
+        assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+        valoreAssicurato:
+          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+        declared_value:
+          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+
+        // ✅ retro-compat (puoi toglierlo quando lato API non serve più)
         assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false,
 
         ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
@@ -946,6 +965,8 @@ function NuovaVinoPageInner() {
         setContenuto={setContenuto}
         assicurazioneAttiva={assicurazionePallet}
         setAssicurazioneAttiva={setAssicurazionePallet}
+        valoreAssicurato={valoreAssicurato}
+        setValoreAssicurato={setValoreAssicurato}
       />
 
       <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
