@@ -68,8 +68,9 @@ type ShipmentDetail = {
   formato_sped?: string | null;
   contenuto_generale?: string | null;
   dest_abilitato_import?: boolean | null;
-  declared_value?: number | null; // valore assicurato (EUR)
 
+  // ✅ NEW: valore assicurato (EUR)
+  declared_value?: number | null;
 
   attachments?: {
     ldv?: AttachmentInfo;
@@ -187,11 +188,7 @@ function AttachmentRow({
 
         <label className="cursor-pointer rounded-lg bg-slate-900 px-2.5 py-1 text-[11px] text-white hover:bg-slate-800">
           Carica
-          <input
-            type="file"
-            className="hidden"
-            onChange={handleUpload}
-          />
+          <input type="file" className="hidden" onChange={handleUpload} />
         </label>
       </div>
     </div>
@@ -259,8 +256,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     const count = pkgs.length;
     const totalWeight =
       pkgs.reduce(
-        (sum, p) =>
-          sum + (typeof p.weight_kg === "number" ? p.weight_kg : 0),
+        (sum, p) => sum + (typeof p.weight_kg === "number" ? p.weight_kg : 0),
         0
       ) || 0;
     return `${count} colli • ${totalWeight.toFixed(2)} kg`;
@@ -345,9 +341,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   if (error) {
     return (
       <div className="space-y-3">
-        <h1 className="text-xl font-semibold text-slate-800">
-          Spedizione {id}
-        </h1>
+        <h1 className="text-xl font-semibold text-slate-800">Spedizione {id}</h1>
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
@@ -358,9 +352,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   if (!data) {
     return (
       <div className="space-y-3">
-        <h1 className="text-xl font-semibold text-slate-800">
-          Spedizione {id}
-        </h1>
+        <h1 className="text-xl font-semibold text-slate-800">Spedizione {id}</h1>
         <div className="rounded-2xl border bg-white px-4 py-3 text-sm text-slate-600">
           Nessun dato disponibile per questa spedizione.
         </div>
@@ -380,8 +372,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   // Packing list: estrazione da fields
   // -------------------------
   const fieldsAny: any = (data as any).fields || {};
-  const rawPL =
-    fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
+  const rawPL = fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
 
   const plRows: any[] = Array.isArray(rawPL?.rows)
     ? rawPL.rows
@@ -389,10 +380,9 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     ? rawPL
     : [];
 
-  const plNote: string | null =
-    (rawPL && (rawPL.note || rawPL.notes || null)) || null;
+  const plNote: string | null = (rawPL && (rawPL.note || rawPL.notes || null)) || null;
 
-    const plTotals = {
+  const plTotals = {
     totalItems: 0,
     totalQty: 0,
     totalNetKg: 0,
@@ -400,7 +390,6 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
   };
 
   plRows.forEach((r: any) => {
-    // Q.tà: supporta sia vecchi campi che il nuovo "bottiglie"
     const qtyRaw =
       r.qta ??
       r.quantita ??
@@ -413,8 +402,6 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
 
     const qty = Number(qtyRaw) || 0;
 
-    // Netto: usa net_kg/peso_netto se presenti, altrimenti
-    // qty * peso_netto_bott (nuovo formato della PL lato cliente)
     const netRaw =
       r.net_kg ??
       r.peso_netto ??
@@ -424,7 +411,6 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
 
     const net = Number(netRaw) || 0;
 
-    // Lordo: stesso discorso per peso_lordo_bott
     const grossRaw =
       r.gross_kg ??
       r.peso_lordo ??
@@ -440,6 +426,17 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     plTotals.totalGrossKg += gross;
   });
 
+  // ✅ NEW: insured value (declared_value -> fallback fields.insurance_value_eur)
+  const toNum = (v: any): number | null => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const insuredValue =
+    typeof data.declared_value === "number"
+      ? data.declared_value
+      : toNum(fieldsAny?.insurance_value_eur);
 
   return (
     <div className="space-y-6">
@@ -461,9 +458,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         <div className="flex flex-col items-end gap-2 text-xs">
           <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-white">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-            <span className="font-medium">
-              {data.status?.toUpperCase() || "DRAFT"}
-            </span>
+            <span className="font-medium">{data.status?.toUpperCase() || "DRAFT"}</span>
           </div>
           <div className="rounded-xl border bg-white px-3 py-2 text-right">
             <div className="text-[11px] text-slate-500">Tipo spedizione</div>
@@ -471,14 +466,10 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
               {data.tipo_spedizione || "—"} · {data.incoterm || "—"}
             </div>
             <div className="mt-1 text-[11px] text-slate-500">
-              Creato il {formatDateTime(data.created_at)} • Ritiro{" "}
-              {formatDate(data.giorno_ritiro)}
+              Creato il {formatDateTime(data.created_at)} • Ritiro {formatDate(data.giorno_ritiro)}
             </div>
             <div className="mt-1 text-[11px] text-slate-500">
-              Cliente:{" "}
-              <span className="font-medium text-slate-700">
-                {emailCliente}
-              </span>
+              Cliente: <span className="font-medium text-slate-700">{emailCliente}</span>
             </div>
           </div>
         </div>
@@ -493,26 +484,16 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="space-y-1">
-            <div className="text-sm font-semibold text-slate-800">
-              {data.mittente_rs || "—"}
-            </div>
-            <div className="text-xs text-slate-600">
-              {data.mittente_indirizzo || "—"}
-            </div>
+            <div className="text-sm font-semibold text-slate-800">{data.mittente_rs || "—"}</div>
+            <div className="text-xs text-slate-600">{data.mittente_indirizzo || "—"}</div>
           </div>
 
           <div className="mt-3 space-y-1.5">
             <InfoRow label="CAP" value={data.mittente_cap || undefined} />
             <InfoRow label="Città" value={data.mittente_citta || undefined} />
             <InfoRow label="Paese" value={data.mittente_paese || undefined} />
-            <InfoRow
-              label="Telefono"
-              value={data.mittente_telefono || undefined}
-            />
-            <InfoRow
-              label="Partita IVA"
-              value={data.mittente_piva || undefined}
-            />
+            <InfoRow label="Telefono" value={data.mittente_telefono || undefined} />
+            <InfoRow label="Partita IVA" value={data.mittente_piva || undefined} />
           </div>
         </section>
 
@@ -523,26 +504,16 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="space-y-1">
-            <div className="text-sm font-semibold text-slate-800">
-              {data.dest_rs || "—"}
-            </div>
-            <div className="text-xs text-slate-600">
-              {data.dest_indirizzo || "—"}
-            </div>
+            <div className="text-sm font-semibold text-slate-800">{data.dest_rs || "—"}</div>
+            <div className="text-xs text-slate-600">{data.dest_indirizzo || "—"}</div>
           </div>
 
           <div className="mt-3 space-y-1.5">
             <InfoRow label="CAP" value={data.dest_cap || undefined} />
             <InfoRow label="Città" value={data.dest_citta || undefined} />
             <InfoRow label="Paese" value={data.dest_paese || undefined} />
-            <InfoRow
-              label="Telefono"
-              value={data.dest_telefono || undefined}
-            />
-            <InfoRow
-              label="Partita IVA / Tax ID"
-              value={data.dest_piva || undefined}
-            />
+            <InfoRow label="Telefono" value={data.dest_telefono || undefined} />
+            <InfoRow label="Partita IVA / Tax ID" value={data.dest_piva || undefined} />
             <InfoRow
               label="Abilitato all'import"
               value={
@@ -573,28 +544,23 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <InfoRow
               label="Numero colli"
+              value={typeof data.colli_n === "number" ? String(data.colli_n) : undefined}
+            />
+            <InfoRow label="Peso reale" value={formatWeightKg(data.peso_reale_kg)} />
+            <InfoRow label="Formato spedizione" value={data.formato_sped || undefined} />
+            <InfoRow label="Contenuto" value={data.contenuto_generale || undefined} />
+
+            {/* ✅ NEW: valore assicurato */}
+            <InfoRow
+              label="Valore assicurato"
               value={
-                typeof data.colli_n === "number"
-                  ? String(data.colli_n)
-                  : undefined
+                insuredValue != null
+                  ? `${insuredValue.toFixed(2)} ${data.fatt_valuta || "EUR"}`
+                  : "—"
               }
             />
-            <InfoRow
-              label="Peso reale"
-              value={formatWeightKg(data.peso_reale_kg)}
-            />
-            <InfoRow
-              label="Formato spedizione"
-              value={data.formato_sped || undefined}
-            />
-            <InfoRow
-              label="Contenuto"
-              value={data.contenuto_generale || undefined}
-            />
-            <InfoRow
-              label="Note ritiro"
-              value={data.note_ritiro || undefined}
-            />
+
+            <InfoRow label="Note ritiro" value={data.note_ritiro || undefined} />
           </div>
         </section>
 
@@ -604,26 +570,16 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
           </div>
 
           <div className="space-y-1">
-            <div className="text-sm font-semibold text-slate-800">
-              {data.fatt_rs || "—"}
-            </div>
-            <div className="text-xs text-slate-600">
-              {data.fatt_indirizzo || "—"}
-            </div>
+            <div className="text-sm font-semibold text-slate-800">{data.fatt_rs || "—"}</div>
+            <div className="text-xs text-slate-600">{data.fatt_indirizzo || "—"}</div>
           </div>
 
           <div className="mt-3 space-y-1.5">
             <InfoRow label="CAP" value={data.fatt_cap || undefined} />
             <InfoRow label="Città" value={data.fatt_citta || undefined} />
             <InfoRow label="Paese" value={data.fatt_paese || undefined} />
-            <InfoRow
-              label="Telefono"
-              value={data.fatt_telefono || undefined}
-            />
-            <InfoRow
-              label="P.IVA / Tax ID fattura"
-              value={data.fatt_piva || undefined}
-            />
+            <InfoRow label="Telefono" value={data.fatt_telefono || undefined} />
+            <InfoRow label="P.IVA / Tax ID fattura" value={data.fatt_piva || undefined} />
             <InfoRow label="Valuta" value={data.fatt_valuta || undefined} />
           </div>
         </section>
@@ -649,30 +605,21 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
             <tbody className="divide-y divide-slate-100">
               {!data.packages || data.packages.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={3}
-                    className="px-3 py-4 text-center text-slate-400"
-                  >
+                  <td colSpan={3} className="px-3 py-4 text-center text-slate-400">
                     Nessun collo registrato.
                   </td>
                 </tr>
               ) : (
                 data.packages.map((p, idx) => (
                   <tr key={p.id || idx} className="hover:bg-slate-50/70">
-                    <td className="px-3 py-2 align-middle text-slate-700">
-                      {idx + 1}
-                    </td>
+                    <td className="px-3 py-2 align-middle text-slate-700">{idx + 1}</td>
                     <td className="px-3 py-2 align-middle text-slate-700">
                       {[p.l1, p.l2, p.l3]
-                        .map((v) =>
-                          typeof v === "number" ? `${v.toFixed(0)}` : "—"
-                        )
+                        .map((v) => (typeof v === "number" ? `${v.toFixed(0)}` : "—"))
                         .join(" × ")}
                     </td>
                     <td className="px-3 py-2 align-middle text-slate-700">
-                      {typeof p.weight_kg === "number"
-                        ? `${p.weight_kg.toFixed(2)}`
-                        : "—"}
+                      {typeof p.weight_kg === "number" ? `${p.weight_kg.toFixed(2)}` : "—"}
                     </td>
                   </tr>
                 ))
@@ -682,174 +629,155 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         </div>
       </section>
 
-   {/* Packing list */}
-<section className="space-y-3 rounded-2xl border bg-white p-4">
-  <div className="flex items-center justify-between gap-2">
-    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-      Packing list
-    </div>
-    {plRows.length > 0 && (
-      <div className="text-[11px] text-slate-500">
-        {plTotals.totalItems} righe • Q.tà tot:{" "}
-        {plTotals.totalQty || "—"} • Netto:{" "}
-        {plTotals.totalNetKg.toFixed(2)} kg • Lordo:{" "}
-        {plTotals.totalGrossKg.toFixed(2)} kg
-      </div>
-    )}
-  </div>
+      {/* Packing list */}
+      <section className="space-y-3 rounded-2xl border bg-white p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Packing list
+          </div>
+          {plRows.length > 0 && (
+            <div className="text-[11px] text-slate-500">
+              {plTotals.totalItems} righe • Q.tà tot: {plTotals.totalQty || "—"} • Netto:{" "}
+              {plTotals.totalNetKg.toFixed(2)} kg • Lordo: {plTotals.totalGrossKg.toFixed(2)} kg
+            </div>
+          )}
+        </div>
 
-  {plRows.length === 0 ? (
-    <>
-      <p className="text-[11px] text-slate-500">
-        Nessuna packing list strutturata trovata nei dati della spedizione.
-      </p>
-      {fieldsAny && (
-        <details className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-          <summary className="cursor-pointer font-medium">
-            Debug dati raw (fields)
-          </summary>
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px]">
-            {JSON.stringify(fieldsAny, null, 2)}
-          </pre>
-        </details>
-      )}
-    </>
-  ) : (
-    <>
-      <div className="overflow-hidden rounded-xl border border-slate-100">
-        <table className="min-w-full border-collapse text-xs">
-          <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-3 py-2 text-left">#</th>
-              <th className="px-3 py-2 text-left">Etichetta</th>
-              <th className="px-3 py-2 text-left">Tipologia</th>
-              <th className="px-3 py-2 text-left">Q.tà</th>
-              <th className="px-3 py-2 text-left">Formato (L)</th>
-              <th className="px-3 py-2 text-left">Gradazione</th>
-              <th className="px-3 py-2 text-left">Prezzo</th>
-              <th className="px-3 py-2 text-left">Valuta</th>
-              <th className="px-3 py-2 text-left">Peso netto (kg)</th>
-              <th className="px-3 py-2 text-left">Peso lordo (kg)</th>
-            </tr>
-          </thead>
+        {plRows.length === 0 ? (
+          <>
+            <p className="text-[11px] text-slate-500">
+              Nessuna packing list strutturata trovata nei dati della spedizione.
+            </p>
+            {fieldsAny && (
+              <details className="mt-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                <summary className="cursor-pointer font-medium">Debug dati raw (fields)</summary>
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px]">
+                  {JSON.stringify(fieldsAny, null, 2)}
+                </pre>
+              </details>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-xl border border-slate-100">
+              <table className="min-w-full border-collapse text-xs">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">#</th>
+                    <th className="px-3 py-2 text-left">Etichetta</th>
+                    <th className="px-3 py-2 text-left">Tipologia</th>
+                    <th className="px-3 py-2 text-left">Q.tà</th>
+                    <th className="px-3 py-2 text-left">Formato (L)</th>
+                    <th className="px-3 py-2 text-left">Gradazione</th>
+                    <th className="px-3 py-2 text-left">Prezzo</th>
+                    <th className="px-3 py-2 text-left">Valuta</th>
+                    <th className="px-3 py-2 text-left">Peso netto (kg)</th>
+                    <th className="px-3 py-2 text-left">Peso lordo (kg)</th>
+                  </tr>
+                </thead>
 
-          <tbody className="divide-y divide-slate-100">
-            {plRows.map((r: any, idx: number) => {
-              const toNum = (v: any): number | null => {
-                if (v === null || v === undefined) return null;
-                const n = Number(v);
-                return Number.isFinite(n) ? n : null;
-              };
+                <tbody className="divide-y divide-slate-100">
+                  {plRows.map((r: any, idx: number) => {
+                    const toNumLocal = (v: any): number | null => {
+                      if (v === null || v === undefined) return null;
+                      const n = Number(v);
+                      return Number.isFinite(n) ? n : null;
+                    };
 
-              const qty = toNum(
-                r.bottiglie ??
-                  r.qta ??
-                  r.quantita ??
-                  r.qty ??
-                  r.quantity ??
-                  r.num ??
-                  r.numero ??
-                  null
-              );
+                    const qty = toNumLocal(
+                      r.bottiglie ??
+                        r.qta ??
+                        r.quantita ??
+                        r.qty ??
+                        r.quantity ??
+                        r.num ??
+                        r.numero ??
+                        null
+                    );
 
-              const formato = toNum(r.formato_litri);
-              const grad = toNum(r.gradazione);
-              const prezzo = toNum(r.prezzo);
-              const valuta = r.valuta || "EUR";
+                    const formato = toNumLocal(r.formato_litri);
+                    const grad = toNumLocal(r.gradazione);
+                    const prezzo = toNumLocal(r.prezzo);
+                    const valuta = r.valuta || "EUR";
 
-              // peso netto/lordo per bottiglia/pezzo (quello che inserisce il cliente)
-              const pesoNetto = toNum(
-                r.peso_netto_bott ??
-                  r.peso_netto ??
-                  r.net_kg ??
-                  r.netWeight ??
-                  r.net_weight
-              );
+                    const pesoNetto = toNumLocal(
+                      r.peso_netto_bott ??
+                        r.peso_netto ??
+                        r.net_kg ??
+                        r.netWeight ??
+                        r.net_weight
+                    );
 
-              const pesoLordo = toNum(
-                r.peso_lordo_bott ??
-                  r.peso_lordo ??
-                  r.gross_kg ??
-                  r.grossWeight ??
-                  r.gross_weight
-              );
+                    const pesoLordo = toNumLocal(
+                      r.peso_lordo_bott ??
+                        r.peso_lordo ??
+                        r.gross_kg ??
+                        r.grossWeight ??
+                        r.gross_weight
+                    );
 
-              return (
-                <tr key={r.id || idx} className="hover:bg-slate-50/70">
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {idx + 1}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {r.etichetta ||
-                      r.description ||
-                      r.descrizione ||
-                      r.nome ||
-                      r.label ||
-                      r.prodotto ||
-                      `Riga ${idx + 1}`}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700 capitalize">
-                    {r.tipologia || "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {qty ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {formato != null ? formato.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {grad != null ? `${grad}%` : "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {prezzo != null ? prezzo.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {valuta}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {pesoNetto != null ? pesoNetto.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-3 py-2 align-middle text-slate-700">
-                    {pesoLordo != null ? pesoLordo.toFixed(2) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+                    return (
+                      <tr key={r.id || idx} className="hover:bg-slate-50/70">
+                        <td className="px-3 py-2 align-middle text-slate-700">{idx + 1}</td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {r.etichetta ||
+                            r.description ||
+                            r.descrizione ||
+                            r.nome ||
+                            r.label ||
+                            r.prodotto ||
+                            `Riga ${idx + 1}`}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700 capitalize">
+                          {r.tipologia || "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">{qty ?? "—"}</td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {formato != null ? formato.toFixed(2) : "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {grad != null ? `${grad}%` : "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {prezzo != null ? prezzo.toFixed(2) : "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">{valuta}</td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {pesoNetto != null ? pesoNetto.toFixed(2) : "—"}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-slate-700">
+                          {pesoLordo != null ? pesoLordo.toFixed(2) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
 
-          {/* Totali a piè di tabella */}
-          <tfoot className="bg-slate-50 text-[11px] text-slate-600">
-            <tr>
-              <td className="px-3 py-2 font-semibold" colSpan={3}>
-                Totali
-              </td>
-              <td className="px-3 py-2 font-semibold">
-                {plTotals.totalQty || "—"}
-              </td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 font-semibold">
-                {plTotals.totalNetKg.toFixed(2)} kg
-              </td>
-              <td className="px-3 py-2 font-semibold">
-                {plTotals.totalGrossKg.toFixed(2)} kg
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+                <tfoot className="bg-slate-50 text-[11px] text-slate-600">
+                  <tr>
+                    <td className="px-3 py-2 font-semibold" colSpan={3}>
+                      Totali
+                    </td>
+                    <td className="px-3 py-2 font-semibold">{plTotals.totalQty || "—"}</td>
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2 font-semibold">
+                      {plTotals.totalNetKg.toFixed(2)} kg
+                    </td>
+                    <td className="px-3 py-2 font-semibold">
+                      {plTotals.totalGrossKg.toFixed(2)} kg
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
 
-      {plNote && (
-        <p className="mt-2 text-[11px] text-slate-500">
-          Note: {plNote}
-        </p>
-      )}
-    </>
-  )}
-</section>
-
+            {plNote && <p className="mt-2 text-[11px] text-slate-500">Note: {plNote}</p>}
+          </>
+        )}
+      </section>
 
       {/* Documenti */}
       <section className="space-y-3 rounded-2xl border bg-white p-4">
@@ -939,9 +867,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
 
             <div className="space-y-2 text-xs">
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-600">
-                  Corriere
-                </label>
+                <label className="text-[11px] font-medium text-slate-600">Corriere</label>
                 <select
                   className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-slate-400 focus:outline-none"
                   value={carrierEdit}
@@ -958,9 +884,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-600">
-                  Numero di tracking
-                </label>
+                <label className="text-[11px] font-medium text-slate-600">Numero di tracking</label>
                 <input
                   type="text"
                   className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-slate-400 focus:outline-none"
@@ -977,21 +901,15 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
                   disabled={savingTracking}
                   className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
                 >
-                  {savingTracking && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  )}
+                  {savingTracking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Salva
                 </button>
-                {trackingMsg && (
-                  <span className="text-[11px] text-slate-500">
-                    {trackingMsg}
-                  </span>
-                )}
+                {trackingMsg && <span className="text-[11px] text-slate-500">{trackingMsg}</span>}
               </div>
 
               <p className="text-[11px] text-slate-500">
-                Questi dati vengono salvati sulla spedizione e saranno usati
-                successivamente per il tracking automatico.
+                Questi dati vengono salvati sulla spedizione e saranno usati successivamente per il
+                tracking automatico.
               </p>
             </div>
           </div>
@@ -1003,9 +921,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
             </div>
 
             <div className="space-y-1">
-              <div className="text-[11px] text-slate-500">
-                Email cliente salvata
-              </div>
+              <div className="text-[11px] text-slate-500">Email cliente salvata</div>
               <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-700">
                 {emailCliente}
               </div>
@@ -1023,8 +939,8 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
                 placeholder="Digita di nuovo l'email per conferma"
               />
               <p className="text-[11px] text-slate-500">
-                Per ragioni di sicurezza, l&apos;invio email è attivo solo se
-                l&apos;indirizzo inserito coincide con quello salvato.
+                Per ragioni di sicurezza, l&apos;invio email è attivo solo se l&apos;indirizzo
+                inserito coincide con quello salvato.
               </p>
             </div>
 
@@ -1038,15 +954,11 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
                   : "border-slate-900 bg-slate-900 text-white"
               }`}
             >
-              {sendingEmail && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              )}
+              {sendingEmail && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               <Mail className="h-3.5 w-3.5" />
               Invia mail &quot;Spedizione evasa&quot;
             </button>
-            {emailMsg && (
-              <p className="text-[11px] text-slate-500">{emailMsg}</p>
-            )}
+            {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
             <button
               type="button"
