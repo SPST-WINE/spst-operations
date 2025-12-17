@@ -23,7 +23,11 @@ type ShipmentRow = {
 };
 
 function norm(s?: string | null) {
-  return (s || "").toString().toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  return (s || "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
 }
 
 function formatDate(s?: string) {
@@ -104,9 +108,7 @@ export default function BackofficeSpedizioniClient() {
       {/* Toolbar */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-medium text-slate-700">
-            Spedizioni clienti
-          </span>
+          <span className="font-medium text-slate-700">Spedizioni clienti</span>
           <span className="h-1 w-1 rounded-full bg-slate-300" />
           <span>
             {filtered.length} su {rows.length} spedizioni
@@ -152,6 +154,7 @@ export default function BackofficeSpedizioniClient() {
               <th className="px-3 py-2 text-right">Azioni</th>
             </tr>
           </thead>
+
           <tbody className="divide-y divide-slate-100">
             {loading && rows.length === 0 ? (
               <tr>
@@ -173,9 +176,7 @@ export default function BackofficeSpedizioniClient() {
                 const mittente = [r.mittente_citta, r.mittente_paese]
                   .filter(Boolean)
                   .join(", ");
-                const dest = [r.dest_citta, r.dest_paese]
-                  .filter(Boolean)
-                  .join(", ");
+                const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(", ");
                 const colli = [
                   typeof r.colli_n === "number" ? `${r.colli_n}` : "—",
                   r.formato_sped,
@@ -187,55 +188,61 @@ export default function BackofficeSpedizioniClient() {
                   <tr key={r.id} className="hover:bg-slate-50/70">
                     <td className="px-3 py-2 align-middle">
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                        {/* ICONA: pacco grigio | pallet arancione */}
+                        <span
+                          className={[
+                            "inline-flex h-7 w-7 items-center justify-center rounded-lg",
+                            isPallet
+                              ? "bg-orange-50 text-spst-orange border border-orange-200"
+                              : "bg-slate-100 text-slate-700",
+                          ].join(" ")}
+                        >
                           {isPallet ? (
                             <Boxes className="h-4 w-4" />
                           ) : (
                             <Package className="h-4 w-4" />
                           )}
                         </span>
+
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900">
-                            {ref}
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            ID interno: {r.id}
-                          </span>
+                          <span className="font-semibold text-slate-900">{ref}</span>
+                          <span className="text-[11px] text-slate-500">ID interno: {r.id}</span>
                         </div>
                       </div>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
                       <span className="text-[11px] text-slate-700">{email}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
                       <span className="text-[11px] text-slate-700">{mittente || "—"}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
                       <span className="text-[11px] text-slate-700">{dest || "—"}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
                       <span className="text-[11px] text-slate-700">{colli}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">
-                        {r.tipo_spedizione || "—"}
-                      </span>
+                      <span className="text-[11px] text-slate-700">{r.tipo_spedizione || "—"}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">
-                        {r.incoterm || "—"}
-                      </span>
+                      <span className="text-[11px] text-slate-700">{r.incoterm || "—"}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">
-                        {r.status || "—"}
-                      </span>
+                      <span className="text-[11px] text-slate-700">{r.status || "—"}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">
-                        {formatDate(r.created_at)}
-                      </span>
+                      <span className="text-[11px] text-slate-700">{formatDate(r.created_at)}</span>
                     </td>
+
                     <td className="px-3 py-2 align-middle text-right">
                       <Link
                         href={`/back-office/spedizioni/${r.id}`}
