@@ -1,18 +1,17 @@
 // app/dashboard/quotazioni/nuova/page.tsx
 "use client";
 
-export const dynamic = "force-dynamic";
-
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
 import RitiroCard from "@/components/nuova/RitiroCard";
-import { createClient } from "@supabase/supabase-js";
 import { Select } from "@/components/nuova/Field";
+
+import { createClient } from "@supabase/supabase-js";
 import { postPreventivo } from "@/lib/api";
-import { getIdToken } from "@/lib/firebase-client-auth";
 
 // ------------------------------------------------------------
 // Supabase client (riusiamo sempre lo stesso) — come /nuova/vino
@@ -190,6 +189,16 @@ function newSessionToken() {
 }
 
 // ------------------------------------------------------------
+// Auth helper (✅ NO Firebase) — usa Supabase session access_token
+// ------------------------------------------------------------
+async function getSupabaseAccessToken() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token || "";
+}
+
+// ------------------------------------------------------------
 // Helpers UI/validation
 // ------------------------------------------------------------
 function isPhoneValid(raw?: string) {
@@ -200,19 +209,22 @@ function isPhoneValid(raw?: string) {
 
 function setPartyFieldErrorBorder(el: HTMLElement | null, on: boolean) {
   if (!el) return;
-  if (on) el.classList.add("ring-2", "ring-rose-300", "border-rose-300");
-  else el.classList.remove("ring-2", "ring-rose-300", "border-rose-300");
+  if (on) {
+    el.classList.add("ring-2", "ring-rose-300", "border-rose-300");
+  } else {
+    el.classList.remove("ring-2", "ring-rose-300", "border-rose-300");
+  }
 }
 
 // ------------------------------------------------------------
-// ✅ Wrapper con Suspense (FIX BUILD) — come /nuova/vino
+// ✅ Wrapper con Suspense (fix deploy: useSearchParams)
 // ------------------------------------------------------------
 export default function NuovaQuotazionePage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-3">
-          <h1 className="text-2xl font-semibold text-slate-800">Nuova quotazione</h1>
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold">Nuova quotazione</h2>
           <div className="text-sm text-slate-500">Caricamento…</div>
         </div>
       }
@@ -223,7 +235,7 @@ export default function NuovaQuotazionePage() {
 }
 
 // ------------------------------------------------------------
-// Inner: qui dentro possiamo usare useSearchParams()
+// Page (inner)
 // ------------------------------------------------------------
 function NuovaQuotazionePageInner() {
   const router = useRouter();
@@ -327,7 +339,10 @@ function NuovaQuotazionePageInner() {
   }, [forcedEmail]);
 
   // ------------------------------------------------------------
-  // Autocomplete (stessa logica /nuova/vino)
+  // Autocomplete (stessa logica /nuova/vino) — si aggancia ai data attr
+  // PartyCard deve rendere l'input indirizzo con:
+  //  - data-gmaps="indirizzo-mittente"
+  //  - data-gmaps="indirizzo-destinatario"
   // ------------------------------------------------------------
   const attachPlacesToInput = useCallback(
     (input: HTMLInputElement, who: "mittente" | "destinatario") => {
@@ -427,6 +442,7 @@ function NuovaQuotazionePageInner() {
         if (!sel) return;
         close();
 
+        // hint UX (PartyCard è controlled)
         input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
 
         const details = await fetchPlaceDetails(sel.id, session);
@@ -444,8 +460,12 @@ function NuovaQuotazionePageInner() {
           } catch {}
         }
 
-        if (who === "mittente") setMittente((prev) => ({ ...prev, ...addr }));
-        else setDestinatario((prev) => ({ ...prev, ...addr }));
+        log.info("fill →", who, addr);
+        if (who === "mittente") {
+          setMittente((prev) => ({ ...prev, ...addr }));
+        } else {
+          setDestinatario((prev) => ({ ...prev, ...addr }));
+        }
       };
 
       const onInput = async () => {
@@ -535,27 +555,37 @@ function NuovaQuotazionePageInner() {
     };
   }, [attachPlacesToInput]);
 
+  // ------------------------------------------------------------
+  // Validazione
+  // ------------------------------------------------------------
   function validate(): string[] {
     const errs: string[] = [];
 
-    if (!mittente.ragioneSociale?.trim()) errs.push("Mittente: ragione sociale obbligatoria.");
+    // Mittente
+    if (!mittente.ragioneSociale?.trim())
+      errs.push("Mittente: ragione sociale obbligatoria.");
     if (!mittente.indirizzo?.trim()) errs.push("Mittente: indirizzo obbligatorio.");
     if (!mittente.cap?.trim()) errs.push("Mittente: CAP obbligatorio.");
     if (!mittente.citta?.trim()) errs.push("Mittente: città obbligatoria.");
     if (!mittente.paese?.trim()) errs.push("Mittente: paese obbligatorio.");
     if (!mittente.piva?.trim()) errs.push("Mittente: P.IVA/CF obbligatoria.");
     if (!isPhoneValid(mittente.telefono))
-      errs.push("Mittente: telefono obbligatorio in formato internazionale (es. +393201441789).");
+      errs.push(
+        "Mittente: telefono obbligatorio in formato internazionale (es. +393201441789)."
+      );
 
+    // Destinatario
     if (!destinatario.ragioneSociale?.trim())
       errs.push("Destinatario: ragione sociale obbligatoria.");
-    if (!destinatario.indirizzo?.trim()) errs.push("Destinatario: indirizzo obbligatorio.");
+    if (!destinatario.indirizzo?.trim())
+      errs.push("Destinatario: indirizzo obbligatorio.");
     if (!destinatario.cap?.trim()) errs.push("Destinatario: CAP obbligatorio.");
     if (!destinatario.citta?.trim()) errs.push("Destinatario: città obbligatoria.");
     if (!destinatario.paese?.trim()) errs.push("Destinatario: paese obbligatorio.");
     if (!isPhoneValid(destinatario.telefono))
       errs.push("Destinatario: telefono obbligatorio in formato internazionale.");
 
+    // Colli
     const invalidColli = colli.some(
       (c) =>
         c.lunghezza_cm == null ||
@@ -569,17 +599,22 @@ function NuovaQuotazionePageInner() {
     );
     if (invalidColli) errs.push("Colli: inserisci misure e pesi > 0 per ogni collo.");
 
+    // Ritiro
     if (!ritiroData) errs.push("Ritiro: seleziona il giorno di ritiro.");
 
+    // Pallet + assicurazione => valore
     if (formato === "Pallet" && assicurazioneAttiva) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
-        errs.push("Assicurazione: valore assicurato mancante/non valido (assicurazione attiva).");
+        errs.push(
+          "Assicurazione: valore assicurato mancante/non valido (assicurazione attiva)."
+        );
       }
     }
 
     return errs;
   }
 
+  // Evidenzia card obbligatorie
   useEffect(() => {
     const has = (prefix: string) => errors.some((e) => e.startsWith(prefix));
     const mittCard = document.querySelector<HTMLElement>('[data-card="mittente"]');
@@ -638,8 +673,10 @@ function NuovaQuotazionePageInner() {
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
           tipoSped,
           incoterm,
+
+          // (formato/contenuto/assicurazione/valore) li aggiungeremo quando estendi backend quote
         },
-        getIdToken
+        getSupabaseAccessToken // ✅ NO Firebase
       );
 
       setOk({ id: res?.id, displayId: res?.displayId });
@@ -652,14 +689,16 @@ function NuovaQuotazionePageInner() {
     }
   }
 
+  // ------------------------------------------------------------
+  // Success UI
+  // ------------------------------------------------------------
   if (ok?.id) {
     return (
       <div ref={topRef} className="space-y-4">
         <h2 className="text-lg font-semibold">Quotazione inviata</h2>
         <div className="rounded-2xl border bg-white p-4">
           <p className="text-sm">
-            ID preventivo:{" "}
-            <span className="font-mono">{ok.displayId || ok.id}</span>
+            ID preventivo: <span className="font-mono">{ok.displayId || ok.id}</span>
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
@@ -680,6 +719,9 @@ function NuovaQuotazionePageInner() {
     );
   }
 
+  // ------------------------------------------------------------
+  // Form UI
+  // ------------------------------------------------------------
   return (
     <div ref={topRef} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -694,8 +736,8 @@ function NuovaQuotazionePageInner() {
 
       {!!errors.length && (
         <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
-          <div className="font-medium mb-1">Controlla questi campi:</div>
-          <ul className="list-disc ml-5 space-y-1">
+          <div className="mb-1 font-medium">Controlla questi campi:</div>
+          <ul className="ml-5 list-disc space-y-1">
             {errors.map((e, i) => (
               <li key={i}>{e}</li>
             ))}
@@ -703,6 +745,7 @@ function NuovaQuotazionePageInner() {
         </div>
       )}
 
+      {/* Tipo spedizione con definizione chiara */}
       <div className="rounded-2xl border bg-white p-4">
         <Select
           label="Tipo spedizione"
@@ -716,6 +759,7 @@ function NuovaQuotazionePageInner() {
         />
       </div>
 
+      {/* Mittente / Destinatario (con gmapsTag + data-card per highlight) */}
       <div className="grid gap-4 md:grid-cols-2">
         <div data-card="mittente" className="rounded-2xl border bg-white p-4">
           <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
@@ -730,6 +774,7 @@ function NuovaQuotazionePageInner() {
         </div>
       </div>
 
+      {/* Colli / Contenuto */}
       <div data-card="colli" className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Colli e contenuto</h2>
         <ColliCard
@@ -747,44 +792,46 @@ function NuovaQuotazionePageInner() {
       </div>
 
       {/* Dettagli spedizione */}
-<div className="rounded-2xl border bg-white p-4">
-  <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
+      <div className="rounded-2xl border bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
 
-  {/* ✅ 50/50: Incoterm + Valuta */}
-  <div className="grid gap-3 md:grid-cols-2">
-    <Select
-      label="Incoterm"
-      value={incoterm}
-      onChange={(v) => setIncoterm(v as "DAP" | "DDP" | "EXW")}
-      options={[
-        {
-          label:
-            "DAP — Spedizione a carico del mittente, dazi e oneri doganali a carico del destinatario",
-          value: "DAP",
-        },
-        { label: "DDP — Tutto a carico del mittente", value: "DDP" },
-        { label: "EXW — Tutto a carico del destinatario", value: "EXW" },
-      ]}
-    />
+        {/* ✅ FIX UI: Incoterm + Valuta 50/50 (rimosso "spazio per campi extra") */}
+        <div className="grid gap-3 md:grid-cols-2">
+          <Select
+            label="Incoterm"
+            value={incoterm}
+            onChange={(v) => setIncoterm(v as "DAP" | "DDP" | "EXW")}
+            options={[
+              {
+                label:
+                  "DAP — Spedizione a carico del mittente, dazi e oneri doganali a carico del destinatario",
+                value: "DAP",
+              },
+              { label: "DDP — Tutto a carico del mittente", value: "DDP" },
+              { label: "EXW — Tutto a carico del destinatario", value: "EXW" },
+            ]}
+          />
 
-    <Select
-      label="Valuta"
-      value={valuta}
-      onChange={(v) => setValuta(v as "EUR" | "USD" | "GBP")}
-      options={[
-        { label: "EUR", value: "EUR" },
-        { label: "USD", value: "USD" },
-        { label: "GBP", value: "GBP" },
-      ]}
-    />
-  </div>
-</div>
+          <Select
+            label="Valuta"
+            value={valuta}
+            onChange={(v) => setValuta(v as "EUR" | "USD" | "GBP")}
+            options={[
+              { label: "EUR", value: "EUR" },
+              { label: "USD", value: "USD" },
+              { label: "GBP", value: "GBP" },
+            ]}
+          />
+        </div>
+      </div>
 
+      {/* Ritiro */}
       <div data-card="ritiro" className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
         <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
       </div>
 
+      {/* Note */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Note</h2>
         <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -799,13 +846,14 @@ function NuovaQuotazionePageInner() {
         />
       </div>
 
+      {/* CTA */}
       <div className="flex justify-end">
         <button
           type="button"
           onClick={salva}
           disabled={saving}
           aria-busy={saving}
-          className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+          className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
