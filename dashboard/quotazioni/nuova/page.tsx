@@ -41,13 +41,19 @@ export default function NuovaQuotazionePage() {
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState<string>("");
 
-  // ✅ NEW: richiesto da ColliCard Props
+  // ✅ richiesto da ColliCard Props
   const [assicurazioneAttiva, setAssicurazioneAttiva] = useState<boolean>(false);
 
-  // Se non è Pallet, spegniamo l’assicurazione (evita stati incoerenti)
+  // ✅ NEW: valore assicurato (EUR) — richiesto da ColliCard
+  const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
+
+  // ✅ auto-reset se torno a Pacco
   useEffect(() => {
-    if (formato !== "Pallet" && assicurazioneAttiva) setAssicurazioneAttiva(false);
-  }, [formato, assicurazioneAttiva]);
+    if (formato !== "Pallet") {
+      if (assicurazioneAttiva) setAssicurazioneAttiva(false);
+      if (valoreAssicurato != null) setValoreAssicurato(null);
+    }
+  }, [formato, assicurazioneAttiva, valoreAssicurato]);
 
   // Dettagli spedizione
   const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
@@ -107,6 +113,13 @@ export default function NuovaQuotazionePage() {
     );
     if (invalid) errs.push("Inserisci misure e pesi > 0 per ogni collo.");
 
+    // ✅ opzionale ma consigliato: se pallet + assicurazione ON, valore assicurato obbligatorio > 0
+    if (formato === "Pallet" && assicurazioneAttiva) {
+      if (valoreAssicurato == null || valoreAssicurato <= 0) {
+        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
+      }
+    }
+
     return errs;
   }
 
@@ -123,8 +136,8 @@ export default function NuovaQuotazionePage() {
 
     setSaving(true);
     try {
-      // ⚠️ Se il tuo postPreventivo tipizzato non accetta formato/contenuto/assicurazione
-      // NON passarli qui, oppure aggiorna i tipi + backend.
+      // ⚠️ postPreventivo tipizzato: NON aggiungere qui formato/contenuto/assicurazione/valore
+      // finché non estendi QuoteCreatePayload + backend.
       const res: any = await postPreventivo(
         {
           mittente: {
@@ -151,14 +164,12 @@ export default function NuovaQuotazionePage() {
             larghezza_cm: c.larghezza_cm ?? null,
             altezza_cm: c.altezza_cm ?? null,
             peso_kg: c.peso_kg ?? null,
-            // se vuoi: contenuto per collo lo puoi mettere nel fields del backend
           })),
           valuta,
           noteGeneriche: note,
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
           tipoSped,
           incoterm,
-          // ❌ NON aggiungere qui formato/contenuto/assicurazione se i tipi non lo prevedono
         },
         getIdToken
       );
@@ -247,9 +258,10 @@ export default function NuovaQuotazionePage() {
           setFormato={setFormato}
           contenuto={contenuto}
           setContenuto={setContenuto}
-          // ✅ FIX build
           assicurazioneAttiva={assicurazioneAttiva}
           setAssicurazioneAttiva={setAssicurazioneAttiva}
+          valoreAssicurato={valoreAssicurato}
+          setValoreAssicurato={setValoreAssicurato}
         />
       </div>
 
