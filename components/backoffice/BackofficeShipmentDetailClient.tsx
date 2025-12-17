@@ -68,6 +68,8 @@ type ShipmentDetail = {
   formato_sped?: string | null;
   contenuto_generale?: string | null;
   dest_abilitato_import?: boolean | null;
+  declared_value?: number | null; // valore assicurato (EUR)
+
 
   attachments?: {
     ldv?: AttachmentInfo;
