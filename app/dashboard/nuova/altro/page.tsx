@@ -105,7 +105,7 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = "it") {
   const search = (arr: any[]) => {
     for (const r of arr || []) {
       const c = (r.address_components || []).find((x: any) =>
-        x.types?.includes("postal_code")
+        x.types?.includes("postal_code"),
       );
       if (c) return c.long_name || c.short_name || "";
     }
@@ -136,7 +136,10 @@ function parseAddressFromDetails(d: any) {
 
   const line = [
     route?.shortText || route?.longText || route?.short_name || route?.long_name,
-    streetNr?.shortText || streetNr?.longText || streetNr?.short_name || streetNr?.long_name,
+    streetNr?.shortText ||
+      streetNr?.longText ||
+      streetNr?.short_name ||
+      streetNr?.long_name,
     premise?.longText || premise?.long_name,
   ]
     .filter(Boolean)
@@ -170,13 +173,17 @@ function newSessionToken() {
 async function createShipmentWithAuth(payload: any) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
 
-  const [{ data: { user } }, { data: { session } }] = await Promise.all([
-    supabase.auth.getUser(),
-    supabase.auth.getSession(),
-  ]);
+  const [
+    {
+      data: { user },
+    },
+    {
+      data: { session },
+    },
+  ] = await Promise.all([supabase.auth.getUser(), supabase.auth.getSession()]);
 
   const email = user?.email ?? null;
   const token = session?.access_token ?? null;
@@ -204,11 +211,11 @@ async function createShipmentWithAuth(payload: any) {
 async function uploadShipmentDocument(
   shipmentId: string,
   file: File,
-  docType: "fattura_commerciale"
+  docType: "fattura_commerciale",
 ) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
 
   const safeName = file.name.replace(/\s+/g, "-");
@@ -243,7 +250,7 @@ async function uploadShipmentDocument(
 }
 
 // ------------------------------------------------------------
-// WRAPPER CON SUSPENSE (come pagina vino)
+// WRAPPER CON SUSPENSE
 // ------------------------------------------------------------
 export default function NuovaAltroPage() {
   return (
@@ -261,7 +268,7 @@ export default function NuovaAltroPage() {
 }
 
 // ------------------------------------------------------------
-// COMPONENTE PAGINA (tutta la tua logica qui dentro)
+// COMPONENTE PAGINA
 // ------------------------------------------------------------
 function NuovaAltroPageInner() {
   const router = useRouter();
@@ -273,26 +280,25 @@ function NuovaAltroPageInner() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // PREFILL MITTENTE — identico alla pagina VINO
+  // PREFILL MITTENTE
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const supabase = createClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         );
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         const email = user?.email || "info@spst.it";
 
-        const res = await fetch(
-          `/api/impostazioni?email=${encodeURIComponent(email)}`,
-          {
-            cache: "no-store",
-            headers: { "x-spst-email": email },
-          }
-        );
+        const res = await fetch(`/api/impostazioni?email=${encodeURIComponent(email)}`, {
+          cache: "no-store",
+          headers: { "x-spst-email": email },
+        });
 
         const json = await res.json().catch(() => null);
         if (!json?.ok || cancelled) return;
@@ -326,15 +332,17 @@ function NuovaAltroPageInner() {
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState("");
 
-  // ✅ NEW: assicurazione pallet
+  // ✅ assicurazione + ✅ NEW valore assicurato
   const [assicurazionePallet, setAssicurazionePallet] = useState(false);
+  const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
 
   // ✅ auto-reset se non è pallet
   useEffect(() => {
-    if (formato !== "Pallet" && assicurazionePallet) {
-      setAssicurazionePallet(false);
+    if (formato !== "Pallet") {
+      if (assicurazionePallet) setAssicurazionePallet(false);
+      if (valoreAssicurato != null) setValoreAssicurato(null);
     }
-  }, [formato, assicurazionePallet]);
+  }, [formato, assicurazionePallet, valoreAssicurato]);
 
   // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>();
@@ -389,9 +397,17 @@ function NuovaAltroPageInner() {
 
     if (!ritiroData) errs.push("Giorno ritiro mancante.");
 
+    // opzionale: se assicurazione ON e valore mancante
+    if (formato === "Pallet" && assicurazionePallet) {
+      if (valoreAssicurato == null || valoreAssicurato <= 0) {
+        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
+      }
+    }
+
     const fatt = sameAsDest ? destinatario : fatturazione;
     if (!fatturaFile) {
-      if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
+      if (!fatt.ragioneSociale?.trim())
+        errs.push("Ragione sociale fattura mancante.");
       if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim())
         errs.push("PIVA obbligatoria per B2B/Sample.");
     }
@@ -400,7 +416,7 @@ function NuovaAltroPageInner() {
   }
 
   // ------------------------------------------------------------
-  // SALVATAGGIO (identico a pagina vino)
+  // SALVATAGGIO
   // ------------------------------------------------------------
   const salva = async () => {
     if (saving) return;
@@ -421,7 +437,13 @@ function NuovaAltroPageInner() {
         destAbilitato,
         contenuto,
         formato,
-        assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false, // ✅ NEW
+
+        // ✅ NEW
+        assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+        valoreAssicurato: formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+        declared_value:
+          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+
         ritiroData: ritiroData ? ritiroData.toISOString() : null,
         ritiroNote,
         mittente,
@@ -436,16 +458,13 @@ function NuovaAltroPageInner() {
         colli,
       };
 
-      // 1. Creazione spedizione
       const created = await createShipmentWithAuth(payload);
       const shipmentId = created?.id;
 
-      // 2. Upload fattura commerciale
       if (shipmentId && fatturaFile) {
         await uploadShipmentDocument(shipmentId, fatturaFile, "fattura_commerciale");
       }
 
-      // 3. Successo
       const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
 
       setSuccess({
@@ -559,7 +578,8 @@ function NuovaAltroPageInner() {
 
       const highlight = () => {
         Array.from(ul.children).forEach((el, i) => {
-          (el as HTMLElement).style.background = i === activeIndex ? "#f1f5f9" : "transparent";
+          (el as HTMLElement).style.background =
+            i === activeIndex ? "#f1f5f9" : "transparent";
         });
       };
 
@@ -656,7 +676,7 @@ function NuovaAltroPageInner() {
 
       log.info("attach →", who, input);
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -664,10 +684,10 @@ function NuovaAltroPageInner() {
 
     const attachAll = () => {
       const mitt = document.querySelector<HTMLInputElement>(
-        'input[data-gmaps="indirizzo-mittente"]'
+        'input[data-gmaps="indirizzo-mittente"]',
       );
       const dest = document.querySelector<HTMLInputElement>(
-        'input[data-gmaps="indirizzo-destinatario"]'
+        'input[data-gmaps="indirizzo-destinatario"]',
       );
       if (mitt) attachPlacesToInput(mitt, "mittente");
       if (dest) attachPlacesToInput(dest, "destinatario");
@@ -682,7 +702,7 @@ function NuovaAltroPageInner() {
       mo.disconnect();
       document
         .querySelectorAll<HTMLInputElement>(
-          'input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]'
+          'input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]',
         )
         .forEach((el) => {
           const d: any = el as any;
@@ -696,12 +716,11 @@ function NuovaAltroPageInner() {
   // ------------------------------------------------------------
   if (success) {
     const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
-
     const WHATSAPP_URL_BASE =
       process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
-      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
+      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`,
     )}`;
 
     return (
@@ -722,7 +741,8 @@ function NuovaAltroPageInner() {
               <span className="text-slate-500">Incoterm:</span> {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? "—"}
+              <span className="text-slate-500">Data ritiro:</span>{" "}
+              {success.dataRitiro ?? "—"}
             </div>
             <div>
               <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
@@ -779,8 +799,8 @@ function NuovaAltroPageInner() {
 
       {!!errors.length && (
         <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-          <div className="font-medium mb-1">Controlla questi campi:</div>
-          <ul className="list-disc ml-5 space-y-1">
+          <div className="mb-1 font-medium">Controlla questi campi:</div>
+          <ul className="ml-5 list-disc space-y-1">
             {errors.map((e, i) => (
               <li key={i}>{e}</li>
             ))}
@@ -788,7 +808,6 @@ function NuovaAltroPageInner() {
         </div>
       )}
 
-      {/* Tipo spedizione */}
       <div className="rounded-2xl border bg-white p-4">
         <Select
           label="Stai spedendo ad un privato? O ad una azienda?"
@@ -802,7 +821,6 @@ function NuovaAltroPageInner() {
         />
       </div>
 
-      {/* MITTENTE / DESTINATARIO */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
           <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
@@ -823,7 +841,6 @@ function NuovaAltroPageInner() {
         </div>
       </div>
 
-      {/* Colli */}
       <ColliCard
         colli={colli}
         onChange={setColli}
@@ -833,6 +850,8 @@ function NuovaAltroPageInner() {
         setContenuto={setContenuto}
         assicurazioneAttiva={assicurazionePallet}
         setAssicurazioneAttiva={setAssicurazionePallet}
+        valoreAssicurato={valoreAssicurato}
+        setValoreAssicurato={setValoreAssicurato}
       />
 
       <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
@@ -860,7 +879,7 @@ function NuovaAltroPageInner() {
           type="button"
           onClick={salva}
           disabled={saving}
-          className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 inline-flex items-center gap-2"
+          className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
         >
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
