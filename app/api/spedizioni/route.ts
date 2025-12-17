@@ -136,7 +136,10 @@ export async function GET(req: Request) {
     const q = (url.searchParams.get("q") || "").trim();
     const sort = url.searchParams.get("sort") || "created_desc";
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+    const limit = Math.min(
+      100,
+      Math.max(1, Number(url.searchParams.get("limit") || 20))
+    );
     const emailParam = url.searchParams.get("email");
 
     const SUPABASE_URL =
@@ -176,7 +179,7 @@ export async function GET(req: Request) {
     }) as any;
 
     let query = supa
-            .schema("spst")
+      .schema("spst")
       .from("shipments")
       .select(
         `
@@ -369,10 +372,7 @@ export async function POST(req: Request) {
     }));
 
     const colli_n: number | null = Array.isArray(colli) ? colli.length : null;
-    const pesoTot = colli.reduce(
-      (sum, c) => sum + (toNum(c?.peso) || 0),
-      0
-    );
+    const pesoTot = colli.reduce((sum, c) => sum + (toNum(c?.peso) || 0), 0);
     const peso_reale_kg =
       pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
 
@@ -404,8 +404,7 @@ export async function POST(req: Request) {
       body.mittente_ragione_sociale ??
       null;
 
-    const mittente_telefono =
-      mitt.telefono ?? body.mittente_telefono ?? null;
+    const mittente_telefono = mitt.telefono ?? body.mittente_telefono ?? null;
 
     const mittente_piva = mitt.piva ?? body.mittente_piva ?? null;
 
@@ -435,8 +434,7 @@ export async function POST(req: Request) {
       null;
 
     const fatt_piva = fatt.piva ?? body.fatt_piva ?? null;
-    const fatt_valuta =
-      (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
+    const fatt_valuta = (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
 
     // ── Attachments (legacy JSON in tabella) ──────────────────────
     const attachments = body.attachments ?? body.allegati ?? {};
@@ -452,6 +450,24 @@ export async function POST(req: Request) {
     const allegato2 = att(attachments.allegato2 ?? body.allegato2);
     const allegato3 = att(attachments.allegato3 ?? body.allegato3);
     const allegato4 = att(attachments.allegato4 ?? body.allegato4);
+
+    // ── Assicurazione (NEW) ───────────────────────────────────────
+    const insuranceRequested = Boolean(
+      body.assicurazioneAttiva ??
+        body.assicurazione_pallet ??
+        body.insurance_requested ??
+        body?.fields?.insurance_requested
+    );
+
+    // Se hai un campo valore assicurato nel form, leggilo qui.
+    // Supportiamo vari alias per non vincolarti lato client.
+    const insuranceValueEur =
+      toNum(
+        body.valoreAssicurato ??
+          body.valore_assicurato ??
+          body.insurance_value_eur ??
+          body.insuranceValueEur
+      ) ?? null;
 
     // ── Fields “raw” salvati in JSONB ─────────────────────────────
     const fieldsSafe = (() => {
@@ -498,6 +514,10 @@ export async function POST(req: Request) {
       return clone;
     })();
 
+    // Salviamo sempre i flag assicurazione nel JSONB (così li vedi nel BO e nei log)
+    (fieldsSafe as any).insurance_requested = insuranceRequested;
+    (fieldsSafe as any).insurance_value_eur = insuranceValueEur;
+
     // ── Row principale per spst.shipments ─────────────────────────
     const baseRow: any = {
       email_cliente: emailRaw || null,
@@ -535,7 +555,9 @@ export async function POST(req: Request) {
       service_code: body.service_code ?? null,
       pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
-      declared_value: toNum(body.declared_value),
+      declared_value: insuranceRequested
+        ? (insuranceValueEur ?? toNum(body.declared_value))
+        : toNum(body.declared_value),
       status: body.status ?? "draft",
 
       fields: fieldsSafe,
@@ -561,7 +583,7 @@ export async function POST(req: Request) {
       const human_id = await nextHumanIdForToday(supabaseSrv);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await supaAny
+      const { data, error } = await (supaAny as any)
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
@@ -603,15 +625,12 @@ export async function POST(req: Request) {
         weight_kg: toNum(c.peso ?? c.peso_kg),
         fields: c,
       }));
-      const { error: pkgErr } = await supaAny
+      const { error: pkgErr } = await (supaAny as any)
         .schema("spst")
         .from("packages")
         .insert(pkgs);
       if (pkgErr)
-        console.warn(
-          "[API/spedizioni] packages insert warning:",
-          pkgErr.message
-        );
+        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
     }
 
     const res = NextResponse.json({
