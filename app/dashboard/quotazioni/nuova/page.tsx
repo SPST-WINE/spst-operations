@@ -133,7 +133,6 @@ export default function NuovaQuotazionePage() {
             cap: mittente.cap,
             indirizzo: mittente.indirizzo,
             telefono: mittente.telefono || undefined,
-            // ✅ QuoteParty NON ha "piva": usa taxId
             taxId: mittente.piva || undefined,
           },
           destinatario: {
@@ -143,7 +142,6 @@ export default function NuovaQuotazionePage() {
             cap: destinatario.cap,
             indirizzo: destinatario.indirizzo,
             telefono: destinatario.telefono || undefined,
-            // ✅ QuoteParty NON ha "piva": usa taxId
             taxId: destinatario.piva || undefined,
           },
           colli: (colli || []).map((c) => ({
@@ -153,16 +151,11 @@ export default function NuovaQuotazionePage() {
             altezza_cm: c.altezza_cm ?? null,
             peso_kg: c.peso_kg ?? null,
           })),
-          valuta,
+          valuta, // 'EUR' | 'USD' | 'GBP'
           noteGeneriche: note,
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-          tipoSped,
-          incoterm,
-
-          // extra utili (se backend li ignora non fa danni)
-          formato,
-          contenuto,
-          assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false,
+          tipoSped, // 'B2B' | 'B2C' | 'Sample'
+          incoterm, // 'DAP' | 'DDP' | 'EXW'
         },
         getIdToken
       );
@@ -304,7 +297,12 @@ export default function NuovaQuotazionePage() {
       {/* Ritiro */}
       <div className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
-        <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
+        <RitiroCard
+          date={ritiroData}
+          setDate={setRitiroData}
+          note={ritiroNote}
+          setNote={setRitiroNote}
+        />
       </div>
 
       {/* Note */}
