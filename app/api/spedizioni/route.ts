@@ -182,9 +182,10 @@ export async function GET(req: Request) {
       .schema("spst")
       .from("shipments")
       .select(
-  `
+        `
   id,created_at,human_id,email_cliente,email_norm,
   tipo_spedizione,incoterm,giorno_ritiro,
+  carrier,tracking_code, -- ✅ NEW
   mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
   dest_paese,dest_citta,dest_cap,
   colli_n,peso_reale_kg,status,
@@ -197,8 +198,8 @@ export async function GET(req: Request) {
   allegato1,allegato2,allegato3,allegato4,
   packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
   `,
-  { count: "exact" }
-);
+        { count: "exact" }
+      );
 
     if (emailNorm) query = query.eq("email_norm", emailNorm);
 
@@ -206,6 +207,8 @@ export async function GET(req: Request) {
       query = query.or(
         [
           `human_id.ilike.%${q}%`,
+          `tracking_code.ilike.%${q}%`, // ✅ NEW
+          `carrier.ilike.%${q}%`, // ✅ NEW
           `dest_citta.ilike.%${q}%`,
           `dest_paese.ilike.%${q}%`,
           `mittente_citta.ilike.%${q}%`,
@@ -244,9 +247,15 @@ export async function GET(req: Request) {
       human_id: r.human_id,
       email_cliente: r.email_cliente,
       email_norm: r.email_norm,
+
       tipo_spedizione: r.tipo_spedizione,
       incoterm: r.incoterm,
       giorno_ritiro: r.giorno_ritiro,
+
+      // ✅ NEW
+      carrier: r.carrier ?? null,
+      tracking_code: r.tracking_code ?? null,
+
       mittente_paese: r.mittente_paese,
       mittente_citta: r.mittente_citta,
       mittente_cap: r.mittente_cap,
@@ -267,10 +276,7 @@ export async function GET(req: Request) {
       fatt_piva: r.fatt_piva,
       fatt_valuta: r.fatt_valuta,
       formato_sped:
-  r.formato_sped ??
-  r.fields?.formato ??
-  r.fields?.formato_sped ??
-  null,
+        r.formato_sped ?? r.fields?.formato ?? r.fields?.formato_sped ?? null,
       contenuto_generale: r.contenuto_generale,
       dest_abilitato_import: r.dest_abilitato_import,
       attachments: {
@@ -439,7 +445,8 @@ export async function POST(req: Request) {
       null;
 
     const fatt_piva = fatt.piva ?? body.fatt_piva ?? null;
-    const fatt_valuta = (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
+    const fatt_valuta =
+      (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
 
     // ── Attachments (legacy JSON in tabella) ──────────────────────
     const attachments = body.attachments ?? body.allegati ?? {};
@@ -519,7 +526,7 @@ export async function POST(req: Request) {
       return clone;
     })();
 
-    // Salviamo sempre i flag assicurazione nel JSONB (così li vedi nel BO e nei log)
+    // Salviamo sempre i flag assicurazione nel JSONB
     (fieldsSafe as any).insurance_requested = insuranceRequested;
     (fieldsSafe as any).insurance_value_eur = insuranceValueEur;
 
