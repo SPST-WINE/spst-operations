@@ -746,45 +746,39 @@ function NuovaQuotazionePageInner() {
         />
       </div>
 
-      <div className="rounded-2xl border bg-white p-4">
-        <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
+      {/* Dettagli spedizione */}
+<div className="rounded-2xl border bg-white p-4">
+  <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <Select
-              label="Incoterm"
-              value={incoterm}
-              onChange={(v) => setIncoterm(v as "DAP" | "DDP" | "EXW")}
-              options={[
-                {
-                  label:
-                    "DAP — Spedizione a carico del mittente, dazi e oneri doganali a carico del destinatario",
-                  value: "DAP",
-                },
-                { label: "DDP — Tutto a carico del mittente", value: "DDP" },
-                { label: "EXW — Tutto a carico del destinatario", value: "EXW" },
-              ]}
-            />
-          </div>
+  {/* ✅ 50/50: Incoterm + Valuta */}
+  <div className="grid gap-3 md:grid-cols-2">
+    <Select
+      label="Incoterm"
+      value={incoterm}
+      onChange={(v) => setIncoterm(v as "DAP" | "DDP" | "EXW")}
+      options={[
+        {
+          label:
+            "DAP — Spedizione a carico del mittente, dazi e oneri doganali a carico del destinatario",
+          value: "DAP",
+        },
+        { label: "DDP — Tutto a carico del mittente", value: "DDP" },
+        { label: "EXW — Tutto a carico del destinatario", value: "EXW" },
+      ]}
+    />
 
-          <div>
-            <Select
-              label="Valuta"
-              value={valuta}
-              onChange={(v) => setValuta(v as "EUR" | "USD" | "GBP")}
-              options={[
-                { label: "EUR", value: "EUR" },
-                { label: "USD", value: "USD" },
-                { label: "GBP", value: "GBP" },
-              ]}
-            />
-          </div>
-
-          <div className="h-full rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-[12px] text-slate-500 flex items-center">
-            (Spazio per campi extra)
-          </div>
-        </div>
-      </div>
+    <Select
+      label="Valuta"
+      value={valuta}
+      onChange={(v) => setValuta(v as "EUR" | "USD" | "GBP")}
+      options={[
+        { label: "EUR", value: "EUR" },
+        { label: "USD", value: "USD" },
+        { label: "GBP", value: "GBP" },
+      ]}
+    />
+  </div>
+</div>
 
       <div data-card="ritiro" className="rounded-2xl border bg-white p-4">
         <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
