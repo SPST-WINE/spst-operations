@@ -9,8 +9,9 @@ import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
 import RitiroCard from "@/components/nuova/RitiroCard";
 
-import { getUserProfile, postPreventivo } from "@/lib/api";
+import { getUserProfile } from "@/lib/api";
 import { getIdToken } from "@/lib/firebase-client-auth";
+import { postPreventivo } from "@/lib/api";
 
 const blankParty: Party = {
   ragioneSociale: "",
@@ -27,7 +28,7 @@ export default function NuovaQuotazionePage() {
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
 
-  // email utente (da profilo)
+  // email (dal profilo)
   const [email, setEmail] = useState<string>("");
 
   // Parti
@@ -38,19 +39,16 @@ export default function NuovaQuotazionePage() {
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
-
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState<string>("");
 
-  // ✅ Assicurazione (richiesta da ColliCard + riconosciuta da /api/spedizioni)
-  const [assicurazioneAttiva, setAssicurazioneAttiva] = useState(false);
+  // Assicurazione (richiesta da ColliCard)
+  const [assicurazionePallet, setAssicurazionePallet] = useState(false);
 
-  // ✅ reset assicurazione se torno a "Pacco"
+  // Reset assicurazione se non Pallet
   useEffect(() => {
-    if (formato !== "Pallet" && assicurazioneAttiva) {
-      setAssicurazioneAttiva(false);
-    }
-  }, [formato, assicurazioneAttiva]);
+    if (formato !== "Pallet" && assicurazionePallet) setAssicurazionePallet(false);
+  }, [formato, assicurazionePallet]);
 
   // Dettagli spedizione
   const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
@@ -72,29 +70,25 @@ export default function NuovaQuotazionePage() {
   // Prefill mittente da profilo & email utente
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       try {
         const r = await getUserProfile(getIdToken);
-        if (cancelled) return;
-
-        if (r?.ok) {
+        if (!cancelled && r?.ok) {
           if (r.email) setEmail(r.email);
           if (r.party) setMittente((prev) => ({ ...prev, ...r.party }));
         }
       } catch {
-        // Ignora: utente compila a mano
+        // Ignora, utente compila a mano
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, []);
 
+  // Validazione minima per la quotazione
   function validate(): string[] {
     const errs: string[] = [];
-
     if (!mittente.ragioneSociale?.trim())
       errs.push("Inserisci la ragione sociale del mittente.");
     if (!destinatario.ragioneSociale?.trim())
@@ -130,22 +124,8 @@ export default function NuovaQuotazionePage() {
 
     setSaving(true);
     try {
-      // ✅ Contenuto: lo mettiamo anche dentro ogni collo così l'API lo salva nei packages.fields
-      const colliPayload = (colli || []).map((c) => ({
-        quantita: 1,
-        lunghezza_cm: c.lunghezza_cm ?? null,
-        larghezza_cm: c.larghezza_cm ?? null,
-        altezza_cm: c.altezza_cm ?? null,
-        peso_kg: c.peso_kg ?? null,
-        // alias supportati dal tuo API: c.contenuto oppure c.contenuto_colli
-        contenuto: contenuto?.trim() ? contenuto.trim() : null,
-      }));
-
       const res: any = await postPreventivo(
         {
-          // ✅ IMPORTANTISSIMO: la tua API legge body.email / body.email_cliente
-          email: email || undefined,
-
           mittente: {
             ragioneSociale: mittente.ragioneSociale,
             paese: mittente.paese,
@@ -153,10 +133,9 @@ export default function NuovaQuotazionePage() {
             cap: mittente.cap,
             indirizzo: mittente.indirizzo,
             telefono: mittente.telefono || undefined,
-            piva: mittente.piva || undefined,
+            // ✅ QuoteParty NON ha "piva": usa taxId
             taxId: mittente.piva || undefined,
           },
-
           destinatario: {
             ragioneSociale: destinatario.ragioneSociale,
             paese: destinatario.paese,
@@ -164,44 +143,35 @@ export default function NuovaQuotazionePage() {
             cap: destinatario.cap,
             indirizzo: destinatario.indirizzo,
             telefono: destinatario.telefono || undefined,
-            piva: destinatario.piva || undefined,
+            // ✅ QuoteParty NON ha "piva": usa taxId
             taxId: destinatario.piva || undefined,
           },
-
-          colli: colliPayload,
-
+          colli: (colli || []).map((c) => ({
+            quantita: 1,
+            lunghezza_cm: c.lunghezza_cm ?? null,
+            larghezza_cm: c.larghezza_cm ?? null,
+            altezza_cm: c.altezza_cm ?? null,
+            peso_kg: c.peso_kg ?? null,
+          })),
           valuta,
+          noteGeneriche: note,
+          ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
           tipoSped,
           incoterm,
 
-          // Ritiro
-          ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-          ritiroNote: ritiroNote || undefined,
-
-          // Note
-          noteGeneriche: note || undefined,
-
-          // ✅ Questi finiscono in fields JSONB (e li vedi nel BO/log)
+          // extra utili (se backend li ignora non fa danni)
           formato,
-          contenuto: contenuto || undefined,
-
-          // ✅ Nome campo riconosciuto dalla tua API
-          assicurazioneAttiva: formato === "Pallet" ? assicurazioneAttiva : false,
+          contenuto,
+          assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false,
         },
         getIdToken
       );
 
-      // la tua API spesso ritorna { ok:true, shipment, id: human_id || id }
-      const displayId =
-        res?.shipment?.human_id || res?.shipment?.id || res?.id || undefined;
-      const internalId = res?.shipment?.id || res?.id || displayId;
-
-      setOk({ id: String(internalId), displayId: displayId ? String(displayId) : undefined });
+      setOk({ id: res?.id, displayId: res?.displayId });
       topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       console.error("Errore creazione preventivo", e);
       setErrors(["Errore durante la creazione della quotazione. Riprova."]);
-      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } finally {
       setSaving(false);
     }
@@ -250,8 +220,8 @@ export default function NuovaQuotazionePage() {
 
       {!!errors.length && (
         <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800">
-          <div className="mb-1 font-medium">Controlla questi campi:</div>
-          <ul className="ml-5 list-disc space-y-1">
+          <div className="font-medium mb-1">Controlla questi campi:</div>
+          <ul className="list-disc ml-5 space-y-1">
             {errors.map((e, i) => (
               <li key={i}>{e}</li>
             ))}
@@ -271,133 +241,85 @@ export default function NuovaQuotazionePage() {
         </div>
       </div>
 
-      {/* Colli */}
-      <div className="space-y-4">
-        <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">Colli</h2>
+      {/* Colli / Contenuto */}
+      <div className="rounded-2xl border bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-spst-blue">Colli e contenuto</h2>
+        <ColliCard
+          colli={colli}
+          onChange={setColli}
+          formato={formato}
+          setFormato={setFormato}
+          contenuto={contenuto}
+          setContenuto={setContenuto}
+          assicurazioneAttiva={assicurazionePallet}
+          setAssicurazioneAttiva={setAssicurazionePallet}
+        />
+      </div>
 
-          <ColliCard
-            colli={colli}
-            onChange={setColli}
-            formato={formato}
-            setFormato={setFormato}
-            contenuto={contenuto}
-            setContenuto={setContenuto}
-            // ✅ FIX: props obbligatorie che ti rompono il build
-            assicurazioneAttiva={assicurazioneAttiva}
-            setAssicurazioneAttiva={setAssicurazioneAttiva}
-          />
-        </div>
+      {/* Dettagli spedizione */}
+      <div className="rounded-2xl border bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-spst-blue">Dettagli spedizione</h2>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Tipo spedizione</label>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
+              value={tipoSped}
+              onChange={(e) => setTipoSped(e.target.value as "B2B" | "B2C" | "Sample")}
+            >
+              <option value="B2C">B2C</option>
+              <option value="B2B">B2B</option>
+              <option value="Sample">Sample</option>
+            </select>
+          </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Dettagli spedizione
-          </h2>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Incoterm</label>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
+              value={incoterm}
+              onChange={(e) => setIncoterm(e.target.value as "DAP" | "DDP" | "EXW")}
+            >
+              <option value="DAP">DAP</option>
+              <option value="DDP">DDP</option>
+              <option value="EXW">EXW</option>
+            </select>
+          </div>
 
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Valuta
-                </label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  value={valuta}
-                  onChange={(e) => setValuta(e.target.value as "EUR" | "USD" | "GBP")}
-                >
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Formato
-                </label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  value={formato}
-                  onChange={(e) => setFormato(e.target.value as "Pacco" | "Pallet")}
-                >
-                  <option value="Pacco">Pacco</option>
-                  <option value="Pallet">Pallet</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Tipo spedizione
-                </label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  value={tipoSped}
-                  onChange={(e) =>
-                    setTipoSped(e.target.value as "B2B" | "B2C" | "Sample")
-                  }
-                >
-                  <option value="B2B">B2B</option>
-                  <option value="B2C">B2C</option>
-                  <option value="Sample">Campionatura</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">
-                  Incoterm
-                </label>
-                <select
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
-                  value={incoterm}
-                  onChange={(e) => setIncoterm(e.target.value as "DAP" | "DDP" | "EXW")}
-                >
-                  <option value="DAP">DAP</option>
-                  <option value="DDP">DDP</option>
-                  <option value="EXW">EXW</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">
-                Contenuto merce
-              </label>
-              <textarea
-                className="min-h-[60px] w-full rounded-lg border px-3 py-2 text-sm"
-                value={contenuto}
-                onChange={(e) => setContenuto(e.target.value)}
-                placeholder="Descrizione sintetica della merce…"
-              />
-            </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Valuta</label>
+            <select
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
+              value={valuta}
+              onChange={(e) => setValuta(e.target.value as "EUR" | "USD" | "GBP")}
+            >
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+            </select>
           </div>
         </div>
       </div>
 
-      {/* Ritiro + note */}
-      <div className="space-y-4">
-        <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
-          <RitiroCard
-            date={ritiroData}
-            setDate={setRitiroData}
-            note={ritiroNote}
-            setNote={setRitiroNote}
-          />
-        </div>
+      {/* Ritiro */}
+      <div className="rounded-2xl border bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-spst-blue">Ritiro</h2>
+        <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
+      </div>
 
-        <div className="rounded-2xl border bg-white p-4">
-          <h2 className="mb-3 text-base font-semibold text-spst-blue">
-            Note generiche
-          </h2>
-          <textarea
-            className="min-h-[120px] w-full rounded-lg border px-3 py-2 text-sm"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Aggiungi eventuali note sulla spedizione…"
-          />
-        </div>
+      {/* Note */}
+      <div className="rounded-2xl border bg-white p-4">
+        <h2 className="mb-3 text-base font-semibold text-spst-blue">Note</h2>
+        <label className="mb-1 block text-sm font-medium text-slate-700">
+          Note generiche sulla spedizione
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={4}
+          className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-spst-blue/20"
+          placeholder="Es. orari preferiti, vincoli, dettagli utili…"
+        />
       </div>
 
       {/* CTA */}
@@ -407,7 +329,7 @@ export default function NuovaQuotazionePage() {
           onClick={salva}
           disabled={saving}
           aria-busy={saving}
-          className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
         >
           {saving && (
             <span className="inline-block h-4 w-4 animate-spin rounded-full border border-slate-400 border-t-transparent" />
