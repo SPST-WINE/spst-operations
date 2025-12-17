@@ -11,15 +11,23 @@ type ShipmentRow = {
   human_id?: string | null;
   email_cliente?: string | null;
   email_norm?: string | null;
+
   tipo_spedizione?: string | null;
   incoterm?: string | null;
+
   mittente_paese?: string | null;
   mittente_citta?: string | null;
   dest_paese?: string | null;
   dest_citta?: string | null;
+
   colli_n?: number | null;
   formato_sped?: string | null;
+
   status?: string | null;
+
+  // ✅ NEW: per ricerca tracking (e opzionalmente visualizzazione)
+  tracking_code?: string | null;
+  carrier?: string | null;
 };
 
 function norm(s?: string | null) {
@@ -95,6 +103,10 @@ export default function BackofficeSpedizioniClient() {
         r.dest_paese,
         r.tipo_spedizione,
         r.incoterm,
+
+        // ✅ NEW: tracking + carrier nel filtro
+        r.tracking_code,
+        r.carrier,
       ]
         .map(norm)
         .join(" | ");
@@ -120,7 +132,7 @@ export default function BackofficeSpedizioniClient() {
             <Search className="pointer-events-none absolute left-2 h-4 w-4 text-slate-400" />
             <input
               type="search"
-              placeholder="Cerca per ID, email, città..."
+              placeholder="Cerca per ID, email, città, tracking…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="h-9 w-64 rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs outline-none placeholder:text-slate-400 focus:border-slate-400"
@@ -173,9 +185,7 @@ export default function BackofficeSpedizioniClient() {
                 const isPallet = /pallet/i.test(r.formato_sped || "");
                 const ref = r.human_id || r.id;
                 const email = r.email_cliente || r.email_norm || "—";
-                const mittente = [r.mittente_citta, r.mittente_paese]
-                  .filter(Boolean)
-                  .join(", ");
+                const mittente = [r.mittente_citta, r.mittente_paese].filter(Boolean).join(", ");
                 const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(", ");
                 const colli = [
                   typeof r.colli_n === "number" ? `${r.colli_n}` : "—",
@@ -183,6 +193,11 @@ export default function BackofficeSpedizioniClient() {
                 ]
                   .filter(Boolean)
                   .join(" · ");
+
+                const tracking = (r.tracking_code || "").trim();
+                const carrier = (r.carrier || "").trim();
+                const trackingLine =
+                  tracking && carrier ? `${carrier} · ${tracking}` : tracking ? tracking : null;
 
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/70">
@@ -197,16 +212,19 @@ export default function BackofficeSpedizioniClient() {
                               : "bg-slate-100 text-slate-700",
                           ].join(" ")}
                         >
-                          {isPallet ? (
-                            <Boxes className="h-4 w-4" />
-                          ) : (
-                            <Package className="h-4 w-4" />
-                          )}
+                          {isPallet ? <Boxes className="h-4 w-4" /> : <Package className="h-4 w-4" />}
                         </span>
 
                         <div className="flex flex-col">
                           <span className="font-semibold text-slate-900">{ref}</span>
                           <span className="text-[11px] text-slate-500">ID interno: {r.id}</span>
+
+                          {/* ✅ NEW (solo UI): mostra tracking sotto, utile anche visivamente */}
+                          {trackingLine && (
+                            <span className="mt-0.5 text-[11px] text-slate-500">
+                              Tracking: <span className="font-medium text-slate-700">{trackingLine}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
