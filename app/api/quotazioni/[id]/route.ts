@@ -50,7 +50,7 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   try {
     const { data, error } = await supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm")
+      .select("id, status, fields, created_at, incoterm, declared_value")
       .eq("id", id)
       .single();
 
@@ -69,17 +69,32 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
     const dest = f.destinatario || {};
     const colli = Array.isArray(f.colli) ? f.colli : [];
 
+    const assicurazioneAttiva =
+      typeof f.assicurazioneAttiva === "boolean" ? f.assicurazioneAttiva : false;
+
+    const valoreAssicurato =
+      data.declared_value ??
+      (f.valoreAssicurato != null ? Number(f.valoreAssicurato) : null);
+
     const fields = {
       ...f,
+
+      // alias esistenti
       Stato: data.status || "In lavorazione",
-      "Destinatario_Nome": dest.ragioneSociale,
-      "Destinatario_Citta": dest.citta,
-      "Destinatario_Paese": dest.paese,
-      "Mittente_Nome": mitt.ragioneSociale,
+      Destinatario_Nome: dest.ragioneSociale,
+      Destinatario_Citta: dest.citta,
+      Destinatario_Paese: dest.paese,
+      Mittente_Nome: mitt.ragioneSociale,
       "Creato il": data.created_at,
       "Creato da Email": f.createdByEmail,
       Slug_Pubblico: data.id,
       Incoterm: data.incoterm,
+
+      // ✅ nuovi alias
+      assicurazioneAttiva,
+      valoreAssicurato,
+      Assicurazione_Attiva: assicurazioneAttiva ? "Sì" : "No",
+      Valore_Assicurato: valoreAssicurato,
     };
 
     const row = {
