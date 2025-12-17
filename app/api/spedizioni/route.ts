@@ -182,22 +182,23 @@ export async function GET(req: Request) {
       .schema("spst")
       .from("shipments")
       .select(
-        `
-        id,created_at,human_id,email_cliente,email_norm,
-        tipo_spedizione,incoterm,giorno_ritiro,
-        mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-        dest_paese,dest_citta,dest_cap,
-        colli_n,peso_reale_kg,status,
-        mittente_rs,mittente_telefono,mittente_piva,
-        dest_rs,dest_telefono,dest_piva,
-        fatt_rs,fatt_piva,fatt_valuta,
-        formato_sped,contenuto_generale,dest_abilitato_import,
-        ldv,fattura_proforma,fattura_commerciale,dle,
-        allegato1,allegato2,allegato3,allegato4,
-        packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
-      `,
-        { count: "exact" }
-      );
+  `
+  id,created_at,human_id,email_cliente,email_norm,
+  tipo_spedizione,incoterm,giorno_ritiro,
+  mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+  dest_paese,dest_citta,dest_cap,
+  colli_n,peso_reale_kg,status,
+  mittente_rs,mittente_telefono,mittente_piva,
+  dest_rs,dest_telefono,dest_piva,
+  fatt_rs,fatt_piva,fatt_valuta,
+  formato_sped,contenuto_generale,dest_abilitato_import,
+  fields,
+  ldv,fattura_proforma,fattura_commerciale,dle,
+  allegato1,allegato2,allegato3,allegato4,
+  packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
+  `,
+  { count: "exact" }
+);
 
     if (emailNorm) query = query.eq("email_norm", emailNorm);
 
