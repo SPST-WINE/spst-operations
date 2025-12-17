@@ -48,7 +48,7 @@ export default function NuovaQuotazionePage() {
   // ✅ NEW: valore assicurato (EUR) — richiesto da ColliCard
   const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
 
-  // ✅ auto-reset se torno a Pacco (evita doppioni)
+  // ✅ auto-reset se torno a Pacco
   useEffect(() => {
     if (formato !== "Pallet") {
       if (assicurazionePallet) setAssicurazionePallet(false);
@@ -164,16 +164,6 @@ export default function NuovaQuotazionePage() {
             altezza_cm: c.altezza_cm ?? null,
             peso_kg: c.peso_kg ?? null,
           })),
-
-          // ✅ (non cambia nulla lato preventivo se non la usi; utile per uniformare schema)
-          formato,
-          contenuto,
-          assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
-          valoreAssicurato:
-            formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
-          declared_value:
-            formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
-
           valuta, // 'EUR' | 'USD' | 'GBP'
           noteGeneriche: note,
           ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
