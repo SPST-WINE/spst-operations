@@ -1,13 +1,7 @@
 // app/dashboard/nuova/altro/page.tsx
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  Suspense,
-} from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter } from "next/navigation";
 
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
@@ -110,8 +104,8 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = "it") {
   if (!res.ok || !j) return "";
   const search = (arr: any[]) => {
     for (const r of arr || []) {
-      const c = (r.address_components || []).find(
-        (x: any) => x.types?.includes("postal_code")
+      const c = (r.address_components || []).find((x: any) =>
+        x.types?.includes("postal_code")
       );
       if (c) return c.long_name || c.short_name || "";
     }
@@ -122,8 +116,7 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = "it") {
 
 function parseAddressFromDetails(d: any) {
   const comps: any[] = d?.addressComponents || [];
-  const get = (type: string) =>
-    comps.find((c) => c.types?.includes(type)) || null;
+  const get = (type: string) => comps.find((c) => c.types?.includes(type)) || null;
 
   const country = get("country");
   const locality = get("locality") || get("postal_town");
@@ -143,10 +136,7 @@ function parseAddressFromDetails(d: any) {
 
   const line = [
     route?.shortText || route?.longText || route?.short_name || route?.long_name,
-    streetNr?.shortText ||
-      streetNr?.longText ||
-      streetNr?.short_name ||
-      streetNr?.long_name,
+    streetNr?.shortText || streetNr?.longText || streetNr?.short_name || streetNr?.long_name,
     premise?.longText || premise?.long_name,
   ]
     .filter(Boolean)
@@ -224,21 +214,18 @@ async function uploadShipmentDocument(
   const safeName = file.name.replace(/\s+/g, "-");
   const path = `${shipmentId}/${docType}/${Date.now()}-${safeName}`;
 
-  // Upload
   const { error: uploadErr } = await supabase.storage
     .from("shipment-docs")
     .upload(path, file, { upsert: true });
 
   if (uploadErr) throw new Error("Errore upload file");
 
-  // Public URL
   const { data: urlData } = await supabase.storage
     .from("shipment-docs")
     .getPublicUrl(path);
 
   const url = urlData?.publicUrl || null;
 
-  // Insert DB
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
     shipment_id: shipmentId,
     doc_type: docType,
@@ -339,6 +326,16 @@ function NuovaAltroPageInner() {
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState("");
 
+  // ✅ NEW: assicurazione pallet
+  const [assicurazionePallet, setAssicurazionePallet] = useState(false);
+
+  // ✅ auto-reset se non è pallet
+  useEffect(() => {
+    if (formato !== "Pallet" && assicurazionePallet) {
+      setAssicurazionePallet(false);
+    }
+  }, [formato, assicurazionePallet]);
+
   // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>();
   const [ritiroNote, setRitiroNote] = useState("");
@@ -394,8 +391,7 @@ function NuovaAltroPageInner() {
 
     const fatt = sameAsDest ? destinatario : fatturazione;
     if (!fatturaFile) {
-      if (!fatt.ragioneSociale?.trim())
-        errs.push("Ragione sociale fattura mancante.");
+      if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
       if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim())
         errs.push("PIVA obbligatoria per B2B/Sample.");
     }
@@ -425,6 +421,7 @@ function NuovaAltroPageInner() {
         destAbilitato,
         contenuto,
         formato,
+        assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false, // ✅ NEW
         ritiroData: ritiroData ? ritiroData.toISOString() : null,
         ritiroNote,
         mittente,
@@ -449,8 +446,7 @@ function NuovaAltroPageInner() {
       }
 
       // 3. Successo
-      const id =
-        created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
+      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
 
       setSuccess({
         recId: id,
@@ -563,8 +559,7 @@ function NuovaAltroPageInner() {
 
       const highlight = () => {
         Array.from(ul.children).forEach((el, i) => {
-          (el as HTMLElement).style.background =
-            i === activeIndex ? "#f1f5f9" : "transparent";
+          (el as HTMLElement).style.background = i === activeIndex ? "#f1f5f9" : "transparent";
         });
       };
 
@@ -580,8 +575,7 @@ function NuovaAltroPageInner() {
         if (!sel) return;
         close();
 
-        input.value =
-          sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
+        input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
 
         const details = await fetchPlaceDetails(sel.id, session);
         session = newSessionToken();
@@ -701,13 +695,10 @@ function NuovaAltroPageInner() {
   // SUCCESS UI
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL =
-      process.env.NEXT_PUBLIC_INFO_URL ||
-      "/dashboard/informazioni-utili";
+    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
 
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
-      "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
@@ -728,23 +719,18 @@ function NuovaAltroPageInner() {
               <span className="text-slate-500">Tipo:</span> {success.tipoSped}
             </div>
             <div>
-              <span className="text-slate-500">Incoterm:</span>{" "}
-              {success.incoterm}
+              <span className="text-slate-500">Incoterm:</span> {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span>{" "}
-              {success.dataRitiro ?? "—"}
+              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span>{" "}
-              {success.colli} ({success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
               {success.destinatario.ragioneSociale || "—"}
-              {success.destinatario.citta
-                ? ` — ${success.destinatario.citta}`
-                : ""}
+              {success.destinatario.citta ? ` — ${success.destinatario.citta}` : ""}
             </div>
           </div>
 
@@ -773,9 +759,7 @@ function NuovaAltroPageInner() {
               Supporto WhatsApp
             </a>
 
-            <span className="text-sm text-green-700">
-              Email di conferma inviata ✅
-            </span>
+            <span className="text-sm text-green-700">Email di conferma inviata ✅</span>
           </div>
 
           <div className="mt-6 text-xs text-slate-500">
@@ -821,12 +805,7 @@ function NuovaAltroPageInner() {
       {/* MITTENTE / DESTINATARIO */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
-          <PartyCard
-            title="Mittente"
-            value={mittente}
-            onChange={setMittente}
-            gmapsTag="mittente"
-          />
+          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
@@ -844,24 +823,19 @@ function NuovaAltroPageInner() {
         </div>
       </div>
 
-      {/* Nessuna Packing List */}
+      {/* Colli */}
       <ColliCard
-  colli={colli}
-  onChange={setColli}
-  formato={formato}
-  setFormato={setFormato}
-  contenuto={contenuto}
-  setContenuto={setContenuto}
-  assicurazioneAttiva={assicurazionePallet}
-  setAssicurazioneAttiva={setAssicurazionePallet}
-/>
-
-      <RitiroCard
-        date={ritiroData}
-        setDate={setRitiroData}
-        note={ritiroNote}
-        setNote={setRitiroNote}
+        colli={colli}
+        onChange={setColli}
+        formato={formato}
+        setFormato={setFormato}
+        contenuto={contenuto}
+        setContenuto={setContenuto}
+        assicurazioneAttiva={assicurazionePallet}
+        setAssicurazioneAttiva={setAssicurazionePallet}
       />
+
+      <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
 
       <FatturaCard
         incoterm={incoterm}
