@@ -2,10 +2,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, AlertCircle, Loader2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  Loader2,
+  Package,
+  MapPin,
+  ShieldCheck,
+} from "lucide-react";
 
-type Props = {
-  token: string;
+type Props = { token: string };
+
+type Party = {
+  ragioneSociale?: string;
+  paese?: string;
+  citta?: string;
+  cap?: string;
+  indirizzo?: string;
+  telefono?: string;
+  taxId?: string;
+};
+
+type Collo = {
+  quantita?: number;
+  lunghezza_cm?: number | null;
+  larghezza_cm?: number | null;
+  altezza_cm?: number | null;
+  peso_kg?: number | null;
 };
 
 type PublicQuote = {
@@ -18,9 +42,14 @@ type PublicQuote = {
   incoterm: string | null;
   valuta: string | null;
   email_cliente: string | null;
-  mittente: any | null;
-  destinatario: any | null;
+  mittente: Party | null;
+  destinatario: Party | null;
   accepted_option_id: string | null;
+
+  // NEW (dal route pubblico)
+  colli: Collo[] | null;
+  contenuto_colli: string | null;
+  declared_value: number | null;
 };
 
 type PublicQuoteOption = {
@@ -30,14 +59,14 @@ type PublicQuoteOption = {
   carrier: string | null;
   service_name: string | null;
   transit_time: string | null;
-  freight_price: number | null; // Nolo
-  customs_price: number | null; // Costi doganali e fiscali
-  total_price: number | null; // Totale mostrato al cliente
+  freight_price: number | null;
+  customs_price: number | null;
+  total_price: number | null;
   currency: string | null;
   public_notes: string | null;
   status: string | null;
-  show_vat: boolean | null; // true = prezzi IVA inclusa
-  vat_rate: number | null; // es. 22
+  show_vat: boolean | null;
+  vat_rate: number | null;
 };
 
 function formatDate(dateStr?: string | null) {
@@ -65,6 +94,34 @@ function formatCurrency(amount?: number | null, currency?: string | null) {
   }
 }
 
+function fieldLine(label: string, value?: string | null) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="text-[12px] font-medium text-slate-900 text-right">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function partySummary(p?: Party | null) {
+  if (!p) return { title: "—", lines: [] as string[] };
+  const title = p.ragioneSociale?.trim() || "—";
+  const lines: string[] = [];
+
+  const addr = [p.indirizzo, p.cap, p.citta].filter(Boolean).join(", ");
+  const place = [p.paese].filter(Boolean).join("");
+
+  if (addr) lines.push(addr);
+  if (place) lines.push(place);
+  if (p.telefono) lines.push(`Tel: ${p.telefono}`);
+  if (p.taxId) lines.push(`Tax/VAT: ${p.taxId}`);
+
+  return { title, lines };
+}
+
 export default function QuotePublicClient({ token }: Props) {
   const [quote, setQuote] = useState<PublicQuote | null>(null);
   const [options, setOptions] = useState<PublicQuoteOption[]>([]);
@@ -86,7 +143,6 @@ export default function QuotePublicClient({ token }: Props) {
           cache: "no-store",
         });
         const json = await res.json().catch(() => ({} as any));
-
         if (!active) return;
 
         if (!res.ok || !json?.ok) {
@@ -105,9 +161,7 @@ export default function QuotePublicClient({ token }: Props) {
       } catch (e) {
         console.error("[QuotePublicClient] load error:", e);
         if (active) {
-          setError(
-            "Si è verificato un errore nel caricamento della quotazione."
-          );
+          setError("Si è verificato un errore nel caricamento della quotazione.");
           setQuote(null);
           setOptions([]);
         }
@@ -117,7 +171,6 @@ export default function QuotePublicClient({ token }: Props) {
     }
 
     load();
-
     return () => {
       active = false;
     };
@@ -131,6 +184,20 @@ export default function QuotePublicClient({ token }: Props) {
       options.some((o) => o.status === "accettata")
     );
   }, [quote, options]);
+
+  const ship = useMemo(() => {
+    const mitt = partySummary(quote?.mittente);
+    const dest = partySummary(quote?.destinatario);
+
+    const colli = Array.isArray(quote?.colli) ? quote!.colli : [];
+    const totalPieces = colli.reduce((sum, c) => sum + (Number(c.quantita) || 0), 0);
+    const totalWeight = colli.reduce(
+      (sum, c) => sum + (Number(c.peso_kg) || 0) * (Number(c.quantita) || 1),
+      0
+    );
+
+    return { mitt, dest, colli, totalPieces, totalWeight };
+  }, [quote]);
 
   async function handleAccept(optionId: string) {
     if (!quote) return;
@@ -189,9 +256,9 @@ export default function QuotePublicClient({ token }: Props) {
   if (loading && !quote) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/80 px-4 py-2 text-xs text-slate-200 shadow-lg shadow-black/40">
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700 shadow-sm">
           <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-          <span>Caricamento della quotazione in corso...</span>
+          <span>Caricamento quotazione…</span>
         </div>
       </div>
     );
@@ -200,86 +267,230 @@ export default function QuotePublicClient({ token }: Props) {
   if (error || !quote) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="max-w-md rounded-2xl border border-red-500/40 bg-red-950/60 p-4 text-sm text-red-50 shadow-xl shadow-black/50">
+        <div className="w-full max-w-md rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 shadow-sm">
           <div className="mb-2 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-red-300" />
+            <AlertCircle className="h-4 w-4 text-rose-600" />
             <span className="font-semibold">Quotazione non disponibile</span>
           </div>
-          <p className="text-xs text-red-100">{error}</p>
+          <p className="text-xs text-rose-800">{error}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-8">
-      {/* Header */}
-      <header className="mb-6">
-        <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/80 px-3 py-1 text-[11px] text-slate-200">
-          <span className="text-slate-400">Preventivo</span>
-          <span className="font-medium text-slate-50">
-            {quote.human_id || quote.id}
-          </span>
+    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 py-8">
+      {/* Top brand */}
+      <div className="mb-6 flex items-center justify-between">
+        <div className="inline-flex items-center gap-2">
+          <div className="h-9 w-9 rounded-2xl bg-slate-900 text-white shadow-sm grid place-items-center">
+            <span className="text-[11px] font-semibold">SP</span>
+          </div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold text-slate-900">SPST</div>
+            <div className="text-[11px] text-slate-500">Public quote</div>
+          </div>
         </div>
 
-        <h1 className="mt-3 text-xl font-semibold text-slate-50">
-          Seleziona l&apos;opzione di spedizione che preferisci
-        </h1>
-        <p className="mt-1 text-xs text-slate-300">
-          Questo è un link dedicato per la tua quotazione SPST. Scegli
-          l&apos;opzione più adatta alle tue esigenze, ti ricontatteremo per
-          confermare la spedizione.
-        </p>
+        <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-600 shadow-sm">
+          Preventivo <span className="font-semibold text-slate-900">{quote.human_id || quote.id}</span>
+        </div>
+      </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-2 py-0.5">
-            <Clock className="h-3 w-3 text-slate-400" />
+      {/* Hero */}
+      <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold text-slate-900">
+              Scegli l’opzione di spedizione
+            </h1>
+            <p className="mt-1 text-xs text-slate-600">
+              Link dedicato SPST: seleziona l’opzione che preferisci e ti ricontattiamo per conferma e prossimi step.
+            </p>
+          </div>
+
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] text-slate-700">
+            <Clock className="h-3.5 w-3.5 text-slate-500" />
             <span>Richiesta del {formatDate(quote.created_at)}</span>
-          </span>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
           {quote.data_ritiro && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-2 py-0.5">
-              Data ritiro desiderata: {formatDate(quote.data_ritiro)}
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">
+              <MapPin className="h-3 w-3 text-slate-500" />
+              Ritiro: {formatDate(quote.data_ritiro)}
             </span>
           )}
           {quote.tipo_spedizione && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-2 py-0.5">
-              Tipo spedizione: {quote.tipo_spedizione}
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">
+              Tipo: {quote.tipo_spedizione}
             </span>
           )}
           {quote.incoterm && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-900/70 px-2 py-0.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">
               Incoterm: {quote.incoterm}
+            </span>
+          )}
+          {quote.declared_value != null && quote.declared_value > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-800">
+              <ShieldCheck className="h-3 w-3 text-emerald-600" />
+              Valore assicurato: {formatCurrency(quote.declared_value, quote.valuta || "EUR")}
             </span>
           )}
         </div>
       </header>
 
-      {/* Messaggio di conferma se già accettata */}
+      {/* Accepted message */}
       {alreadyAccepted && (
-        <div className="mb-4 rounded-2xl border border-emerald-500/40 bg-emerald-950/60 p-3 text-xs text-emerald-50 shadow-lg shadow-black/40">
+        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 shadow-sm">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-            <span className="font-medium">
-              La tua scelta è già stata registrata.
-            </span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <span className="font-medium">La tua scelta è stata registrata.</span>
           </div>
           {thankYou && (
-            <p className="mt-1 text-[11px] text-emerald-100">
-              Grazie, riceverai un riscontro da SPST con i prossimi step.
+            <p className="mt-1 text-[11px] text-emerald-800">
+              Grazie! Riceverai un riscontro da SPST con i prossimi step.
             </p>
           )}
         </div>
       )}
 
-      {/* Opzioni */}
-      <main className="flex-1">
+      {/* Shipment details */}
+      <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Package className="h-4 w-4 text-slate-700" />
+          <h2 className="text-sm font-semibold text-slate-900">Dettagli spedizione</h2>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            {/* Mittente */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Mittente
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {ship.mitt.title}
+              </div>
+              <div className="mt-2 space-y-1 text-[12px] text-slate-700">
+                {ship.mitt.lines.length ? (
+                  ship.mitt.lines.map((l, i) => <div key={i}>{l}</div>)
+                ) : (
+                  <div className="text-slate-500">—</div>
+                )}
+              </div>
+            </div>
+
+            {/* Destinatario */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                Destinatario
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {ship.dest.title}
+              </div>
+              <div className="mt-2 space-y-1 text-[12px] text-slate-700">
+                {ship.dest.lines.length ? (
+                  ship.dest.lines.map((l, i) => <div key={i}>{l}</div>)
+                ) : (
+                  <div className="text-slate-500">—</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Colli */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Colli
+                </div>
+                <div className="mt-1 text-[12px] text-slate-700">
+                  {ship.colli.length ? (
+                    <>
+                      Totale colli:{" "}
+                      <span className="font-semibold text-slate-900">
+                        {ship.totalPieces || ship.colli.length}
+                      </span>
+                      {ship.totalWeight > 0 ? (
+                        <>
+                          {" "}
+                          · Peso stimato:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {ship.totalWeight.toFixed(1)} kg
+                          </span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="text-slate-500">—</span>
+                  )}
+                </div>
+              </div>
+
+              {quote.contenuto_colli ? (
+                <div className="max-w-full rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">
+                  Contenuto: <span className="font-semibold">{quote.contenuto_colli}</span>
+                </div>
+              ) : null}
+            </div>
+
+            {ship.colli.length > 0 && (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-left text-[12px]">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wide text-slate-500">
+                      <th className="py-2 pr-3">Q.tà</th>
+                      <th className="py-2 pr-3">Dimensioni (cm)</th>
+                      <th className="py-2 pr-0 text-right">Peso (kg)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {ship.colli.map((c, i) => {
+                      const q = Number(c.quantita) || 1;
+                      const l1 = c.lunghezza_cm ?? null;
+                      const l2 = c.larghezza_cm ?? null;
+                      const l3 = c.altezza_cm ?? null;
+                      const dims =
+                        l1 && l2 && l3 ? `${l1}×${l2}×${l3}` : "—";
+                      const w = c.peso_kg != null ? Number(c.peso_kg) : null;
+
+                      return (
+                        <tr key={i} className="text-slate-800">
+                          <td className="py-2 pr-3 font-medium">{q}</td>
+                          <td className="py-2 pr-3">{dims}</td>
+                          <td className="py-2 pr-0 text-right font-medium">
+                            {w != null && Number.isFinite(w) ? w.toFixed(2) : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Micro info */}
+          <div className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            {fieldLine("Email cliente", quote.email_cliente)}
+            {fieldLine("Valuta", quote.valuta)}
+            {fieldLine("Stato", quote.status)}
+          </div>
+        </div>
+      </section>
+
+      {/* Options (single column) */}
+      <main className="mt-4 flex-1">
         {options.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4 text-xs text-slate-200 shadow-lg shadow-black/40">
-            Al momento non sono ancora state caricate opzioni per questa
-            quotazione. Ti invitiamo a riprovare più tardi o a contattare SPST.
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm">
+            Al momento non sono ancora state caricate opzioni per questa quotazione.
+            Ti invitiamo a riprovare più tardi o a contattare SPST.
           </div>
         ) : (
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3">
             {options.map((opt, idx) => {
               const freight = opt.freight_price ?? 0;
               const customs = opt.customs_price ?? 0;
@@ -290,8 +501,7 @@ export default function QuotePublicClient({ token }: Props) {
               const vatRate = opt.vat_rate ?? null;
 
               const isAccepted =
-                quote.accepted_option_id === opt.id ||
-                opt.status === "accettata";
+                quote.accepted_option_id === opt.id || opt.status === "accettata";
               const isRejected = opt.status === "rifiutata";
               const disabled = alreadyAccepted && !isAccepted;
 
@@ -299,116 +509,120 @@ export default function QuotePublicClient({ token }: Props) {
                 <div
                   key={opt.id}
                   className={[
-                    "relative flex flex-col rounded-2xl border bg-slate-900/80 p-4 text-xs shadow-lg shadow-black/40 transition",
+                    "rounded-3xl border bg-white p-5 shadow-sm transition",
                     isAccepted
-                      ? "border-emerald-500/70 ring-2 ring-emerald-500/60"
+                      ? "border-emerald-200 ring-2 ring-emerald-200"
                       : isRejected
-                      ? "border-slate-700/60 opacity-70"
-                      : "border-slate-700/80 hover:border-slate-500 hover:-translate-y-0.5",
+                      ? "border-slate-200 opacity-70"
+                      : "border-slate-200 hover:border-slate-300",
                   ].join(" ")}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="inline-flex items-center gap-2">
-                        <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
                           {opt.label || `Opzione ${idx + 1}`}
                         </span>
+
                         {isAccepted && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-200 ring-1 ring-emerald-500/40">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-800 ring-1 ring-emerald-200">
                             <CheckCircle2 className="h-3 w-3" />
                             Scelta
                           </span>
                         )}
+
                         {isRejected && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
                             Non selezionata
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 text-sm font-medium text-slate-50">
-                        {opt.carrier || "Corriere"} ·{" "}
-                        {opt.service_name || "Servizio"}
+
+                      <div className="mt-1 text-base font-semibold text-slate-900">
+                        {opt.carrier || "Corriere"} · {opt.service_name || "Servizio"}
                       </div>
+
+                      {opt.transit_time && (
+                        <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                          <Clock className="h-3 w-3 text-slate-500" />
+                          Transit time stimato: {opt.transit_time}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="text-right">
-                      <div className="text-[11px] text-slate-400">
-                        Totale spedizione
-                      </div>
-                      <div className="text-base font-semibold text-slate-50">
+                    <div className="min-w-[220px] text-right">
+                      <div className="text-[11px] text-slate-500">Totale spedizione</div>
+                      <div className="text-2xl font-semibold text-slate-900">
                         {formatCurrency(total, currency)}
                       </div>
-                      <div className="mt-1 text-[10px] text-slate-400">
+                      <div className="mt-1 text-[11px] text-slate-500">
                         {ivaIncluded
                           ? vatRate
-                            ? `Prezzi IVA ${vatRate}% inclusa`
-                            : "Prezzi IVA inclusa"
+                            ? `IVA ${vatRate}% inclusa`
+                            : "IVA inclusa"
                           : vatRate
-                          ? `Prezzi al netto di IVA ${vatRate}% (applicata in fattura)`
-                          : "Prezzi al netto di IVA (dove applicabile)"}
+                          ? `IVA ${vatRate}% applicata in fattura`
+                          : "IVA dove applicabile"}
                       </div>
                     </div>
                   </div>
 
-                  {/* Breakdown nolo / dogana */}
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-200">
-                    <div className="rounded-xl bg-slate-900/70 px-2 py-1.5">
-                      <div className="text-[10px] text-slate-400">Nolo</div>
-                      <div className="text-sm font-medium">
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                        Nolo
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
                         {formatCurrency(freight, currency)}
                       </div>
                     </div>
-                    <div className="rounded-xl bg-slate-900/70 px-2 py-1.5">
-                      <div className="text-[10px] text-slate-400">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
                         Costi doganali e fiscali
                       </div>
-                      <div className="text-sm font-medium">
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
                         {formatCurrency(customs, currency)}
                       </div>
                     </div>
                   </div>
 
-                  {opt.transit_time && (
-                    <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
-                      <Clock className="h-3 w-3 text-slate-400" />
-                      <span>Transit time stimato: {opt.transit_time}</span>
-                    </div>
-                  )}
-
                   {opt.public_notes && (
-                    <div className="mt-3 rounded-xl bg-slate-900/80 p-2 text-[11px] text-slate-200">
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Note operative
                       </div>
-                      <p className="whitespace-pre-wrap">{opt.public_notes}</p>
+                      <p className="whitespace-pre-wrap text-[12px] text-slate-700">
+                        {opt.public_notes}
+                      </p>
                     </div>
                   )}
 
-                  <div className="mt-4 flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-slate-400">
-                      Cliccando su &quot;Conferma questa opzione&quot; ci
-                      autorizzi a procedere con questa soluzione di trasporto.
-                    </span>
+                  <div className="mt-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="text-[11px] text-slate-500">
+                      Cliccando su <span className="font-semibold">Conferma</span> ci autorizzi a procedere con questa soluzione.
+                    </div>
 
                     <button
                       type="button"
                       disabled={disabled || accepting === opt.id}
                       onClick={() => handleAccept(opt.id)}
                       className={[
-                        "inline-flex items-center justify-center rounded-full px-3 py-1.5 text-[11px] font-medium transition",
+                        "inline-flex items-center justify-center rounded-full px-4 py-2 text-[12px] font-semibold transition",
                         disabled
-                          ? "bg-slate-800 text-slate-400 cursor-not-allowed"
-                          : "bg-emerald-500 text-emerald-950 hover:bg-emerald-400",
+                          ? "cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400"
+                          : isAccepted
+                          ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : "bg-slate-900 text-white hover:bg-slate-800",
                       ].join(" ")}
                     >
                       {accepting === opt.id ? (
                         <>
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          Invio...
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Invio…
                         </>
                       ) : isAccepted ? (
                         <>
-                          <CheckCircle2 className="mr-1 h-3 w-3" />
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
                           Opzione confermata
                         </>
                       ) : (
@@ -423,11 +637,8 @@ export default function QuotePublicClient({ token }: Props) {
         )}
       </main>
 
-      {/* Footer mini brand */}
-      <footer className="mt-8 border-t border-slate-800/80 pt-4 text-[10px] text-slate-500">
-        Quotazione gestita da <span className="font-semibold">SPST</span>. In
-        caso di dubbi puoi rispondere direttamente alla mail con cui hai
-        ricevuto questo link.
+      <footer className="mt-8 border-t border-slate-100 pt-4 text-[11px] text-slate-500">
+        Quotazione gestita da <span className="font-semibold text-slate-900">SPST</span>. In caso di dubbi puoi rispondere direttamente alla mail con cui hai ricevuto questo link.
       </footer>
     </div>
   );
