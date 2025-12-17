@@ -185,7 +185,7 @@ export async function GET(req: Request) {
         `
   id,created_at,human_id,email_cliente,email_norm,
   tipo_spedizione,incoterm,giorno_ritiro,
-  carrier,tracking_code, -- ✅ NEW
+  carrier,tracking_code, 
   mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
   dest_paese,dest_citta,dest_cap,
   colli_n,peso_reale_kg,status,
