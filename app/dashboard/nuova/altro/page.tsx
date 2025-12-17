@@ -846,13 +846,15 @@ function NuovaAltroPageInner() {
 
       {/* Nessuna Packing List */}
       <ColliCard
-        colli={colli}
-        onChange={setColli}
-        formato={formato}
-        setFormato={setFormato}
-        contenuto={contenuto}
-        setContenuto={setContenuto}
-      />
+  colli={colli}
+  onChange={setColli}
+  formato={formato}
+  setFormato={setFormato}
+  contenuto={contenuto}
+  setContenuto={setContenuto}
+  assicurazioneAttiva={assicurazionePallet}
+  setAssicurazioneAttiva={setAssicurazionePallet}
+/>
 
       <RitiroCard
         date={ritiroData}
