@@ -9,11 +9,11 @@ type ShipmentRow = {
   id: string;
   created_at?: string;
   human_id?: string | null;
+
   email_cliente?: string | null;
   email_norm?: string | null;
 
   tipo_spedizione?: string | null;
-  incoterm?: string | null;
 
   mittente_paese?: string | null;
   mittente_citta?: string | null;
@@ -23,11 +23,13 @@ type ShipmentRow = {
   colli_n?: number | null;
   formato_sped?: string | null;
 
-  status?: string | null;
-
-  // ✅ NEW: per ricerca tracking (e opzionalmente visualizzazione)
+  // ✅ per colonne + ricerca
   tracking_code?: string | null;
   carrier?: string | null;
+
+  // (restano nel type se l’API li manda, ma non li mostriamo più)
+  incoterm?: string | null;
+  status?: string | null;
 };
 
 function norm(s?: string | null) {
@@ -102,9 +104,8 @@ export default function BackofficeSpedizioniClient() {
         r.dest_citta,
         r.dest_paese,
         r.tipo_spedizione,
-        r.incoterm,
 
-        // ✅ NEW: tracking + carrier nel filtro
+        // ✅ ricerca per tracking/corriere
         r.tracking_code,
         r.carrier,
       ]
@@ -132,7 +133,7 @@ export default function BackofficeSpedizioniClient() {
             <Search className="pointer-events-none absolute left-2 h-4 w-4 text-slate-400" />
             <input
               type="search"
-              placeholder="Cerca per ID, email, città, tracking…"
+              placeholder="Cerca per SP-XXXX, email, città, tracking…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="h-9 w-64 rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs outline-none placeholder:text-slate-400 focus:border-slate-400"
@@ -160,8 +161,11 @@ export default function BackofficeSpedizioniClient() {
               <th className="px-3 py-2 text-left">Destinatario</th>
               <th className="px-3 py-2 text-left">Colli</th>
               <th className="px-3 py-2 text-left">Tipo sped.</th>
-              <th className="px-3 py-2 text-left">Incoterm</th>
-              <th className="px-3 py-2 text-left">Stato</th>
+
+              {/* ✅ nuove colonne */}
+              <th className="px-3 py-2 text-left">Corriere</th>
+              <th className="px-3 py-2 text-left">Tracking</th>
+
               <th className="px-3 py-2 text-left">Creato il</th>
               <th className="px-3 py-2 text-right">Azioni</th>
             </tr>
@@ -183,7 +187,7 @@ export default function BackofficeSpedizioniClient() {
             ) : (
               filtered.map((r) => {
                 const isPallet = /pallet/i.test(r.formato_sped || "");
-                const ref = r.human_id || r.id;
+                const ref = r.human_id || r.id; // ✅ mostriamo solo SP-XXXX se c’è
                 const email = r.email_cliente || r.email_norm || "—";
                 const mittente = [r.mittente_citta, r.mittente_paese].filter(Boolean).join(", ");
                 const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(", ");
@@ -194,16 +198,13 @@ export default function BackofficeSpedizioniClient() {
                   .filter(Boolean)
                   .join(" · ");
 
-                const tracking = (r.tracking_code || "").trim();
-                const carrier = (r.carrier || "").trim();
-                const trackingLine =
-                  tracking && carrier ? `${carrier} · ${tracking}` : tracking ? tracking : null;
+                const carrier = (r.carrier || "").trim() || "—";
+                const tracking = (r.tracking_code || "").trim() || "—";
 
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/70">
                     <td className="px-3 py-2 align-middle">
                       <div className="flex items-center gap-2">
-                        {/* ICONA: pacco grigio | pallet arancione */}
                         <span
                           className={[
                             "inline-flex h-7 w-7 items-center justify-center rounded-lg",
@@ -217,14 +218,7 @@ export default function BackofficeSpedizioniClient() {
 
                         <div className="flex flex-col">
                           <span className="font-semibold text-slate-900">{ref}</span>
-                          <span className="text-[11px] text-slate-500">ID interno: {r.id}</span>
-
-                          {/* ✅ NEW (solo UI): mostra tracking sotto, utile anche visivamente */}
-                          {trackingLine && (
-                            <span className="mt-0.5 text-[11px] text-slate-500">
-                              Tracking: <span className="font-medium text-slate-700">{trackingLine}</span>
-                            </span>
-                          )}
+                          {/* ✅ rimosso ID interno */}
                         </div>
                       </div>
                     </td>
@@ -249,12 +243,14 @@ export default function BackofficeSpedizioniClient() {
                       <span className="text-[11px] text-slate-700">{r.tipo_spedizione || "—"}</span>
                     </td>
 
+                    {/* ✅ corriere */}
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{r.incoterm || "—"}</span>
+                      <span className="text-[11px] text-slate-700">{carrier}</span>
                     </td>
 
+                    {/* ✅ tracking */}
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{r.status || "—"}</span>
+                      <span className="text-[11px] text-slate-700">{tracking}</span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
