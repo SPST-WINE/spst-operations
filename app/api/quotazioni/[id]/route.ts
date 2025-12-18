@@ -69,12 +69,14 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
     const dest = f.destinatario || {};
     const colli = Array.isArray(f.colli) ? f.colli : [];
 
-    const assicurazioneAttiva =
-      typeof f.assicurazioneAttiva === "boolean" ? f.assicurazioneAttiva : false;
-
     const valoreAssicurato =
-      data.declared_value ??
-      (f.valoreAssicurato != null ? Number(f.valoreAssicurato) : null);
+  data.declared_value != null
+    ? Number(data.declared_value)
+    : (f.valoreAssicurato != null ? Number(f.valoreAssicurato) : null);
+
+const assicurazioneAttiva =
+  !!valoreAssicurato && Number.isFinite(valoreAssicurato) && valoreAssicurato > 0;
+
 
     const fields = {
       ...f,
