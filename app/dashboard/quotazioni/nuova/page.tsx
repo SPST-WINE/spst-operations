@@ -640,10 +640,45 @@ if (formato === "Pallet" && assicurazioneAttiva) {
 
   setSaving(true);
   try {
+    // ✅ parse robusto (numero o stringa con virgola/simboli)
+    const parseMoneyLike = (x: any): number | null => {
+      if (x === null || x === undefined) return null;
+      const s0 = String(x).trim();
+      if (!s0) return null;
+
+      const s = s0.replace(/[^\d.,]/g, "");
+      if (!s) return null;
+
+      const lastDot = s.lastIndexOf(".");
+      const lastComma = s.lastIndexOf(",");
+      const decSep = lastDot > lastComma ? "." : ",";
+
+      let normalized = s;
+
+      if (s.includes(".") && s.includes(",")) {
+        const parts = s.split(decSep);
+        const decimals = parts.pop() ?? "";
+        const intPart = parts.join("").replace(/[.,]/g, "");
+        normalized = intPart + "." + decimals.replace(/[.,]/g, "");
+      } else {
+        normalized = s.replace(",", ".");
+        const p = normalized.split(".");
+        if (p.length > 2) {
+          const dec = p.pop();
+          normalized = p.join("") + "." + (dec ?? "");
+        }
+      }
+
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : null;
+    };
+
     // ✅ valore assicurato valido SOLO per Pallet
+    const valoreAssicuratoParsed = parseMoneyLike(valoreAssicurato);
+
     const valoreAssicuratoEffettivo =
-      formato === "Pallet" && (valoreAssicurato ?? 0) > 0
-        ? Number(valoreAssicurato)
+      formato === "Pallet" && valoreAssicuratoParsed && valoreAssicuratoParsed > 0
+        ? valoreAssicuratoParsed
         : null;
 
     const res: any = await postPreventivo(
@@ -683,16 +718,27 @@ if (formato === "Pallet" && assicurazioneAttiva) {
         contenutoColli: contenuto || undefined,
         valoreAssicurato: valoreAssicuratoEffettivo,
       },
-      getSupabaseAccessToken // ✅ coerente, NO Firebase
+      getSupabaseAccessToken
     );
 
-    // gestisci redirect / toast / state qui
-  } catch (err) {
+    // ✅ MOSTRA CONFERMA (la tua view if(ok?.id) ...)
+    setOk({ id: res?.id, displayId: res?.displayId });
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  } catch (err: any) {
     console.error(err);
+
+    // ✅ mostra errore in UI
+    const msg =
+      err?.message ||
+      (typeof err === "string" ? err : "Errore durante l'invio della richiesta.");
+    setErrors([msg]);
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   } finally {
     setSaving(false);
   }
 }
+
 
 
   // ------------------------------------------------------------
