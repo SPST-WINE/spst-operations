@@ -210,6 +210,7 @@ export type QuoteCreatePayload = {
   // server può valorizzare createdByEmail/customerEmail da auth
   createdByEmail?: string;
   customerEmail?: string;
+  valoreAssicurato?: number | null;
 };
 
 
