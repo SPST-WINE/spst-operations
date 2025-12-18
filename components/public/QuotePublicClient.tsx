@@ -1,4 +1,3 @@
-// components/public/QuotePublicClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -51,7 +50,7 @@ type PublicQuote = {
 
   colli: Collo[] | null;
   contenuto_colli: string | null;
-  declared_value: number | null;
+  declared_value: number | null; // ✅ valore assicurato
 };
 
 type PublicQuoteOption = {
@@ -198,7 +197,6 @@ export default function QuotePublicClient({ token }: Props) {
 
     const colli = Array.isArray(quote?.colli) ? quote!.colli : [];
 
-    // Totali “fisici”
     const totalPieces = colli.reduce((sum, c) => sum + (n(c.quantita) ?? 0), 0);
 
     const totalWeight = colli.reduce((sum, c) => {
@@ -207,7 +205,6 @@ export default function QuotePublicClient({ token }: Props) {
       return sum + w * q;
     }, 0);
 
-    // Volume e volumetrico: (L*W*H) / 4000
     const VOL_DIV = 4000;
 
     const totalVolumeCm3 = colli.reduce((sum, c) => {
@@ -219,10 +216,9 @@ export default function QuotePublicClient({ token }: Props) {
       return sum + l * w * h * q;
     }, 0);
 
-    const totalVolumeM3 = totalVolumeCm3 / 1_000_000; // 1 m3 = 1,000,000 cm3
+    const totalVolumeM3 = totalVolumeCm3 / 1_000_000;
     const volumetricWeightKg = totalVolumeCm3 / VOL_DIV;
 
-    // Peso tassato = max(peso reale, peso volumetrico)
     const billedWeightKg = Math.max(totalWeight || 0, volumetricWeightKg || 0);
 
     return {
@@ -237,6 +233,11 @@ export default function QuotePublicClient({ token }: Props) {
       volDivisor: VOL_DIV,
     };
   }, [quote]);
+
+  const insuranceActive = useMemo(() => {
+    const v = quote?.declared_value;
+    return v != null && Number.isFinite(v) && v > 0;
+  }, [quote?.declared_value]);
 
   async function handleAccept(optionId: string) {
     if (!quote) return;
@@ -382,12 +383,20 @@ export default function QuotePublicClient({ token }: Props) {
               Incoterm: {quote.incoterm}
             </span>
           )}
-          {quote.declared_value != null && quote.declared_value > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-800">
-              <ShieldCheck className="h-3 w-3 text-emerald-600" />
-              Valore assicurato:{" "}
-              {formatCurrency(quote.declared_value, quote.valuta || "EUR")}
-            </span>
+
+          {/* ✅ NEW assicurazione */}
+          {insuranceActive && (
+            <>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-800">
+                <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                Assicurazione: attiva
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-800">
+                <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                Valore assicurato:{" "}
+                {formatCurrency(quote.declared_value, quote.valuta || "EUR")}
+              </span>
+            </>
           )}
         </div>
       </header>
@@ -397,9 +406,7 @@ export default function QuotePublicClient({ token }: Props) {
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 shadow-sm">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span className="font-medium">
-              La tua scelta è stata registrata.
-            </span>
+            <span className="font-medium">La tua scelta è stata registrata.</span>
           </div>
           {thankYou && (
             <p className="mt-1 text-[11px] text-emerald-800">
@@ -413,9 +420,7 @@ export default function QuotePublicClient({ token }: Props) {
       <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center gap-2">
           <Package className="h-4 w-4 text-slate-700" />
-          <h2 className="text-sm font-semibold text-slate-900">
-            Dettagli spedizione
-          </h2>
+          <h2 className="text-sm font-semibold text-slate-900">Dettagli spedizione</h2>
         </div>
 
         <div className="grid gap-4">
@@ -488,18 +493,14 @@ export default function QuotePublicClient({ token }: Props) {
                         ? `${ship.volumetricWeightKg.toFixed(1)} kg`
                         : "—"}
                     </span>
-                    <span className="text-[10px] text-slate-500">
-                      (÷ {ship.volDivisor})
-                    </span>
+                    <span className="text-[10px] text-slate-500">(÷ {ship.volDivisor})</span>
                   </span>
 
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-900">
                     <Weight className="h-3 w-3 text-emerald-700" />
                     Peso tassato:{" "}
                     <span className="font-semibold">
-                      {ship.billedWeightKg > 0
-                        ? `${ship.billedWeightKg.toFixed(1)} kg`
-                        : "—"}
+                      {ship.billedWeightKg > 0 ? `${ship.billedWeightKg.toFixed(1)} kg` : "—"}
                     </span>
                   </span>
                 </div>
@@ -507,8 +508,7 @@ export default function QuotePublicClient({ token }: Props) {
 
               {quote.contenuto_colli ? (
                 <div className="max-w-full rounded-full bg-slate-100 px-3 py-1 text-[11px] text-slate-700">
-                  Contenuto:{" "}
-                  <span className="font-semibold">{quote.contenuto_colli}</span>
+                  Contenuto: <span className="font-semibold">{quote.contenuto_colli}</span>
                 </div>
               ) : null}
             </div>
@@ -547,8 +547,8 @@ export default function QuotePublicClient({ token }: Props) {
 
                 <div className="mt-2 text-[10px] text-slate-500">
                   Peso volumetrico = (L×W×H in cm) ÷ {ship.volDivisor}. Il{" "}
-                  <span className="font-semibold">peso tassato</span> è il valore
-                  più alto tra peso reale e peso volumetrico.
+                  <span className="font-semibold">peso tassato</span> è il valore più alto tra
+                  peso reale e peso volumetrico.
                 </div>
               </div>
             )}
@@ -558,16 +558,23 @@ export default function QuotePublicClient({ token }: Props) {
             {fieldLine("Email cliente", quote.email_cliente)}
             {fieldLine("Valuta", quote.valuta)}
             {fieldLine("Stato", quote.status)}
+            {/* ✅ opzionale: mostra assicurazione anche qui */}
+            {insuranceActive
+              ? fieldLine(
+                  "Valore assicurato",
+                  formatCurrency(quote.declared_value, quote.valuta || "EUR")
+                )
+              : null}
           </div>
         </div>
       </section>
 
-      {/* Options (single column) */}
+      {/* Options */}
       <main className="mt-4 flex-1">
         {options.length === 0 ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-5 text-sm text-slate-700 shadow-sm">
-            Al momento non sono ancora state caricate opzioni per questa
-            quotazione. Ti invitiamo a riprovare più tardi o a contattare SPST.
+            Al momento non sono ancora state caricate opzioni per questa quotazione. Ti invitiamo
+            a riprovare più tardi o a contattare SPST.
           </div>
         ) : (
           <div className="grid gap-3">
@@ -581,8 +588,7 @@ export default function QuotePublicClient({ token }: Props) {
               const vatRate = opt.vat_rate ?? null;
 
               const isAccepted =
-                quote.accepted_option_id === opt.id ||
-                opt.status === "accettata";
+                quote.accepted_option_id === opt.id || opt.status === "accettata";
               const isRejected = opt.status === "rifiutata";
               const disabled = alreadyAccepted && !isAccepted;
 
@@ -620,8 +626,7 @@ export default function QuotePublicClient({ token }: Props) {
                       </div>
 
                       <div className="mt-1 text-base font-semibold text-slate-900">
-                        {opt.carrier || "Corriere"} ·{" "}
-                        {opt.service_name || "Servizio"}
+                        {opt.carrier || "Corriere"} · {opt.service_name || "Servizio"}
                       </div>
 
                       {opt.transit_time && (
@@ -633,20 +638,20 @@ export default function QuotePublicClient({ token }: Props) {
                     </div>
 
                     <div className="min-w-[220px] text-right">
-                      <div className="text-[11px] text-slate-500">
-                        Totale spedizione
-                      </div>
+                      <div className="text-[11px] text-slate-500">Totale spedizione</div>
                       <div className="text-2xl font-semibold text-slate-900">
                         {formatCurrency(total, currency)}
                       </div>
+
+                      {/* ✅ cambio testo IVA */}
                       <div className="mt-1 text-[11px] text-slate-500">
                         {ivaIncluded
                           ? vatRate
                             ? `IVA ${vatRate}% inclusa`
                             : "IVA inclusa"
                           : vatRate
-                          ? `IVA ${vatRate}% applicata in fattura`
-                          : "IVA dove applicabile"}
+                          ? `+${vatRate}% IVA`
+                          : "+IVA"}
                       </div>
                     </div>
                   </div>
@@ -683,10 +688,7 @@ export default function QuotePublicClient({ token }: Props) {
 
                   <div className="mt-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div className="text-[11px] text-slate-500">
-                      Cliccando su{" "}
-                      <span className="font-semibold">
-                        Conferma questa opzione
-                      </span>{" "}
+                      Cliccando su <span className="font-semibold">Conferma questa opzione</span>{" "}
                       ci autorizzi a procedere con questa soluzione.
                     </div>
 
@@ -726,10 +728,8 @@ export default function QuotePublicClient({ token }: Props) {
       </main>
 
       <footer className="mt-8 border-t border-slate-100 pt-4 text-[11px] text-slate-500">
-        Quotazione gestita da{" "}
-        <span className="font-semibold text-slate-900">SPST</span>. In caso di
-        dubbi puoi rispondere direttamente alla mail con cui hai ricevuto questo
-        link.
+        Quotazione gestita da <span className="font-semibold text-slate-900">SPST</span>. In caso
+        di dubbi puoi rispondere direttamente alla mail con cui hai ricevuto questo link.
       </footer>
     </div>
   );
