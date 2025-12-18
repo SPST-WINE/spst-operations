@@ -33,6 +33,32 @@ function jsonError(status: number, error: string, extra?: Record<string, any>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
 }
 
+function toBool(x: any): boolean {
+  if (typeof x === "boolean") return x;
+  if (typeof x === "number") return x !== 0;
+  if (typeof x === "string") {
+    const v = x.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "si", "sì", "on"].includes(v)) return true;
+    if (["false", "0", "no", "n", "off", ""].includes(v)) return false;
+  }
+  return false;
+}
+
+function toNum(x: any): number | null {
+  if (x === null || x === undefined) return null;
+  const n = Number(String(x).replace(",", ".").trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstNonEmpty<T = any>(...vals: T[]) {
+  for (const v of vals) {
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+}
+
+// ---------- Types ---------------------------------------------------
+
 type QuoteParty = {
   ragioneSociale?: string;
   paese?: string;
@@ -63,12 +89,19 @@ type QuoteCreatePayload = {
   createdByEmail?: string;
   customerEmail?: string;
 
-  // 👇 GIÀ PRESENTE
   contenutoColli?: string;
 
-  // 👇 NUOVI
-  assicurazioneAttiva?: boolean;
-  valoreAssicurato?: number | null;
+  // "canonici"
+  assicurazioneAttiva?: boolean | string | number;
+  valoreAssicurato?: number | string | null;
+
+  // alias possibili dal client (li supportiamo senza rompere nulla)
+  insurance_requested?: boolean | string | number;
+  insurance_value_eur?: number | string | null;
+  assicurazione_pallet?: boolean | string | number;
+  valore_assicurato?: number | string | null;
+
+  fields?: any; // se un domani mandi già un payload "fields"
 };
 
 // ---------- POST: crea preventivo -----------------------------------
@@ -85,26 +118,50 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as QuoteCreatePayload;
 
-    if (!body.mittente || !body.destinatario || !Array.isArray(body.colli)) {
+    // Se arriva già un oggetto fields, lo consideriamo (non obbligatorio)
+    const bodyFields: any = body.fields && typeof body.fields === "object" ? body.fields : {};
+
+    const mittente = body.mittente ?? bodyFields.mittente;
+    const destinatario = body.destinatario ?? bodyFields.destinatario;
+    const colli = Array.isArray(body.colli) ? body.colli : Array.isArray(bodyFields.colli) ? bodyFields.colli : null;
+
+    if (!mittente || !destinatario || !Array.isArray(colli)) {
       return jsonError(400, "INVALID_PAYLOAD", {
         message: "Mittente, destinatario e colli sono obbligatori",
       });
     }
 
     const createdByEmail =
-      body.createdByEmail || body.customerEmail || "info@spst.it";
-    const customerEmail = body.customerEmail || createdByEmail;
+      body.createdByEmail || body.customerEmail || bodyFields.createdByEmail || "info@spst.it";
+    const customerEmail =
+      body.customerEmail || bodyFields.customerEmail || createdByEmail;
 
-    // Normalizzo boolean/numeri
-    const assicurazioneAttiva =
-      typeof body.assicurazioneAttiva === "boolean" ? body.assicurazioneAttiva : false;
+    // --- Assicurazione: supporto alias ---
+    const assicurazioneAttiva = toBool(
+      firstNonEmpty(
+        body.assicurazioneAttiva,
+        body.insurance_requested,
+        body.assicurazione_pallet,
+        bodyFields.assicurazioneAttiva,
+        bodyFields.insurance_requested,
+        bodyFields.assicurazione_pallet
+      )
+    );
 
-    const valoreAssicurato =
-      body.valoreAssicurato == null ? null : Number(body.valoreAssicurato);
+    const valoreAssicurato = toNum(
+      firstNonEmpty(
+        body.valoreAssicurato,
+        body.valore_assicurato,
+        body.insurance_value_eur,
+        bodyFields.valoreAssicurato,
+        bodyFields.valore_assicurato,
+        bodyFields.insurance_value_eur
+      )
+    );
 
     // Se assicurazione ON, valore deve essere valido > 0
     if (assicurazioneAttiva) {
-      if (!valoreAssicurato || !Number.isFinite(valoreAssicurato) || valoreAssicurato <= 0) {
+      if (!valoreAssicurato || valoreAssicurato <= 0) {
         return jsonError(400, "INVALID_INSURANCE_VALUE", {
           message:
             "Assicurazione attiva: valore assicurato mancante o non valido (> 0).",
@@ -112,41 +169,49 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
+    const dataRitiroDate =
+      body.ritiroData
+        ? new Date(body.ritiroData).toISOString().slice(0, 10)
+        : bodyFields.ritiroData
+        ? new Date(bodyFields.ritiroData).toISOString().slice(0, 10)
+        : null;
+
+    // fields JSON “completo”
     const fields = {
+      ...bodyFields,
       ...body,
+
+      // forzo coerenza
       createdByEmail,
       customerEmail,
+
       assicurazioneAttiva,
       valoreAssicurato: assicurazioneAttiva ? valoreAssicurato : null,
     };
-
-    // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
-    const dataRitiroDate =
-      body.ritiroData ? new Date(body.ritiroData).toISOString().slice(0, 10) : null;
 
     const { data, error } = await supabase
       .from("quotes")
       .insert({
         status: "In lavorazione",
-        incoterm: body.incoterm,
-        // ✅ riuso declared_value come "valore assicurato" (senza migrazioni DB)
+        incoterm: body.incoterm ?? bodyFields.incoterm ?? null,
+
+        // ✅ colonna usata come "valore assicurato"
         declared_value: assicurazioneAttiva ? valoreAssicurato : null,
 
         // colonne normalizzate
         data_ritiro: dataRitiroDate,
-        tipo_spedizione: body.tipoSped || null,
-        valuta: body.valuta || null,
-        note_generiche: body.noteGeneriche || null,
+        tipo_spedizione: body.tipoSped ?? bodyFields.tipoSped ?? null,
+        valuta: body.valuta ?? bodyFields.valuta ?? null,
+        note_generiche: body.noteGeneriche ?? bodyFields.noteGeneriche ?? null,
         email_cliente: customerEmail,
         creato_da_email: createdByEmail,
-        mittente: body.mittente || null,
-        destinatario: body.destinatario || null,
-        colli: Array.isArray(body.colli) ? body.colli : null,
+        mittente,
+        destinatario,
+        colli,
 
-        // contenuto colli
-        contenuto_colli: body.contenutoColli || null,
+        contenuto_colli: body.contenutoColli ?? bodyFields.contenutoColli ?? null,
 
-        // JSON completo
         fields,
       })
       .select("id")
@@ -205,12 +270,12 @@ export async function GET(req: NextRequest) {
         const mitt = f.mittente || {};
         const dest = f.destinatario || {};
 
-        const assicurazioneAttiva =
-          typeof f.assicurazioneAttiva === "boolean" ? f.assicurazioneAttiva : false;
+        const assicurazioneAttiva = toBool(f.assicurazioneAttiva);
 
         const valoreAssicurato =
-          row.declared_value ??
-          (f.valoreAssicurato != null ? Number(f.valoreAssicurato) : null);
+          (row.declared_value ?? null) !== null
+            ? Number(row.declared_value)
+            : toNum(f.valoreAssicurato);
 
         const aliasedFields = {
           ...f,
@@ -226,7 +291,9 @@ export async function GET(req: NextRequest) {
           Slug_Pubblico: row.id,
           Incoterm: row.incoterm,
 
-          // ✅ nuovi alias comodi per UI/Backoffice
+          // ✅ nuovi alias + campi raw comodi
+          assicurazioneAttiva,
+          valoreAssicurato,
           Assicurazione_Attiva: assicurazioneAttiva ? "Sì" : "No",
           Valore_Assicurato: valoreAssicurato,
         };
