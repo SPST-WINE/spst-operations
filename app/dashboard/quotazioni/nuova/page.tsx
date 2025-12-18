@@ -603,13 +603,12 @@ function NuovaQuotazionePageInner() {
     if (!ritiroData) errs.push("Ritiro: seleziona il giorno di ritiro.");
 
     // Pallet + assicurazione => valore
-    if (formato === "Pallet" && assicurazioneAttiva) {
-      if (valoreAssicurato == null || valoreAssicurato <= 0) {
-        errs.push(
-          "Assicurazione: valore assicurato mancante/non valido (assicurazione attiva)."
-        );
-      }
-    }
+    // Pallet: se toggle ON, valore obbligatorio >0
+if (formato === "Pallet" && assicurazioneAttiva) {
+  if (!valoreAssicurato || valoreAssicurato <= 0) {
+    errs.push("Assicurazione: inserisci un valore assicurato > 0.");
+  }
+}
 
     return errs;
   }
@@ -629,65 +628,72 @@ function NuovaQuotazionePageInner() {
   }, [errors]);
 
   async function salva() {
-    if (saving) return;
+  if (saving) return;
 
-    const v = validate();
-    if (v.length) {
-      setErrors(v);
-      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    setErrors([]);
-
-    setSaving(true);
-    try {
-      const res: any = await postPreventivo(
-        {
-          mittente: {
-            ragioneSociale: mittente.ragioneSociale,
-            paese: mittente.paese,
-            citta: mittente.citta,
-            cap: mittente.cap,
-            indirizzo: mittente.indirizzo,
-            telefono: mittente.telefono || undefined,
-            taxId: mittente.piva || undefined,
-          },
-          destinatario: {
-            ragioneSociale: destinatario.ragioneSociale,
-            paese: destinatario.paese,
-            citta: destinatario.citta,
-            cap: destinatario.cap,
-            indirizzo: destinatario.indirizzo,
-            telefono: destinatario.telefono || undefined,
-            taxId: destinatario.piva || undefined,
-          },
-          colli: (colli || []).map((c) => ({
-            quantita: 1,
-            lunghezza_cm: c.lunghezza_cm ?? null,
-            larghezza_cm: c.larghezza_cm ?? null,
-            altezza_cm: c.altezza_cm ?? null,
-            peso_kg: c.peso_kg ?? null,
-          })),
-          valuta,
-          noteGeneriche: note,
-          ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-          tipoSped,
-          incoterm,
-
-          // (formato/contenuto/assicurazione/valore) li aggiungeremo quando estendi backend quote
-        },
-        getSupabaseAccessToken // ✅ NO Firebase
-      );
-
-      setOk({ id: res?.id, displayId: res?.displayId });
-      topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    } catch (e) {
-      console.error("Errore creazione preventivo", e);
-      setErrors(["Errore durante la creazione della quotazione. Riprova."]);
-    } finally {
-      setSaving(false);
-    }
+  const v = validate();
+  if (v.length) {
+    setErrors(v);
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
   }
+  setErrors([]);
+
+  setSaving(true);
+  try {
+    // ✅ valore assicurato valido SOLO per Pallet
+    const valoreAssicuratoEffettivo =
+      formato === "Pallet" && (valoreAssicurato ?? 0) > 0
+        ? Number(valoreAssicurato)
+        : null;
+
+    const res: any = await postPreventivo(
+      {
+        mittente: {
+          ragioneSociale: mittente.ragioneSociale,
+          paese: mittente.paese,
+          citta: mittente.citta,
+          cap: mittente.cap,
+          indirizzo: mittente.indirizzo,
+          telefono: mittente.telefono || undefined,
+          taxId: mittente.piva || undefined,
+        },
+        destinatario: {
+          ragioneSociale: destinatario.ragioneSociale,
+          paese: destinatario.paese,
+          citta: destinatario.citta,
+          cap: destinatario.cap,
+          indirizzo: destinatario.indirizzo,
+          telefono: destinatario.telefono || undefined,
+          taxId: destinatario.piva || undefined,
+        },
+        colli: (colli || []).map((c) => ({
+          quantita: 1,
+          lunghezza_cm: c.lunghezza_cm ?? null,
+          larghezza_cm: c.larghezza_cm ?? null,
+          altezza_cm: c.altezza_cm ?? null,
+          peso_kg: c.peso_kg ?? null,
+        })),
+        valuta,
+        noteGeneriche: note,
+        ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
+        tipoSped,
+        incoterm,
+
+        // ✅ NUOVI CAMPI
+        contenutoColli: contenuto || undefined,
+        valoreAssicurato: valoreAssicuratoEffettivo,
+      },
+      getSupabaseAccessToken // ✅ coerente, NO Firebase
+    );
+
+    // gestisci redirect / toast / state qui
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setSaving(false);
+  }
+}
+
 
   // ------------------------------------------------------------
   // Success UI
