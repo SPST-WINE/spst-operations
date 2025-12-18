@@ -23,7 +23,7 @@ type Props = {
   assicurazioneAttiva: boolean;
   setAssicurazioneAttiva: (v: boolean) => void;
 
-  /** NEW: valore assicurato */
+  /** valore assicurato */
   valoreAssicurato: number | null;
   setValoreAssicurato: (v: number | null) => void;
 };
@@ -40,6 +40,32 @@ export default function ColliCard({
   valoreAssicurato,
   setValoreAssicurato,
 }: Props) {
+  // Normalizza numeri: accetta number o string (virgole, simboli, spazi)
+  const normalizeNum = (x: any): number | null => {
+    if (x === null || x === undefined) return null;
+    const s = String(x).trim();
+    if (!s) return null;
+
+    // - sostituisce virgola con punto
+    // - rimuove tutto ciò che non è cifra o punto
+    //   (gestisce anche "€ 1.234,56" => "1.234.56" -> Number() = NaN)
+    // Per sicurezza: se ci sono più punti, teniamo il primo come separatore decimale
+    const cleanedRaw = s.replace(",", ".").replace(/[^\d.]/g, "");
+    if (!cleanedRaw) return null;
+
+    // Se ci sono più punti (es "1.234.56"), proviamo a:
+    // - togliere tutti i punti tranne l'ultimo (tipico caso migliaia + decimali)
+    const parts = cleanedRaw.split(".");
+    let cleaned = cleanedRaw;
+    if (parts.length > 2) {
+      const last = parts.pop(); // decimali
+      cleaned = parts.join("") + "." + last;
+    }
+
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
+
   const update = (idx: number, patch: Partial<Collo>) => {
     const copy = [...colli];
     copy[idx] = { ...copy[idx], ...patch };
@@ -49,12 +75,7 @@ export default function ColliCard({
   const addCollo = () =>
     onChange([
       ...colli,
-      {
-        lunghezza_cm: null,
-        larghezza_cm: null,
-        altezza_cm: null,
-        peso_kg: null,
-      },
+      { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
     ]);
 
   const removeCollo = (idx: number) => {
@@ -63,14 +84,7 @@ export default function ColliCard({
     onChange(
       copy.length
         ? copy
-        : [
-            {
-              lunghezza_cm: null,
-              larghezza_cm: null,
-              altezza_cm: null,
-              peso_kg: null,
-            },
-          ],
+        : [{ lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null }]
     );
   };
 
@@ -127,7 +141,7 @@ export default function ColliCard({
               <NumberField
                 label="Lato 1 (cm)"
                 value={c.lunghezza_cm}
-                onChange={(v) => update(i, { lunghezza_cm: v })}
+                onChange={(v) => update(i, { lunghezza_cm: normalizeNum(v) })}
                 min={0}
                 step="any"
                 className="min-w-[120px] flex-1"
@@ -135,7 +149,7 @@ export default function ColliCard({
               <NumberField
                 label="Lato 2 (cm)"
                 value={c.larghezza_cm}
-                onChange={(v) => update(i, { larghezza_cm: v })}
+                onChange={(v) => update(i, { larghezza_cm: normalizeNum(v) })}
                 min={0}
                 step="any"
                 className="min-w-[120px] flex-1"
@@ -143,7 +157,7 @@ export default function ColliCard({
               <NumberField
                 label="Lato 3 (cm)"
                 value={c.altezza_cm}
-                onChange={(v) => update(i, { altezza_cm: v })}
+                onChange={(v) => update(i, { altezza_cm: normalizeNum(v) })}
                 min={0}
                 step="any"
                 className="min-w-[120px] flex-1"
@@ -151,7 +165,7 @@ export default function ColliCard({
               <NumberField
                 label="Peso (kg)"
                 value={c.peso_kg}
-                onChange={(v) => update(i, { peso_kg: v })}
+                onChange={(v) => update(i, { peso_kg: normalizeNum(v) })}
                 min={0}
                 step="any"
                 className="min-w-[120px] flex-1"
@@ -193,8 +207,7 @@ export default function ColliCard({
             Numero colli: <span className="font-semibold">{colli.length}</span>
           </span>
           <span className="rounded-md border border-slate-300 bg-white px-2 py-1">
-            Peso reale:{" "}
-            <span className="font-semibold">{pesoReale.toFixed(2)} kg</span>
+            Peso reale: <span className="font-semibold">{pesoReale.toFixed(2)} kg</span>
           </span>
           <span className="rounded-md border border-slate-300 bg-white px-2 py-1">
             Volumetrico:{" "}
@@ -213,12 +226,10 @@ export default function ColliCard({
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold text-slate-700">
-                Assicurazione pallet
-              </p>
+              <p className="text-xs font-semibold text-slate-700">Assicurazione pallet</p>
               <p className="text-[11px] text-slate-500">
-                Copre danni e smarrimento sulla spedizione pallet. Consigliata
-                per tratte lunghe / internazionali.
+                Copre danni e smarrimento sulla spedizione pallet. Consigliata per
+                tratte lunghe / internazionali.
               </p>
             </div>
 
@@ -246,13 +257,13 @@ export default function ColliCard({
               <NumberField
                 label="Valore assicurato (EUR)"
                 value={valoreAssicurato}
-                onChange={(v) => setValoreAssicurato(v)}
+                onChange={(v) => setValoreAssicurato(normalizeNum(v))}
                 min={0}
                 step="any"
               />
               <p className="text-[11px] text-slate-500">
-                Inserisci il valore totale della merce sul pallet. Useremo questo
-                valore come riferimento assicurativo.
+                Inserisci il valore totale della merce sul pallet. Useremo questo valore
+                come riferimento assicurativo.
               </p>
             </div>
           )}
