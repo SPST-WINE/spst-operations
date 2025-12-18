@@ -33,17 +33,6 @@ function jsonError(status: number, error: string, extra?: Record<string, any>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
 }
 
-function toBool(x: any): boolean {
-  if (typeof x === "boolean") return x;
-  if (typeof x === "number") return x !== 0;
-  if (typeof x === "string") {
-    const v = x.trim().toLowerCase();
-    if (["true", "1", "yes", "y", "si", "sì", "on"].includes(v)) return true;
-    if (["false", "0", "no", "n", "off", ""].includes(v)) return false;
-  }
-  return false;
-}
-
 function toNum(x: any): number | null {
   if (x === null || x === undefined) return null;
   const n = Number(String(x).replace(",", ".").trim());
@@ -91,15 +80,17 @@ type QuoteCreatePayload = {
 
   contenutoColli?: string;
 
-  // "canonici"
-  assicurazioneAttiva?: boolean | string | number;
+  // canonico (client nuovo)
   valoreAssicurato?: number | string | null;
 
-  // alias possibili dal client (li supportiamo senza rompere nulla)
-  insurance_requested?: boolean | string | number;
-  insurance_value_eur?: number | string | null;
-  assicurazione_pallet?: boolean | string | number;
+  // alias possibili (compat)
   valore_assicurato?: number | string | null;
+  insurance_value_eur?: number | string | null;
+
+  // compat vecchia (boolean, ignorato come fonte di verità)
+  assicurazioneAttiva?: boolean | string | number;
+  insurance_requested?: boolean | string | number;
+  assicurazione_pallet?: boolean | string | number;
 
   fields?: any; // se un domani mandi già un payload "fields"
 };
@@ -119,11 +110,16 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as QuoteCreatePayload;
 
     // Se arriva già un oggetto fields, lo consideriamo (non obbligatorio)
-    const bodyFields: any = body.fields && typeof body.fields === "object" ? body.fields : {};
+    const bodyFields: any =
+      body.fields && typeof body.fields === "object" ? body.fields : {};
 
     const mittente = body.mittente ?? bodyFields.mittente;
     const destinatario = body.destinatario ?? bodyFields.destinatario;
-    const colli = Array.isArray(body.colli) ? body.colli : Array.isArray(bodyFields.colli) ? bodyFields.colli : null;
+    const colli = Array.isArray(body.colli)
+      ? body.colli
+      : Array.isArray(bodyFields.colli)
+      ? bodyFields.colli
+      : null;
 
     if (!mittente || !destinatario || !Array.isArray(colli)) {
       return jsonError(400, "INVALID_PAYLOAD", {
@@ -132,52 +128,46 @@ export async function POST(req: NextRequest) {
     }
 
     const createdByEmail =
-      body.createdByEmail || body.customerEmail || bodyFields.createdByEmail || "info@spst.it";
+      body.createdByEmail ||
+      body.customerEmail ||
+      bodyFields.createdByEmail ||
+      "info@spst.it";
+
     const customerEmail =
       body.customerEmail || bodyFields.customerEmail || createdByEmail;
 
-    // --- Assicurazione: supporto alias ---
-    const assicurazioneAttiva = toBool(
-      firstNonEmpty(
-        body.assicurazioneAttiva,
-        body.insurance_requested,
-        body.assicurazione_pallet,
-        bodyFields.assicurazioneAttiva,
-        bodyFields.insurance_requested,
-        bodyFields.assicurazione_pallet
-      )
-    );
+    // ---------------------------
+    // ✅ SOLO VALORE: declared_value
+    // ---------------------------
+    // Prendiamo il valore da: body.valoreAssicurato (canonico) oppure alias
+    const valoreAssicuratoNum =
+      toNum(
+        firstNonEmpty(
+          body.valoreAssicurato,
+          body.valore_assicurato,
+          body.insurance_value_eur,
+          bodyFields?.valoreAssicurato,
+          bodyFields?.valore_assicurato,
+          bodyFields?.insurance_value_eur
+        )
+      ) ?? null;
 
-    const valoreAssicurato = toNum(
-      firstNonEmpty(
-        body.valoreAssicurato,
-        body.valore_assicurato,
-        body.insurance_value_eur,
-        bodyFields.valoreAssicurato,
-        bodyFields.valore_assicurato,
-        bodyFields.insurance_value_eur
-      )
-    );
-
-    // Se assicurazione ON, valore deve essere valido > 0
-    if (assicurazioneAttiva) {
-      if (!valoreAssicurato || valoreAssicurato <= 0) {
-        return jsonError(400, "INVALID_INSURANCE_VALUE", {
-          message:
-            "Assicurazione attiva: valore assicurato mancante o non valido (> 0).",
-        });
-      }
-    }
-
-    // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
-    const dataRitiroDate =
-      body.ritiroData
-        ? new Date(body.ritiroData).toISOString().slice(0, 10)
-        : bodyFields.ritiroData
-        ? new Date(bodyFields.ritiroData).toISOString().slice(0, 10)
+    const declaredValue =
+      valoreAssicuratoNum &&
+      Number.isFinite(valoreAssicuratoNum) &&
+      valoreAssicuratoNum > 0
+        ? valoreAssicuratoNum
         : null;
 
+    // Normalizzo la data ritiro in formato YYYY-MM-DD (colonna è "date")
+    const dataRitiroDate = firstNonEmpty(body.ritiroData, bodyFields.ritiroData)
+      ? new Date(firstNonEmpty(body.ritiroData, bodyFields.ritiroData) as string)
+          .toISOString()
+          .slice(0, 10)
+      : null;
+
     // fields JSON “completo”
+    // (manteniamo compat, ma fissiamo alias utili)
     const fields = {
       ...bodyFields,
       ...body,
@@ -186,8 +176,9 @@ export async function POST(req: NextRequest) {
       createdByEmail,
       customerEmail,
 
-      assicurazioneAttiva,
-      valoreAssicurato: assicurazioneAttiva ? valoreAssicurato : null,
+      // ✅ alias comodi nel JSON
+      assicurazioneAttiva: Boolean(declaredValue),
+      valoreAssicurato: declaredValue,
     };
 
     const { data, error } = await supabase
@@ -196,8 +187,8 @@ export async function POST(req: NextRequest) {
         status: "In lavorazione",
         incoterm: body.incoterm ?? bodyFields.incoterm ?? null,
 
-        // ✅ colonna usata come "valore assicurato"
-        declared_value: assicurazioneAttiva ? valoreAssicurato : null,
+        // ✅ valore assicurato normalizzato
+        declared_value: declaredValue,
 
         // colonne normalizzate
         data_ritiro: dataRitiroDate,
@@ -210,7 +201,8 @@ export async function POST(req: NextRequest) {
         destinatario,
         colli,
 
-        contenuto_colli: body.contenutoColli ?? bodyFields.contenutoColli ?? null,
+        contenuto_colli:
+          body.contenutoColli ?? bodyFields.contenutoColli ?? null,
 
         fields,
       })
@@ -270,12 +262,13 @@ export async function GET(req: NextRequest) {
         const mitt = f.mittente || {};
         const dest = f.destinatario || {};
 
-        const assicurazioneAttiva = toBool(f.assicurazioneAttiva);
-
+        // ✅ fonte di verità: declared_value se presente
         const valoreAssicurato =
-          (row.declared_value ?? null) !== null
+          row.declared_value !== null && row.declared_value !== undefined
             ? Number(row.declared_value)
             : toNum(f.valoreAssicurato);
+
+        const assicurazioneAttiva = Boolean(valoreAssicurato && valoreAssicurato > 0);
 
         const aliasedFields = {
           ...f,
