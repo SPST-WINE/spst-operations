@@ -1,3 +1,4 @@
+// components/backoffice/BackofficeQuoteDetailClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -170,6 +171,10 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   const [linkMsg, setLinkMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // ✅ NEW: invio email link pubblico
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+
   // stato base "nuova opzione"
   const [newOption, setNewOption] = useState({
     label: "Opzione A",
@@ -240,6 +245,12 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
   useEffect(() => {
     let active = true;
 
+    // reset messaggi UI quando cambi richiesta
+    setEmailMsg(null);
+    setSendingEmail(false);
+    setLinkMsg(null);
+    setCopied(false);
+
     async function load() {
       setLoading(true);
       setError(null);
@@ -305,6 +316,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     setCreatingLink(true);
     setLinkMsg(null);
     setCopied(false);
+    setEmailMsg(null);
 
     try {
       const res = await fetch(`/api/quote-requests/${id}`, {
@@ -325,6 +337,32 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
       setLinkMsg("Errore nella generazione del link pubblico.");
     } finally {
       setCreatingLink(false);
+    }
+  }
+
+  // ✅ NEW: invia link pubblico al cliente via email
+  async function handleSendPublicLinkEmail() {
+    if (!quote?.public_token) {
+      setEmailMsg("Prima genera il link pubblico.");
+      return;
+    }
+    setSendingEmail(true);
+    setEmailMsg(null);
+
+    try {
+      const res = await fetch(`/api/quote-requests/${id}/send-public-link`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${res.status}`);
+      }
+      setEmailMsg(`Email inviata a ${json.to}`);
+    } catch (e: any) {
+      console.error("send email error:", e);
+      setEmailMsg(e?.message || "Errore invio email.");
+    } finally {
+      setSendingEmail(false);
     }
   }
 
@@ -535,7 +573,9 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
       : null);
 
   const insuranceActive =
-    (insuranceValue != null && Number.isFinite(insuranceValue) && insuranceValue > 0) ||
+    (insuranceValue != null &&
+      Number.isFinite(insuranceValue) &&
+      insuranceValue > 0) ||
     quote.fields?.assicurazioneAttiva === true;
 
   return (
@@ -586,13 +626,21 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 label="Creata il"
                 value={formatDateTime(baseInfo.created_at)}
               />
-              <InfoRow label="Data ritiro" value={formatDate(baseInfo.data_ritiro)} />
-              <InfoRow label="Tipo spedizione" value={quote.tipo_spedizione || "—"} />
+              <InfoRow
+                label="Data ritiro"
+                value={formatDate(baseInfo.data_ritiro)}
+              />
+              <InfoRow
+                label="Tipo spedizione"
+                value={quote.tipo_spedizione || "—"}
+              />
               <InfoRow label="Incoterm" value={quote.incoterm || "—"} />
               <InfoRow label="Valuta" value={quote.valuta || "EUR"} />
 
-              {/* ✅ NEW */}
-              <InfoRow label="Assicurazione" value={insuranceActive ? "Attiva" : "No"} />
+              <InfoRow
+                label="Assicurazione"
+                value={insuranceActive ? "Attiva" : "No"}
+              />
               <InfoRow
                 label="Valore assicurato"
                 value={
@@ -636,7 +684,8 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 </div>
                 <div className="text-sm text-slate-600">
                   {[
-                    quote?.mittente?.indirizzo ?? quote?.fields?.mittente?.indirizzo,
+                    quote?.mittente?.indirizzo ??
+                      quote?.fields?.mittente?.indirizzo,
                     quote?.mittente?.cap ?? quote?.fields?.mittente?.cap,
                     quote?.mittente?.citta ?? quote?.fields?.mittente?.citta,
                     quote?.mittente?.paese ?? quote?.fields?.mittente?.paese,
@@ -683,8 +732,10 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                     quote?.destinatario?.indirizzo ??
                       quote?.fields?.destinatario?.indirizzo,
                     quote?.destinatario?.cap ?? quote?.fields?.destinatario?.cap,
-                    quote?.destinatario?.citta ?? quote?.fields?.destinatario?.citta,
-                    quote?.destinatario?.paese ?? quote?.fields?.destinatario?.paese,
+                    quote?.destinatario?.citta ??
+                      quote?.fields?.destinatario?.citta,
+                    quote?.destinatario?.paese ??
+                      quote?.fields?.destinatario?.paese,
                   ]
                     .filter(Boolean)
                     .join(", ") || "—"}
@@ -729,7 +780,9 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                   onClick={() => setShowColliJson((v) => !v)}
                   className="text-[11px] font-normal text-slate-500 underline-offset-2 hover:underline"
                 >
-                  {showColliJson ? "Nascondi JSON completo" : "Vedi JSON completo (debug)"}
+                  {showColliJson
+                    ? "Nascondi JSON completo"
+                    : "Vedi JSON completo (debug)"}
                 </button>
               )}
             </div>
@@ -791,7 +844,10 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
             {showColliJson && (
               <pre className="mt-3 max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] text-slate-100">
                 {JSON.stringify(
-                  quote?.colli ?? quote?.fields?.colli ?? quote?.fields?.colli_debug ?? [],
+                  quote?.colli ??
+                    quote?.fields?.colli ??
+                    quote?.fields?.colli_debug ??
+                    [],
                   null,
                   2
                 )}
@@ -810,8 +866,8 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                   Link pubblico quotazione
                 </h2>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  Genera un link pubblico da condividere con il cliente per permettergli di
-                  scegliere l&apos;opzione preferita.
+                  Genera un link pubblico da condividere con il cliente per permettergli
+                  di scegliere l&apos;opzione preferita.
                 </p>
               </div>
             </div>
@@ -831,7 +887,19 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                 <span>Crea quotazione con link pubblico</span>
               </button>
 
+              {/* ✅ NEW button */}
+              <button
+                type="button"
+                onClick={handleSendPublicLinkEmail}
+                disabled={sendingEmail || !publicUrl}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+              >
+                {sendingEmail ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                <span>Invia link al cliente via email</span>
+              </button>
+
               {linkMsg && <p className="text-[11px] text-slate-500">{linkMsg}</p>}
+              {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
               {publicUrl && (
                 <div className="mt-2 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
@@ -866,7 +934,9 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Opzioni quotazione
               </h2>
-              <span className="text-[11px] text-slate-500">{options.length} opzioni</span>
+              <span className="text-[11px] text-slate-500">
+                {options.length} opzioni
+              </span>
             </div>
 
             <div className="mt-3 divide-y border-t border-slate-100">
@@ -911,20 +981,24 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                           )}
                           <span className="h-1 w-1 rounded-full bg-slate-300" />
                           <span>
-                            Totale cliente: {formatCurrency(o.total_price || 0, o.currency)}
+                            Totale cliente:{" "}
+                            {formatCurrency(o.total_price || 0, o.currency)}
                           </span>
                           {o.internal_cost != null && (
                             <>
                               <span className="h-1 w-1 rounded-full bg-slate-300" />
                               <span>
-                                Costo interno: {formatCurrency(o.internal_cost, o.currency)}
+                                Costo interno:{" "}
+                                {formatCurrency(o.internal_cost, o.currency)}
                               </span>
                             </>
                           )}
                           {margin != null && (
                             <>
                               <span className="h-1 w-1 rounded-full bg-slate-300" />
-                              <span>Margine: {formatCurrency(margin, o.currency)}</span>
+                              <span>
+                                Margine: {formatCurrency(margin, o.currency)}
+                              </span>
                             </>
                           )}
                           {o.sent_at && (
@@ -964,7 +1038,9 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                 Aggiungi opzione (bozza)
               </h2>
-              {optionMsg && <span className="text-[11px] text-slate-500">{optionMsg}</span>}
+              {optionMsg && (
+                <span className="text-[11px] text-slate-500">{optionMsg}</span>
+              )}
             </div>
 
             <form className="mt-3 space-y-3 text-[11px]" onSubmit={handleSaveNewOption}>
@@ -975,10 +1051,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                     type="text"
                     value={newOption.label}
                     onChange={(e) =>
-                      setNewOption((prev) => ({
-                        ...prev,
-                        label: e.target.value,
-                      }))
+                      setNewOption((prev) => ({ ...prev, label: e.target.value }))
                     }
                     className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
                   />
@@ -989,10 +1062,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
                     type="text"
                     value={newOption.carrier}
                     onChange={(e) =>
-                      setNewOption((prev) => ({
-                        ...prev,
-                        carrier: e.target.value,
-                      }))
+                      setNewOption((prev) => ({ ...prev, carrier: e.target.value }))
                     }
                     className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-900 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300"
                   />
