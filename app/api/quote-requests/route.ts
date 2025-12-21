@@ -29,17 +29,9 @@ function makeSupabase() {
   });
 }
 
-function jsonError(
-  status: number,
-  error: string,
-  extra?: Record<string, any>
-) {
+function jsonError(status: number, error: string, extra?: Record<string, any>) {
   return NextResponse.json(
-    {
-      ok: false,
-      error,
-      ...(extra || {}),
-    },
+    { ok: false, error, ...(extra || {}) },
     { status }
   );
 }
@@ -54,6 +46,11 @@ export type QuoteListRow = {
   tipo_spedizione: string | null;
   incoterm: string | null;
   status: string | null;
+
+  // ✅ nuovi (per UI lista)
+  mittente: any | null;
+  destinatario: any | null;
+  fields: any | null;
 };
 
 // ---------- Handlers ------------------------------------------------
@@ -68,7 +65,19 @@ export async function GET(_req: NextRequest) {
     const { data, error } = await supabase
       .from("quotes")
       .select(
-        "id, human_id, created_at, email_cliente, tipo_spedizione, incoterm, status"
+        [
+          "id",
+          "human_id",
+          "created_at",
+          "email_cliente",
+          "tipo_spedizione",
+          "incoterm",
+          "status",
+          // ✅ servono per mostrare città/paese e formato
+          "mittente",
+          "destinatario",
+          "fields",
+        ].join(", ")
       )
       .order("created_at", { ascending: false })
       .limit(200);
