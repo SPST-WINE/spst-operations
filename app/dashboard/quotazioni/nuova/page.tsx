@@ -716,6 +716,7 @@ if (formato === "Pallet" && assicurazioneAttiva) {
 
         // ✅ NUOVI CAMPI
         contenutoColli: contenuto || undefined,
+        formato,
         valoreAssicurato: valoreAssicuratoEffettivo,
       },
       getSupabaseAccessToken
