@@ -7,6 +7,11 @@ import { Search, ExternalLink } from "lucide-react";
 
 type TabKey = "received" | "sent";
 
+type PartyMini = {
+  citta?: string | null;
+  paese?: string | null;
+};
+
 type QuoteReceivedRow = {
   id: string;
   human_id: string | null;
@@ -15,6 +20,11 @@ type QuoteReceivedRow = {
   tipo_spedizione: string | null;
   incoterm: string | null;
   status: string | null;
+
+  // ✅ nuovi (dall'API /api/quote-requests)
+  mittente?: PartyMini | null;
+  destinatario?: PartyMini | null;
+  fields?: any | null; // qui dentro c'è "formato" (Pacco/Pallet)
 };
 
 type QuoteSentRow = {
@@ -89,6 +99,33 @@ function StatusBadge({ value }: { value?: string | null }) {
       {label}
     </span>
   );
+}
+
+function cityCountry(p?: PartyMini | null) {
+  const c = (p?.citta || "").trim();
+  const pa = (p?.paese || "").trim();
+  if (!c && !pa) return "—";
+  if (c && pa) return `${c} (${pa})`;
+  return c || pa || "—";
+}
+
+function pickFormato(r: QuoteReceivedRow) {
+  // ✅ prova in ordine: fields.formato (nuovo), fields.formatoSpedizione (compat), fields.shipment_format (compat)
+  const f = r.fields || {};
+  const v =
+    f.formato ??
+    f.formatoSpedizione ??
+    f.shipment_format ??
+    f.formato_spedizione ??
+    null;
+
+  if (!v) return "—";
+  const s = String(v).trim();
+  if (!s) return "—";
+  // normalizzo output
+  if (s.toLowerCase().includes("pallet")) return "Pallet";
+  if (s.toLowerCase().includes("pacco")) return "Pacco";
+  return s;
 }
 
 export default function BackofficeQuotazioniClient() {
@@ -186,8 +223,14 @@ export default function BackofficeQuotazioniClient() {
     if (!nq) return rowsReceived;
 
     return rowsReceived.filter((r) => {
+      const mitt = cityCountry(r.mittente);
+      const dest = cityCountry(r.destinatario);
+      const formato = pickFormato(r);
+
       const haystack =
         norm(r.human_id) +
+        " " +
+        norm(r.id) +
         " " +
         norm(r.email_cliente) +
         " " +
@@ -195,7 +238,14 @@ export default function BackofficeQuotazioniClient() {
         " " +
         norm(r.incoterm) +
         " " +
-        norm(r.status);
+        norm(r.status) +
+        " " +
+        norm(mitt) +
+        " " +
+        norm(dest) +
+        " " +
+        norm(formato);
+
       return haystack.includes(nq);
     });
   }, [rowsReceived, qReceived]);
@@ -266,10 +316,10 @@ export default function BackofficeQuotazioniClient() {
             <Search className="pointer-events-none absolute left-2 h-4 w-4 text-slate-400" />
             <input
               type="search"
-              placeholder="Cerca per ID, email, tipo spedizione, incoterm..."
+              placeholder="Cerca per ID, email, città, formato, tipo, incoterm..."
               value={qReceived}
               onChange={(e) => setQReceived(e.target.value)}
-              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 sm:w-80"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-300 sm:w-96"
             />
           </div>
         </div>
@@ -284,43 +334,51 @@ export default function BackofficeQuotazioniClient() {
               Nessuna richiesta di quotazione trovata.
             </div>
           ) : (
-            filteredReceived.map((r) => (
-              <div
-                key={r.id}
-                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-slate-900">
-                      {r.human_id || r.id}
-                    </span>
-                    <StatusBadge value={r.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-                    <span className="truncate max-w-xs">
-                      {r.email_cliente || "—"}
-                    </span>
-                    <span className="h-1 w-1 rounded-full bg-slate-300" />
-                    <span>
-                      Tipo: {r.tipo_spedizione || "—"} · Incoterm:{" "}
-                      {r.incoterm || "—"}
-                    </span>
-                    <span className="h-1 w-1 rounded-full bg-slate-300" />
-                    <span>Creata: {formatDate(r.created_at)}</span>
-                  </div>
-                </div>
+            filteredReceived.map((r) => {
+              const mitt = cityCountry(r.mittente);
+              const dest = cityCountry(r.destinatario);
+              const formato = pickFormato(r);
 
-                <div className="flex flex-col items-start gap-1 text-xs sm:items-end">
-                  <Link
-                    href={`/back-office/quotazioni/${r.id}`}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    <span>Apri dettaglio</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>
+              return (
+                <div
+                  key={r.id}
+                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 flex-1">
+                    {/* ✅ RIGA IN GRASSETTO: email + route */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-900">
+                        {(r.email_cliente || "—") + " · " + mitt + " → " + dest}
+                      </span>
+                      <StatusBadge value={r.status} />
+                    </div>
+
+                    {/* ✅ INFO IN BASSO: formato, tipo, id lungo, creata */}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                      <span>Formato: {formato}</span>
+                      <span className="h-1 w-1 rounded-full bg-slate-300" />
+                      <span>Tipo: {r.tipo_spedizione || "—"}</span>
+                      <span className="h-1 w-1 rounded-full bg-slate-300" />
+                      <span className="truncate max-w-[420px]">
+                        ID: {r.human_id || r.id}
+                      </span>
+                      <span className="h-1 w-1 rounded-full bg-slate-300" />
+                      <span>Creata: {formatDate(r.created_at)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-start gap-1 text-xs sm:items-end">
+                    <Link
+                      href={`/back-office/quotazioni/${r.id}`}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <span>Apri dettaglio</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -432,10 +490,7 @@ export default function BackofficeQuotazioniClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        {renderTabSwitcher()}
-      </div>
-
+      <div className="flex items-center justify-between">{renderTabSwitcher()}</div>
       {tab === "received" ? renderReceived() : renderSent()}
     </div>
   );
