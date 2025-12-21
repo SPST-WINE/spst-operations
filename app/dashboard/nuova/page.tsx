@@ -26,6 +26,7 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
 }
 
 const SPST_BLUE = '#1c3e5e';
+const BADGE_DOT_GREEN = '#22c55e'; // tailwind green-500 (ma usato come hex per coerenza)
 
 type CardConfig = {
   href: string;
@@ -44,7 +45,7 @@ const CARDS: CardConfig[] = [
     description:
       'Dati completi e fatture. Tutto ciò che serve per spedire prodotti soggetti ad accisa.',
     icon: <WineGlassIcon width={22} height={22} />,
-    // ✅ metti la tua immagine Canva qui (public/dashboard/nuova/bg-wine.jpg)
+    // ✅ Metti la tua immagine Canva qui (public/dashboard/nuova/bg-wine.jpg)
     bgImage: '/dashboard/nuova/bg-wine.jpg',
   },
   {
@@ -53,7 +54,7 @@ const CARDS: CardConfig[] = [
     badge: 'Merce generica',
     description: 'Documenti non soggetti ad accisa, materiali, brochure, ecc.',
     icon: <FileText size={22} />,
-    // ✅ metti la tua immagine Canva qui (public/dashboard/nuova/bg-other.jpg)
+    // ✅ Metti la tua immagine Canva qui (public/dashboard/nuova/bg-other.jpg)
     bgImage: '/dashboard/nuova/bg-other.jpg',
   },
 ];
@@ -61,14 +62,14 @@ const CARDS: CardConfig[] = [
 export default function NuovaSpedizioneSelettore() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-      {/* top spacing coerente con dashboard */}
       <div className="py-8 sm:py-10">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
             Nuova spedizione
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Scegli il tipo di spedizione: vino (accise e documentazione completa) oppure merce generica.
+            Scegli il tipo di spedizione: vino (accise e documentazione completa) oppure merce
+            generica.
           </p>
         </div>
 
@@ -86,26 +87,29 @@ export default function NuovaSpedizioneSelettore() {
                   src={c.bgImage}
                   alt=""
                   fill
-                  priority={false}
+                  sizes="(max-width: 1024px) 100vw, 50vw"
                   className="object-cover opacity-[0.35] transition-transform duration-500 group-hover:scale-[1.03]"
+                  // ✅ pensato per immagini verticali 3:4: tieni il “soggetto” in alto/centro
+                  style={{ objectPosition: 'center 25%' }}
                 />
-                {/* overlay: rende leggibile il testo + vibe premium */}
+
+                {/* overlay: leggibilità + vibe premium */}
                 <div className="absolute inset-0 bg-gradient-to-br from-white/85 via-white/70 to-white/30" />
                 <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(28,62,94,0.10),transparent_55%)]" />
               </div>
 
-              {/* Content */}
-              <div className="relative p-8 sm:p-10">
+              {/* Content (aumentato in altezza / respiro Y) */}
+              <div className="relative p-8 sm:p-10 min-h-[260px] sm:min-h-[290px]">
                 {/* badge */}
                 <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[12px] font-medium text-slate-700 backdrop-blur">
                   <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: '#E33854' }}
+                    className="inline-block h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: BADGE_DOT_GREEN }}
                   />
                   {c.badge}
                 </div>
 
-                <div className="mt-6 flex items-start gap-4">
+                <div className="mt-7 flex items-start gap-4">
                   {/* icon bubble */}
                   <div
                     className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border bg-white/70 shadow-sm backdrop-blur"
@@ -121,17 +125,15 @@ export default function NuovaSpedizioneSelettore() {
                     <h3 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
                       <span className="text-spst-orange">{c.title}</span>
                     </h3>
-                    <p className="mt-2 max-w-[44ch] text-sm leading-6 text-slate-600 sm:text-[15px]">
+                    <p className="mt-2 max-w-[46ch] text-sm leading-6 text-slate-600 sm:text-[15px]">
                       {c.description}
                     </p>
                   </div>
                 </div>
 
                 {/* bottom row */}
-                <div className="mt-8 flex items-center justify-between">
-                  <div className="text-[12px] text-slate-500">
-                    Apri il modulo e compila i dati
-                  </div>
+                <div className="mt-9 flex items-center justify-between">
+                  <div className="text-[12px] text-slate-500">Apri il modulo e compila i dati</div>
 
                   <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all group-hover:translate-x-0.5">
                     Continua
