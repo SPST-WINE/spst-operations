@@ -211,6 +211,7 @@ export type QuoteCreatePayload = {
   createdByEmail?: string;
   customerEmail?: string;
   valoreAssicurato?: number | null;
+  formato?: "Pacco" | "Pallet";
 };
 
 
