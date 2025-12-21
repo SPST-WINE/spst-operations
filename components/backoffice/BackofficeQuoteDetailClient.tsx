@@ -440,6 +440,25 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
     (insuranceValue != null && Number.isFinite(insuranceValue) && insuranceValue > 0) ||
     quote.fields?.assicurazioneAttiva === true;
 
+    // ✅ Formato spedizione: Pallet vs Pacco (da fields)
+  const formatoRaw =
+    quote.fields?.formato ??
+    quote.fields?.formato_spedizione ??
+    quote.fields?.shipping_method ??
+    quote.fields?.formatoSpedizione ??
+    null;
+
+  const formatoNorm = (() => {
+    const s = String(formatoRaw ?? "").trim().toLowerCase();
+    if (!s) return null;
+    if (s.includes("pallet")) return "Pallet";
+    if (s.includes("pacco")) return "Pacco";
+    // se per caso arriva "COLLO" o simili
+    if (s.includes("collo") || s.includes("box") || s.includes("parcel")) return "Pacco";
+    return String(formatoRaw);
+  })();
+
+
   // opzioni visibili al cliente (per mail) — NO HOOK (evita crash hooks-order)
   const visibleOptionsCount = options.filter((o) => o.visible_to_client !== false).length;
 
@@ -489,6 +508,7 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
           contenutoColli={contenutoColli}
           insuranceActive={insuranceActive}
           insuranceValue={insuranceValue}
+          formato={formatoNorm} 
         />
 
         {/* Colonna destra */}
