@@ -601,13 +601,14 @@ export default function BackofficeQuoteDetailClient({ id }: Props) {
       insuranceValue > 0) ||
     quote.fields?.assicurazioneAttiva === true;
 
-  // opzioni visibili al cliente (per mail)
-  const visibleOptionsCount = useMemo(() => {
-    // se il campo non c'è su select, assumiamo true (per compat)
-    return options.filter((o) => o.visible_to_client !== false).length;
-  }, [options]);
+// opzioni visibili al cliente (per mail) — NO HOOK (evita crash hooks-order)
+const visibleOptionsCount = options.filter(
+  (o) => o.visible_to_client !== false
+).length;
 
-  const canSendEmail = Boolean(publicUrl) && Boolean(quote.email_cliente) && visibleOptionsCount > 0;
+const canSendEmail =
+  Boolean(publicUrl) && Boolean(quote?.email_cliente) && visibleOptionsCount > 0;
+
 
   return (
     <div className="space-y-4">
