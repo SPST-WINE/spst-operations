@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { FileText } from 'lucide-react';
+import Image from 'next/image';
+import { FileText, ArrowRight } from 'lucide-react';
 
 // Icona bicchiere di vino (SVG inline, stile lucide-like)
 function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -16,13 +17,9 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
       aria-hidden="true"
       {...props}
     >
-      {/* coppa */}
       <path d="M7 3h10v2a5 5 0 0 1-5 5h0a5 5 0 0 1-5-5V3z" />
-      {/* stelo */}
       <path d="M12 10v7" />
-      {/* base */}
       <path d="M8 21h8" />
-      {/* livello vino (leggera curva interna) */}
       <path d="M8 6.5c1.2.8 2.8 1.3 4 1.3s2.8-.5 4-1.3" />
     </svg>
   );
@@ -30,69 +27,123 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
 
 const SPST_BLUE = '#1c3e5e';
 
+type CardConfig = {
+  href: string;
+  title: string;
+  description: string;
+  badge: string;
+  icon: React.ReactNode;
+  bgImage: string; // path in /public
+};
+
+const CARDS: CardConfig[] = [
+  {
+    href: '/dashboard/nuova/vino',
+    title: 'Spedizione vino',
+    badge: 'Accise + documenti',
+    description:
+      'Dati completi e fatture. Tutto ciò che serve per spedire prodotti soggetti ad accisa.',
+    icon: <WineGlassIcon width={22} height={22} />,
+    // ✅ metti la tua immagine Canva qui (public/dashboard/nuova/bg-wine.jpg)
+    bgImage: '/dashboard/nuova/bg-wine.jpg',
+  },
+  {
+    href: '/dashboard/nuova/altro',
+    title: 'Altre spedizioni',
+    badge: 'Merce generica',
+    description: 'Documenti non soggetti ad accisa, materiali, brochure, ecc.',
+    icon: <FileText size={22} />,
+    // ✅ metti la tua immagine Canva qui (public/dashboard/nuova/bg-other.jpg)
+    bgImage: '/dashboard/nuova/bg-other.jpg',
+  },
+];
+
 export default function NuovaSpedizioneSelettore() {
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="mt-2 flex min-h-[55vh] items-center justify-center">
-        <div className="flex w-full flex-col items-center md:flex-row md:justify-center md:gap-12">
-          {/* CARD: VINO */}
-          <Link
-            href="/dashboard/nuova/vino"
-            aria-label="Crea una nuova spedizione vino"
-            className="group w-full max-w-md rounded-2xl border bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border"
-                style={{
-                  color: SPST_BLUE,
-                  backgroundColor: '#eef4f9',
-                  borderColor: `${SPST_BLUE}4D`, // ~30% alpha
-                }}
-              >
-                <WineGlassIcon width={22} height={22} />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">
-                  <span className="text-spst-orange">Spedizione vino</span>
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Dati completi e fatture. Tutto ciò che serve per spedire prodotti soggetti ad accisa.
-                </p>
-              </div>
-            </div>
-          </Link>
+    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+      {/* top spacing coerente con dashboard */}
+      <div className="py-8 sm:py-10">
+        <div className="mx-auto max-w-3xl text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+            Nuova spedizione
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Scegli il tipo di spedizione: vino (accise e documentazione completa) oppure merce generica.
+          </p>
+        </div>
 
-          {/* divisore */}
-          <div className="my-6 h-px w-full bg-slate-200 md:my-0 md:h-72 md:w-px md:rounded-full" />
+        <div className="mt-10 grid gap-6 lg:grid-cols-2">
+          {CARDS.map((c) => (
+            <Link
+              key={c.href}
+              href={c.href}
+              aria-label={`Vai a ${c.title}`}
+              className="group relative overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)] transition-all hover:-translate-y-1 hover:shadow-[0_26px_70px_rgba(15,23,42,0.14)] focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
+            >
+              {/* Background image */}
+              <div className="absolute inset-0">
+                <Image
+                  src={c.bgImage}
+                  alt=""
+                  fill
+                  priority={false}
+                  className="object-cover opacity-[0.35] transition-transform duration-500 group-hover:scale-[1.03]"
+                />
+                {/* overlay: rende leggibile il testo + vibe premium */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/85 via-white/70 to-white/30" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(28,62,94,0.10),transparent_55%)]" />
+              </div>
 
-          {/* CARD: ALTRE SPEDIZIONI */}
-          <Link
-            href="/dashboard/nuova/altro"
-            aria-label="Crea una nuova spedizione altre merci"
-            className="group w-full max-w-md rounded-2xl border bg-white p-7 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
-          >
-            <div className="flex items-start gap-4">
-              <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border"
-                style={{
-                  color: SPST_BLUE,
-                  backgroundColor: '#eef4f9',
-                  borderColor: `${SPST_BLUE}4D`,
-                }}
-              >
-                <FileText size={22} />
+              {/* Content */}
+              <div className="relative p-8 sm:p-10">
+                {/* badge */}
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[12px] font-medium text-slate-700 backdrop-blur">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: '#E33854' }}
+                  />
+                  {c.badge}
+                </div>
+
+                <div className="mt-6 flex items-start gap-4">
+                  {/* icon bubble */}
+                  <div
+                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border bg-white/70 shadow-sm backdrop-blur"
+                    style={{
+                      color: SPST_BLUE,
+                      borderColor: `${SPST_BLUE}33`,
+                    }}
+                  >
+                    {c.icon}
+                  </div>
+
+                  <div className="min-w-0">
+                    <h3 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+                      <span className="text-spst-orange">{c.title}</span>
+                    </h3>
+                    <p className="mt-2 max-w-[44ch] text-sm leading-6 text-slate-600 sm:text-[15px]">
+                      {c.description}
+                    </p>
+                  </div>
+                </div>
+
+                {/* bottom row */}
+                <div className="mt-8 flex items-center justify-between">
+                  <div className="text-[12px] text-slate-500">
+                    Apri il modulo e compila i dati
+                  </div>
+
+                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all group-hover:translate-x-0.5">
+                    Continua
+                    <ArrowRight size={16} />
+                  </div>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-semibold text-slate-900">
-                  <span className="text-spst-orange">Altre spedizioni</span>
-                </h3>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Documenti non soggetti ad accisa, materiali, brochure, ecc.
-                </p>
-              </div>
-            </div>
-          </Link>
+
+              {/* subtle border glow on hover */}
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-0 ring-[#1c3e5e]/0 transition-all group-hover:ring-1 group-hover:ring-[#1c3e5e]/15" />
+            </Link>
+          ))}
         </div>
       </div>
     </div>
