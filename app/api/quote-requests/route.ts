@@ -53,32 +53,30 @@ export type QuoteListRow = {
   fields: any | null;
 };
 
+// ✅ IMPORTANTISSIMO: stringa literal (evita GenericStringError[])
+const QUOTE_LIST_SELECT = `
+  id,
+  human_id,
+  created_at,
+  email_cliente,
+  tipo_spedizione,
+  incoterm,
+  status,
+  mittente,
+  destinatario,
+  fields
+` as const;
+
 // ---------- Handlers ------------------------------------------------
 
 export async function GET(_req: NextRequest) {
   const supabase = makeSupabase();
-  if (!supabase) {
-    return jsonError(500, "NO_SUPABASE_CONFIG");
-  }
+  if (!supabase) return jsonError(500, "NO_SUPABASE_CONFIG");
 
   try {
     const { data, error } = await supabase
       .from("quotes")
-      .select(
-        [
-          "id",
-          "human_id",
-          "created_at",
-          "email_cliente",
-          "tipo_spedizione",
-          "incoterm",
-          "status",
-          // ✅ servono per mostrare città/paese e formato
-          "mittente",
-          "destinatario",
-          "fields",
-        ].join(", ")
-      )
+      .select(QUOTE_LIST_SELECT)
       .order("created_at", { ascending: false })
       .limit(200);
 
@@ -87,10 +85,11 @@ export async function GET(_req: NextRequest) {
       return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
+    // data ora è tipata correttamente grazie a QUOTE_LIST_SELECT as const
     return NextResponse.json(
       {
         ok: true,
-        rows: (data || []) as QuoteListRow[],
+        rows: (data ?? []) as unknown as QuoteListRow[],
       },
       { status: 200 }
     );
