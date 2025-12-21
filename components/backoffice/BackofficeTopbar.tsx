@@ -43,13 +43,15 @@ export default function BackofficeTopbar() {
           <LayoutDashboard className="h-3.5 w-3.5" />
           Area clienti
         </Link>
-        <Link
+
+        {/* 👇 logout: link “normale”, niente Next Link */}
+        <a
           href="/logout"
           className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white hover:opacity-90"
         >
           <LogOut className="h-3.5 w-3.5" />
           Logout
-        </Link>
+        </a>
       </div>
     </header>
   );
