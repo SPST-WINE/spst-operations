@@ -92,6 +92,8 @@ type QuoteCreatePayload = {
   insurance_requested?: boolean | string | number;
   assicurazione_pallet?: boolean | string | number;
 
+  formato?: "Pacco" | "Pallet"; 
+
   fields?: any; // se un domani mandi già un payload "fields"
 };
 
