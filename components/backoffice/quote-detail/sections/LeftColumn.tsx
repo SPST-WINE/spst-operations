@@ -22,6 +22,7 @@ export function LeftColumn({
   contenutoColli,
   insuranceActive,
   insuranceValue,
+  formato,
 }: {
   quote: QuoteDetail;
   baseInfo: {
@@ -47,6 +48,7 @@ export function LeftColumn({
   contenutoColli: string;
   insuranceActive: boolean;
   insuranceValue: number | null;
+  formato: string | null;
 }) {
   return (
     <div className="space-y-4">
@@ -65,6 +67,7 @@ export function LeftColumn({
           <InfoRow label="Creata il" value={formatDateTime(baseInfo.created_at)} />
           <InfoRow label="Data ritiro" value={formatDate(baseInfo.data_ritiro)} />
           <InfoRow label="Tipo spedizione" value={quote.tipo_spedizione || "—"} />
+          <InfoRow label="Formato" value={formato || "—"} />
           <InfoRow label="Incoterm" value={quote.incoterm || "—"} />
           <InfoRow label="Valuta" value={quote.valuta || "EUR"} />
           <InfoRow label="Assicurazione" value={insuranceActive ? "Attiva" : "No"} />
