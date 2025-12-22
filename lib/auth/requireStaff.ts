@@ -16,32 +16,43 @@ export async function requireStaff(): Promise<StaffAuthResult> {
 
   if (userErr || !user?.id || !user?.email) {
     return {
-      ok: false,
-      response: NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 }),
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "UNAUTHORIZED" },
+        { status: 401 }
+      ),
     };
   }
 
-  // staff_users: (user_id uuid, email text, role text, enabled bool, ...)
   const { data: staff, error: staffErr } = await supabase
     .from("staff_users")
-    .select("user_id, email, enabled, role")
+    .select("user_id, enabled, role")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  // Se tabella/policy non ok → NON far passare (backoffice deve essere blindato)
   if (staffErr || !staff) {
     return {
-      ok: false,
-      response: NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 }),
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "FORBIDDEN" },
+        { status: 403 }
+      ),
     };
   }
 
   if (typeof (staff as any).enabled === "boolean" && (staff as any).enabled !== true) {
     return {
-      ok: false,
-      response: NextResponse.json({ ok: false, error: "STAFF_DISABLED" }, { status: 403 }),
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "STAFF_DISABLED" },
+        { status: 403 }
+      ),
     };
   }
 
-  return { ok: true, userId: user.id, email: user.email };
+  return {
+    ok: true as const,
+    userId: user.id,
+    email: user.email,
+  };
 }
