@@ -1,7 +1,7 @@
 // app/api/spedizioni/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { cookies, headers as nextHeaders } from "next/headers";
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
 /* ───────────── Helpers ───────────── */
 type Party = {
@@ -17,18 +17,12 @@ type Party = {
 };
 
 type Collo = {
-  l1?: number | string | null;
-  l2?: number | string | null;
-  l3?: number | string | null;
-  peso?: number | string | null;
+  l1?: number | null;
+  l2?: number | null;
+  l3?: number | null;
+  peso?: number | null;
   contenuto?: string | null;
   [k: string]: any;
-};
-
-const toNum = (x: any): number | null => {
-  if (x === null || x === undefined) return null;
-  const n = Number(String(x).replace(",", ".").trim());
-  return Number.isFinite(n) ? n : null;
 };
 
 function firstNonEmpty(...vals: (string | undefined | null)[]) {
@@ -44,324 +38,259 @@ function normalizeEmail(x?: string | null) {
 function toISODate(d?: string | null): string | null {
   if (!d) return null;
   const s = d.trim();
-  const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s);
+  if (!s) return null;
+
+  // supporta dd-mm-yyyy / dd/mm/yyyy / yyyy-mm-dd
+  const m1 = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
   if (m1) {
-    const [_, dd, mm, yyyy] = m1;
+    const dd = m1[1];
+    const mm = m1[2];
+    const yyyy = m1[3];
     return `${yyyy}-${mm}-${dd}`;
   }
-  const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s);
-  if (m2) return s.substring(0, 10);
-  const t = Date.parse(s);
-  if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10);
+  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m2) return s;
+
+  const dt = new Date(s);
+  if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0, 10);
+
   return null;
 }
 
-function getAccessTokenFromRequest() {
-  const hdrs = nextHeaders();
-  const auth = hdrs.get("authorization") || hdrs.get("Authorization") || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
+function toNum(x: any): number | null {
+  if (x === null || x === undefined) return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
 
-  const jar = cookies();
-  const sb = jar.get("sb-access-token")?.value;
-  if (sb) return sb;
-
-  const supaCookie = jar.get("supabase-auth-token")?.value;
-  if (supaCookie) {
-    try {
-      const arr = JSON.parse(supaCookie);
-      if (Array.isArray(arr) && arr[0]) return arr[0];
-    } catch {}
-  }
+function att(raw: any) {
+  if (!raw) return null;
+  if (typeof raw === "string") return { url: raw };
+  if (typeof raw === "object") return raw;
   return null;
 }
 
-const att = (x: any) => {
-  if (!x) return null;
-  if (typeof x === "string") return { url: x };
-  if (typeof x.url === "string" && x.url.trim()) {
-    const o: any = { url: String(x.url).trim() };
-    if (x.filename) o.filename = String(x.filename);
-    if (x.mime) o.mime = String(x.mime);
-    return o;
-  }
-  return null;
-};
+/** service-role client */
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-/* ───────────── Next config ───────────── */
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
 
-/* ───────────── CORS preflight ───────────── */
-export function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type,Authorization",
-      "Access-Control-Max-Age": "86400",
-    },
+/** Verifica staff usando stesso supabase cookie-based (NON fidarti di header). */
+async function isStaff(): Promise<boolean> {
+  const supa = supabaseServerSpst();
+  const { data } = await supa.auth.getUser();
+  const user = data?.user;
+  if (!user?.id || !user?.email) return false;
+
+  const email = user.email.toLowerCase().trim();
+  if (email === "info@spst.it") return true;
+
+  const { data: staff } = await supa
+    .from("staff_users")
+    .select("role, enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const enabled =
+    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
+
+  const role = String((staff as any)?.role || "").toLowerCase().trim();
+  return enabled && (role === "admin" || role === "staff" || role === "operator");
+}
+
+function corsJson(payload: any, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: { "Access-Control-Allow-Origin": "*" },
   });
 }
 
-/* ───────────── human_id generator ───────────── */
-function formatHumanId(d: Date, n: number) {
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = d.getUTCFullYear();
-  return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
-}
-
-async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
-  const now = new Date();
-  const dd = String(now.getUTCDate()).padStart(2, "0");
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = now.getUTCFullYear();
-  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
-  const supaAny = supabaseSrv as any;
-  const { count, error } = await supaAny
-    .schema("spst")
-    .from("shipments")
-    .select("human_id", { count: "exact", head: true })
-    .ilike("human_id", `${pattern}%`);
-  if (error) return formatHumanId(now, Date.now() % 100000);
-  return formatHumanId(now, (count ?? 0) + 1);
-}
-
-/* ───────────── GET /api/spedizioni ───────────── */
+/* ───────────── GET: lista spedizioni ─────────────
+   - CLIENT: vede solo le sue (RLS)
+   - STAFF: può vedere tutte, e può filtrare per email
+*/
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") || "").trim();
     const sort = url.searchParams.get("sort") || "created_desc";
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
-    const limit = Math.min(
-      100,
-      Math.max(1, Number(url.searchParams.get("limit") || 20))
-    );
-    const emailParam = url.searchParams.get("email");
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20)));
+    const emailParam = normalizeEmail(url.searchParams.get("email"));
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
-    const SUPABASE_URL =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing Supabase env" },
-        { status: 500 }
-      );
+    // deve essere loggato (sia client che staff)
+    const supa = supabaseServerSpst();
+    const {
+      data: { user },
+    } = await supa.auth.getUser();
+
+    if (!user?.id || !user?.email) {
+      return corsJson({ ok: false, error: "UNAUTHENTICATED" }, 401);
     }
-    const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    }) as any;
 
-    let emailNorm: string | null = normalizeEmail(emailParam);
-    if (!emailNorm) {
-      const token = getAccessTokenFromRequest();
-      if (token) {
-        const { data } = await auth.auth.getUser(token);
-        emailNorm = normalizeEmail(data?.user?.email ?? null);
-      }
-      if (!emailNorm) {
-        const hdrs = nextHeaders();
-        emailNorm = normalizeEmail(
-          hdrs.get("x-user-email") ||
-            hdrs.get("x-client-email") ||
-            hdrs.get("x-auth-email")
+    const staff = await isStaff();
+
+    // STAFF MODE: service role (vedi tutto) + filtri
+    if (staff) {
+      const supaAdmin = admin();
+
+      let query = supaAdmin
+        .schema("spst")
+        .from("shipments")
+        .select(
+          `
+          id,created_at,human_id,email_cliente,email_norm,
+          tipo_spedizione,incoterm,giorno_ritiro,
+          carrier,tracking_code,
+          mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+          dest_paese,dest_citta,dest_cap,
+          colli_n,peso_reale_kg,status,
+          mittente_rs,mittente_telefono,mittente_piva,
+          dest_rs,dest_telefono,dest_piva,
+          fatt_rs,fatt_piva,fatt_valuta
+        `,
+          { count: "exact" }
+        );
+
+      if (emailParam) query = query.eq("email_norm", emailParam);
+
+      if (q) {
+        const safe = q.replace(/[%_]/g, "");
+        const pattern = `%${safe}%`;
+        query = query.or(
+          [
+            `human_id.ilike.${pattern}`,
+            `email_cliente.ilike.${pattern}`,
+            `mittente_rs.ilike.${pattern}`,
+            `dest_rs.ilike.${pattern}`,
+            `tracking_code.ilike.${pattern}`,
+          ].join(",")
         );
       }
+
+      if (sort === "created_asc") query = query.order("created_at", { ascending: true });
+      else query = query.order("created_at", { ascending: false });
+
+      const { data, error, count } = await query.range(from, to);
+
+      if (error) {
+        return corsJson({ ok: false, error: error.message }, 500);
+      }
+
+      return corsJson({
+        ok: true,
+        page,
+        limit,
+        total: count ?? null,
+        rows: data ?? [],
+        scope: "staff",
+      });
     }
 
-    const srvKey =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supa = createClient(SUPABASE_URL, srvKey || SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    }) as any;
-
+    // CLIENT MODE: RLS (vedi solo le tue). Ignora emailParam.
     let query = supa
-      .schema("spst")
       .from("shipments")
       .select(
         `
-  id,created_at,human_id,email_cliente,email_norm,
-  tipo_spedizione,incoterm,giorno_ritiro,
-  carrier,tracking_code, 
-  mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-  dest_paese,dest_citta,dest_cap,
-  colli_n,peso_reale_kg,status,
-  mittente_rs,mittente_telefono,mittente_piva,
-  dest_rs,dest_telefono,dest_piva,
-  fatt_rs,fatt_piva,fatt_valuta,
-  formato_sped,contenuto_generale,dest_abilitato_import,
-  fields,
-  ldv,fattura_proforma,fattura_commerciale,dle,
-  allegato1,allegato2,allegato3,allegato4,
-  packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
-  `,
+        id,created_at,human_id,email_cliente,email_norm,
+        tipo_spedizione,incoterm,giorno_ritiro,
+        carrier,tracking_code,
+        mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+        dest_paese,dest_citta,dest_cap,
+        colli_n,peso_reale_kg,status,
+        mittente_rs,mittente_telefono,mittente_piva,
+        dest_rs,dest_telefono,dest_piva,
+        fatt_rs,fatt_piva,fatt_valuta
+      `,
         { count: "exact" }
       );
 
-    if (emailNorm) query = query.eq("email_norm", emailNorm);
-
     if (q) {
+      const safe = q.replace(/[%_]/g, "");
+      const pattern = `%${safe}%`;
       query = query.or(
         [
-          `human_id.ilike.%${q}%`,
-          `tracking_code.ilike.%${q}%`, // ✅ NEW
-          `carrier.ilike.%${q}%`, // ✅ NEW
-          `dest_citta.ilike.%${q}%`,
-          `dest_paese.ilike.%${q}%`,
-          `mittente_citta.ilike.%${q}%`,
-          `mittente_paese.ilike.%${q}%`,
+          `human_id.ilike.${pattern}`,
+          `tracking_code.ilike.${pattern}`,
+          `mittente_rs.ilike.${pattern}`,
+          `dest_rs.ilike.${pattern}`,
         ].join(",")
       );
     }
 
-    if (sort === "ritiro_desc")
-      query = query.order("giorno_ritiro", {
-        ascending: false,
-        nullsFirst: true,
-      });
-    else if (sort === "dest_az")
-      query = query
-        .order("dest_citta", { ascending: true, nullsFirst: true })
-        .order("dest_paese", { ascending: true, nullsFirst: true });
-    else if (sort === "status")
-      query = query.order("status", { ascending: true, nullsFirst: true });
-    else
-      query = query.order("created_at", {
-        ascending: false,
-        nullsFirst: true,
-      });
+    if (sort === "created_asc") query = query.order("created_at", { ascending: true });
+    else query = query.order("created_at", { ascending: false });
 
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
     const { data, error, count } = await query.range(from, to);
-    if (error) throw error;
 
-    const normAtt = (j: any) => (j && typeof j.url === "string" ? j : null);
+    if (error) {
+      return corsJson({ ok: false, error: error.message }, 500);
+    }
 
-    const rows = (data || []).map((r: any) => ({
-      id: r.id,
-      created_at: r.created_at,
-      human_id: r.human_id,
-      email_cliente: r.email_cliente,
-      email_norm: r.email_norm,
-
-      tipo_spedizione: r.tipo_spedizione,
-      incoterm: r.incoterm,
-      giorno_ritiro: r.giorno_ritiro,
-
-      // ✅ NEW
-      carrier: r.carrier ?? null,
-      tracking_code: r.tracking_code ?? null,
-
-      mittente_paese: r.mittente_paese,
-      mittente_citta: r.mittente_citta,
-      mittente_cap: r.mittente_cap,
-      mittente_indirizzo: r.mittente_indirizzo,
-      dest_paese: r.dest_paese,
-      dest_citta: r.dest_citta,
-      dest_cap: r.dest_cap,
-      colli_n: r.colli_n,
-      peso_reale_kg: r.peso_reale_kg,
-      status: r.status,
-      mittente_rs: r.mittente_rs,
-      mittente_telefono: r.mittente_telefono,
-      mittente_piva: r.mittente_piva,
-      dest_rs: r.dest_rs,
-      dest_telefono: r.dest_telefono,
-      dest_piva: r.dest_piva,
-      fatt_rs: r.fatt_rs,
-      fatt_piva: r.fatt_piva,
-      fatt_valuta: r.fatt_valuta,
-      formato_sped:
-        r.formato_sped ?? r.fields?.formato ?? r.fields?.formato_sped ?? null,
-      contenuto_generale: r.contenuto_generale,
-      dest_abilitato_import: r.dest_abilitato_import,
-      attachments: {
-        ldv: normAtt(r.ldv),
-        fattura_proforma: normAtt(r.fattura_proforma),
-        fattura_commerciale: normAtt(r.fattura_commerciale),
-        dle: normAtt(r.dle),
-        allegato1: normAtt(r.allegato1),
-        allegato2: normAtt(r.allegato2),
-        allegato3: normAtt(r.allegato3),
-        allegato4: normAtt(r.allegato4),
-      },
-      packages: Array.isArray(r.packages) ? r.packages : [],
-    }));
-
-    return NextResponse.json({
+    return corsJson({
       ok: true,
       page,
       limit,
-      total: count ?? rows.length,
-      rows,
+      total: count ?? null,
+      rows: data ?? [],
+      scope: "client",
     });
   } catch (e: any) {
-    console.error("[API/spedizioni:GET] unexpected:", e);
-    return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
-      { status: 500 }
+    return corsJson(
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      500
     );
   }
 }
 
-/* ───────────── POST /api/spedizioni ───────────── */
+/* ───────────── POST: crea spedizione ─────────────
+   - CLIENT: crea solo per sé (email dal token/session; NO header)
+   - STAFF: può creare per altri (email dal body), usa service role
+*/
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
 
-    const SUPABASE_URL =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const SUPABASE_SERVICE_ROLE_KEY =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supa = supabaseServerSpst();
+    const {
+      data: { user },
+    } = await supa.auth.getUser();
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      throw new Error(
-        "Missing NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY."
-      );
-    }
-    if (!SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error(
-        "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY)."
-      );
+    if (!user?.id || !user?.email) {
+      return corsJson({ ok: false, error: "UNAUTHENTICATED" }, 401);
     }
 
-    const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    });
-    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
-    const supaAny = supabaseSrv as any;
+    const staff = await isStaff();
 
-    // ── USER / EMAIL ──────────────────────────────────────────────
-    const accessToken = getAccessTokenFromRequest();
-    const { data: userData } = accessToken
-      ? await supabaseAuth.auth.getUser(accessToken)
-      : ({ data: { user: null } } as any);
+    // email “target”
+    const emailTarget = staff
+      ? normalizeEmail(
+          firstNonEmpty(
+            body.email_cliente,
+            body.email,
+            body?.mittente?.email,
+            body?.destinatario?.email,
+            body?.fatturazione?.email,
+            body?.fields?.fatturazione?.email
+          )
+        ) || normalizeEmail(user.email)
+      : normalizeEmail(user.email);
 
-    const hdrs = nextHeaders();
-    const emailFromHeaders =
-      hdrs.get("x-user-email") ||
-      hdrs.get("x-client-email") ||
-      hdrs.get("x-auth-email") ||
-      null;
-
-    const emailRaw = firstNonEmpty(
-      userData?.user?.email || null,
-      emailFromHeaders,
-      body.email,
-      body.email_cliente,
-      body?.mittente?.email,
-      body?.destinatario?.email,
-      body?.fatturazione?.email,
-      body?.fields?.fatturazione?.email
-    );
-    const emailNorm = normalizeEmail(emailRaw);
+    // customer_id (utile per ownership/RLS future). Se rpc non esiste, resta null.
+    let customer_id: string | null = null;
+    try {
+      const { data: cid } = await supa.rpc("current_customer_id");
+      if (typeof cid === "string" && cid) customer_id = cid;
+    } catch {
+      // ignore
+    }
 
     // ── PARTY / COLLIS ────────────────────────────────────────────
     const mitt: Party = body.mittente ?? {};
@@ -373,6 +302,7 @@ export async function POST(req: Request) {
       : Array.isArray(body.colli_n)
       ? body.colli_n
       : [];
+
     const colli: Collo[] = rawColli.map((c: any) => ({
       l1: toNum(c.l1 ?? c.lunghezza_cm),
       l2: toNum(c.l2 ?? c.larghezza_cm),
@@ -388,24 +318,23 @@ export async function POST(req: Request) {
       pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
 
     const giorno_ritiro = toISODate(body.ritiroData ?? body.giorno_ritiro);
-    const incoterm =
-      firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
-    const tipo_spedizione =
-      firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
+    const incoterm = firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
+    const tipo_spedizione = firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
+
     const dest_abilitato_import =
       typeof body.destAbilitato === "boolean"
         ? body.destAbilitato
         : typeof body.dest_abilitato_import === "boolean"
         ? body.dest_abilitato_import
         : null;
+
     const note_ritiro = body.ritiroNote ?? body.note_ritiro ?? null;
 
     // ── Mittente normalizzato ─────────────────────────────────────
     const mittente_paese = mitt.paese ?? body.mittente_paese ?? null;
     const mittente_citta = mitt.citta ?? body.mittente_citta ?? null;
     const mittente_cap = mitt.cap ?? body.mittente_cap ?? null;
-    const mittente_indirizzo =
-      mitt.indirizzo ?? body.mittente_indirizzo ?? null;
+    const mittente_indirizzo = mitt.indirizzo ?? body.mittente_indirizzo ?? null;
 
     const mittente_rs =
       mitt.ragioneSociale ??
@@ -416,7 +345,6 @@ export async function POST(req: Request) {
       null;
 
     const mittente_telefono = mitt.telefono ?? body.mittente_telefono ?? null;
-
     const mittente_piva = mitt.piva ?? body.mittente_piva ?? null;
 
     // ── Destinatario normalizzato ─────────────────────────────────
@@ -445,15 +373,12 @@ export async function POST(req: Request) {
       null;
 
     const fatt_piva = fatt.piva ?? body.fatt_piva ?? null;
-    const fatt_valuta =
-      (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
+    const fatt_valuta = (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
 
-    // ── Attachments (legacy JSON in tabella) ──────────────────────
+    // ── Attachments legacy json in tabella ───────────────────────
     const attachments = body.attachments ?? body.allegati ?? {};
     const ldv = att(attachments.ldv ?? body.ldv);
-    const fattura_proforma = att(
-      attachments.fattura_proforma ?? body.fattura_proforma
-    );
+    const fattura_proforma = att(attachments.fattura_proforma ?? body.fattura_proforma);
     const fattura_commerciale = att(
       attachments.fattura_commerciale ?? body.fattura_commerciale
     );
@@ -463,16 +388,13 @@ export async function POST(req: Request) {
     const allegato3 = att(attachments.allegato3 ?? body.allegato3);
     const allegato4 = att(attachments.allegato4 ?? body.allegato4);
 
-    // ── Assicurazione (NEW) ───────────────────────────────────────
+    // ── Assicurazione ────────────────────────────────────────────
     const insuranceRequested = Boolean(
       body.assicurazioneAttiva ??
         body.assicurazione_pallet ??
         body.insurance_requested ??
         body?.fields?.insurance_requested
     );
-
-    // Se hai un campo valore assicurato nel form, leggilo qui.
-    // Supportiamo vari alias per non vincolarti lato client.
     const insuranceValueEur =
       toNum(
         body.valoreAssicurato ??
@@ -501,8 +423,8 @@ export async function POST(req: Request) {
         "dest_paese",
         "dest_citta",
         "dest_cap",
-        "email",
         "email_cliente",
+        "email",
         "email_norm",
         "carrier",
         "service_code",
@@ -526,15 +448,14 @@ export async function POST(req: Request) {
       return clone;
     })();
 
-    // Salviamo sempre i flag assicurazione nel JSONB
     (fieldsSafe as any).insurance_requested = insuranceRequested;
     (fieldsSafe as any).insurance_value_eur = insuranceValueEur;
 
-    // ── Row principale per spst.shipments ─────────────────────────
+    // ── Row principale ────────────────────────────────────────────
     const baseRow: any = {
-      email_cliente: emailRaw || null,
-      email_norm: emailNorm,
-
+      customer_id, // può essere null se rpc non disponibile
+      email_cliente: emailTarget || user.email,
+      email_norm: emailTarget,
       mittente_paese,
       mittente_citta,
       mittente_cap,
@@ -542,18 +463,15 @@ export async function POST(req: Request) {
       mittente_rs,
       mittente_telefono,
       mittente_piva,
-
       dest_paese,
       dest_citta,
       dest_cap,
       dest_rs,
       dest_telefono,
       dest_piva,
-
       fatt_rs,
       fatt_piva,
       fatt_valuta,
-
       tipo_spedizione,
       incoterm,
       incoterm_norm: incoterm,
@@ -562,18 +480,13 @@ export async function POST(req: Request) {
       giorno_ritiro,
       peso_reale_kg,
       colli_n,
-
       carrier: body.carrier ?? null,
       service_code: body.service_code ?? null,
       pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
-      declared_value: insuranceRequested
-        ? (insuranceValueEur ?? toNum(body.declared_value))
-        : toNum(body.declared_value),
-      status: body.status ?? "draft",
-
+      declared_value: toNum(body.declared_value) ?? null,
+      status: body.status ?? "Ricevuta",
       fields: fieldsSafe,
-
       ldv,
       fattura_proforma,
       fattura_commerciale,
@@ -584,7 +497,27 @@ export async function POST(req: Request) {
       allegato4,
     };
 
-    // ── Genera human_id con retry su unique ───────────────────────
+    // genera human_id in modo consistente (anche per client) usando service role
+    const supaAdmin = admin();
+    const supaAny = supaAdmin as any;
+
+    async function nextHumanIdForToday(srv: any) {
+      // usa la tua stessa logica già in DB/app: qui la teniamo identica
+      const { data, error } = await srv.rpc("next_shipment_human_id");
+      if (!error && typeof data === "string" && data) return data;
+
+      // fallback brutale (non dovrebbe servire)
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const base = `${y}${m}${dd}`;
+      const rand = String(Math.floor(Math.random() * 900) + 100);
+      return `${base}-${rand}`;
+    }
+
+    // IMPORTANT: client può creare SOLO per sé → qui non c'è più spoof via header/body
+    // staff può creare per altri → già gestito da emailTarget
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -592,10 +525,10 @@ export async function POST(req: Request) {
 
     while (attempt < MAX_RETRY) {
       attempt++;
-      const human_id = await nextHumanIdForToday(supabaseSrv);
+      const human_id = await nextHumanIdForToday(supaAdmin);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await (supaAny as any)
+      const { data, error } = await supaAny
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
@@ -609,58 +542,23 @@ export async function POST(req: Request) {
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
-      } else {
-        lastErr = error;
-        break;
       }
+      lastErr = error;
+      break;
     }
 
     if (!shipment) {
-      console.error("[API/spedizioni] insert error:", lastErr);
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "INSERT_FAILED",
-          details: lastErr?.message || String(lastErr),
-        },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      return corsJson(
+        { ok: false, error: "INSERT_FAILED", details: lastErr?.message || lastErr },
+        500
       );
     }
 
-    // ── Insert colli in spst.packages ─────────────────────────────
-    if (Array.isArray(colli) && colli.length > 0) {
-      const pkgs = colli.map((c) => ({
-        shipment_id: shipment.id,
-        l1: toNum(c.l1 ?? c.lunghezza_cm),
-        l2: toNum(c.l2 ?? c.larghezza_cm),
-        l3: toNum(c.l3 ?? c.altezza_cm),
-        weight_kg: toNum(c.peso ?? c.peso_kg),
-        fields: c,
-      }));
-      const { error: pkgErr } = await (supaAny as any)
-        .schema("spst")
-        .from("packages")
-        .insert(pkgs);
-      if (pkgErr)
-        console.warn("[API/spedizioni] packages insert warning:", pkgErr.message);
-    }
-
-    const res = NextResponse.json({
-      ok: true,
-      shipment,
-      id: shipment.human_id || shipment.id,
-    });
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    return res;
+    return corsJson({ ok: true, shipment, scope: staff ? "staff" : "client" }, 200);
   } catch (e: any) {
-    console.error("[API/spedizioni] unexpected:", e);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED_ERROR",
-        details: String(e?.message || e),
-      },
-      { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+    return corsJson(
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      500
     );
   }
 }
