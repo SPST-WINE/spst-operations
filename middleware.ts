@@ -7,23 +7,26 @@ function getEnv() {
   const anon =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
-  return { url, anon };
+  if (!url || !anon) {
+    console.error("[middleware] Missing env", { hasUrl: !!url, hasAnon: !!anon });
+  }
+  return { url: url!, anon: anon! };
+}
+
+function isBackofficePath(pathname: string) {
+  return (
+    pathname.startsWith("/back-office") ||
+    pathname.startsWith("/api/backoffice")
+  );
 }
 
 export async function middleware(req: NextRequest) {
   const { url, anon } = getEnv();
 
-  // Se manca env, non blocco (ma loggo) per evitare downtime.
-  if (!url || !anon) {
-    console.error("[middleware] Missing Supabase env", {
-      hasUrl: !!url,
-      hasAnon: !!anon,
-    });
-    return NextResponse.next();
-  }
+  // se manca env, non blocco per evitare downtime, ma loggo
+  if (!url || !anon) return NextResponse.next();
 
-  // response che useremo per scrivere eventuali cookie aggiornati
-  const res = NextResponse.next();
+  let res = NextResponse.next();
 
   const supabase = createServerClient(url, anon, {
     cookies: {
@@ -39,21 +42,70 @@ export async function middleware(req: NextRequest) {
     },
   });
 
-  // Verifica sessione
+  // keep session fresh
+  await supabase.auth.getSession();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Se non autenticato → redirect login con next
+  const pathname = req.nextUrl.pathname;
+
+  // Qualsiasi area protetta: se non loggato -> login
   if (!user) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 
+  // Back-office: serve staff/admin
+  if (isBackofficePath(pathname)) {
+    const email = (user.email || "").toLowerCase().trim();
+
+    // ✅ hard allowlist "break-glass" per il tuo admin principale
+    if (email === "info@spst.it") {
+      return res;
+    }
+
+    // Verifica su tabella spst.staff_users (schema spst)
+    const { data: staff, error } = await supabase
+      .schema("spst")
+      .from("staff_users")
+      .select("user_id, role, enabled, email")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error || !staff) {
+      // per API -> 403 JSON, per pagine -> redirect dashboard
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { ok: false, error: "STAFF_REQUIRED" },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+
+    const enabled =
+      typeof (staff as any).enabled === "boolean" ? (staff as any).enabled : true;
+
+    const role = String((staff as any).role || "").toLowerCase().trim();
+    const isStaff = role === "admin" || role === "staff" || role === "operator";
+
+    if (!enabled || !isStaff) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { ok: false, error: "STAFF_DISABLED" },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+  }
+
   return res;
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/dashboard/:path*", "/back-office/:path*", "/api/backoffice/:path*"],
 };
