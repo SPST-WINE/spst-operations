@@ -1,14 +1,30 @@
+// app/api/profile/route.ts
 import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
 
-// GET /api/profile
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
-  // In futuro recupereremo i dati profilo da Supabase (tabella accounts / users).
+  const supabase = supabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return NextResponse.json(
+      { ok: false, error: "UNAUTHORIZED", profile: null },
+      { status: 401 }
+    );
+  }
+
   return NextResponse.json(
     {
       ok: true,
       profile: {
-        email: "info@spst.it",
-        name: "SPST Admin",
+        email: user.email,
+        id: user.id,
       },
     },
     { status: 200 }
