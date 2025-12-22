@@ -124,7 +124,7 @@ if ("response" in staff) return staff.response;
 
 export async function POST(req: NextRequest) {
   const staff = await requireStaff();
-  if (!staff.ok) return staff.response;
+  if ("response" in staff) return staff.response;
 
   const emailNorm = getEmailNorm(req);
   if (!emailNorm) {
