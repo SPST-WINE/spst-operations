@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -183,6 +184,9 @@ function buildEmailHtml(params: {
 }
 
 export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const supabase = makeSupabase();
   if (!supabase) return jsonError(500, "MISSING_SUPABASE_ENV");
 
@@ -241,11 +245,7 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
 
     const resend = new Resend(resendKey);
 
-    // ⚠️ Imposta un "from" che hai verificato su Resend.
-    // Se hai già verificato il dominio spst.it, usa tipo: "SPST <no-reply@spst.it>"
-    const from =
-      process.env.RESEND_FROM || "SPST <notification@spst.it>";
-
+    const from = process.env.RESEND_FROM || "SPST <notification@spst.it>";
     const subject = `SPST • Quotazione pronta — ${quote.human_id || quote.id}`;
 
     const sent = await resend.emails.send({
@@ -255,7 +255,6 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
       html,
     });
 
-    // opzionale: salva traccia nei fields
     await supabase
       .from("quotes")
       .update({
