@@ -1,6 +1,7 @@
 // app/api/quote-options/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const id = params.id;
 
   if (!id) {
