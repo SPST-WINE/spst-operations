@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
@@ -21,10 +21,12 @@ async function isStaff(): Promise<boolean> {
   const { data } = await supa.auth.getUser();
   const user = data?.user;
   if (!user?.id || !user?.email) return false;
+
   const email = user.email.toLowerCase().trim();
   if (email === "info@spst.it") return true;
 
-  const { data: staff } = await supa
+  const { data: staff } = await (supa as any)
+    .schema("spst")
     .from("staff_users")
     .select("role, enabled")
     .eq("user_id", user.id)
@@ -37,44 +39,74 @@ async function isStaff(): Promise<boolean> {
   return enabled && (role === "admin" || role === "staff" || role === "operator");
 }
 
+const ATTACH_KEYS = [
+  "ldv",
+  "fattura_proforma",
+  "fattura_commerciale",
+  "dle",
+  "allegato1",
+  "allegato2",
+  "allegato3",
+  "allegato4",
+] as const;
+
+type AttachKey = (typeof ATTACH_KEYS)[number];
+
+function pickAllowedAttachments(payload: Record<string, any>) {
+  const out: Record<string, any> = {};
+  for (const k of ATTACH_KEYS) {
+    if (k in payload) out[k] = payload[k];
+  }
+  return out;
+}
+
+const SELECT_ATTACH = `id,${ATTACH_KEYS.join(",")}`;
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const id = params.id;
-  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+  if (!id)
+    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
   const supa = supabaseServerSpst();
-  const {
-    data: { user },
-  } = await supa.auth.getUser();
-
-  if (!user?.id) return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const { data: { user } } = await supa.auth.getUser();
+  if (!user?.id)
+    return NextResponse.json(
+      { ok: false, error: "UNAUTHENTICATED" },
+      { status: 401 }
+    );
 
   const staff = await isStaff();
 
   try {
     if (staff) {
       const supaAdmin = admin();
-      const { data, error } = await supaAdmin
+      const { data, error } = await (supaAdmin as any)
         .schema("spst")
         .from("shipments")
-        .select("id,ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4")
+        .select(SELECT_ATTACH)
         .eq("id", id)
         .single();
 
-      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-      return NextResponse.json({ ok: true, attachments: data, scope: "staff" });
+      if (error || !data)
+        return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+
+      return NextResponse.json({ ok: true, shipment_id: id, attachments: data, scope: "staff" });
     }
 
+    // client mode (RLS)
     const { data, error } = await supa
       .from("shipments")
-      .select("id,ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4")
+      .select(SELECT_ATTACH)
       .eq("id", id)
       .single();
 
-    if (error) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
-    return NextResponse.json({ ok: true, attachments: data, scope: "client" });
+    if (error || !data)
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+
+    return NextResponse.json({ ok: true, shipment_id: id, attachments: data, scope: "client" });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
@@ -83,31 +115,49 @@ export async function GET(
   }
 }
 
-export async function POST(
+/**
+ * PATCH staff-only:
+ * consente SOLO di aggiornare le colonne allegati (niente payload libero).
+ * Nota: l'upload vero passa da /upload (storage + update), qui puoi solo “correggere” o azzerare.
+ */
+export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // staff-only: evita che clienti scrivano campi allegati arbitrari
   const staff = await requireStaff();
   if ("response" in staff) return staff.response;
 
   const id = params.id;
-  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+  if (!id)
+    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
 
-  const body = await req.json().catch(() => ({} as any));
+  const payload = (await req.json().catch(() => ({} as any))) as Record<string, any>;
+  const update = pickAllowedAttachments(payload);
+
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "NO_ALLOWED_FIELDS" },
+      { status: 400 }
+    );
+  }
 
   try {
     const supaAdmin = admin();
-    const { data, error } = await supaAdmin
+    const { data, error } = await (supaAdmin as any)
       .schema("spst")
       .from("shipments")
-      .update(body)
+      .update(update)
       .eq("id", id)
-      .select()
+      .select(SELECT_ATTACH)
       .single();
 
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, shipment: data });
+    if (error || !data)
+      return NextResponse.json(
+        { ok: false, error: "UPDATE_FAILED", details: error?.message ?? null },
+        { status: 500 }
+      );
+
+    return NextResponse.json({ ok: true, shipment_id: id, attachments: data });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
