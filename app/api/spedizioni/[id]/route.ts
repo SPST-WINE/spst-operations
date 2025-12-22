@@ -1,51 +1,57 @@
 // app/api/spedizioni/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServerSpst } from "@/lib/supabase/server";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  "";
-const SUPABASE_SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  "";
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
 
-function makeSupabase() {
-  if (!SUPABASE_URL || (!SUPABASE_ANON_KEY && !SUPABASE_SERVICE_ROLE)) {
-    throw new Error("Supabase env vars mancanti");
-  }
-  return createClient(
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE || SUPABASE_ANON_KEY,
-    { auth: { persistSession: false } }
-  );
+async function isStaff(): Promise<boolean> {
+  const supa = supabaseServerSpst();
+  const { data } = await supa.auth.getUser();
+  const user = data?.user;
+  if (!user?.id || !user?.email) return false;
+  const email = user.email.toLowerCase().trim();
+  if (email === "info@spst.it") return true;
+
+  const { data: staff } = await supa
+    .from("staff_users")
+    .select("role, enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const enabled =
+    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
+
+  const role = String((staff as any)?.role || "").toLowerCase().trim();
+  return enabled && (role === "admin" || role === "staff" || role === "operator");
 }
 
 // Normalizza un attachment che può essere string (url puro) o json
 function wrapFile(raw: any) {
   if (!raw) return null;
-
-  if (typeof raw === "string") {
-    return { url: raw as string };
-  }
-
+  if (typeof raw === "string") return { url: raw as string };
   if (typeof raw === "object") {
     const obj = raw as any;
     return {
       url: obj.url || obj.path || "",
-      file_name: obj.file_name || obj.name || null,
-      mime_type: obj.mime_type || obj.content_type || null,
-      size: obj.size ?? null,
+      file_name: obj.file_name || obj.name || obj.filename || null,
+      content_type: obj.content_type || obj.mime || null,
+      size: obj.size || null,
+      updated_at: obj.updated_at || obj.updatedAt || null,
+      ...obj,
     };
   }
-
   return null;
 }
 
@@ -54,19 +60,67 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   const id = params.id;
-
   if (!id) {
-    return NextResponse.json(
-      { ok: false, error: "ID spedizione mancante" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "ID spedizione mancante" }, { status: 400 });
   }
 
-  try {
-    const supa = makeSupabase();
+  // deve essere loggato (client o staff)
+  const supa = supabaseServerSpst();
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
 
+  if (!user?.id) {
+    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  }
+
+  const staff = await isStaff();
+
+  try {
+    if (staff) {
+      const supaAdmin = admin();
+      const { data, error } = await supaAdmin
+        .schema("spst")
+        .from("shipments")
+        .select(
+          `
+          id,created_at,human_id,
+          email_cliente,email_norm,
+          status,carrier,tracking_code,declared_value,
+          tipo_spedizione,incoterm,giorno_ritiro,note_ritiro,
+          mittente_rs,mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,mittente_telefono,mittente_piva,
+          dest_rs,dest_paese,dest_citta,dest_cap,dest_telefono,dest_piva,
+          fatt_rs,fatt_piva,fatt_valuta,
+          colli_n,peso_reale_kg,
+          ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4,
+          fields
+        `
+        )
+        .eq("id", id)
+        .single();
+
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      }
+
+      const row: any = data || null;
+      if (!row) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+
+      // normalizza attachments
+      row.ldv = wrapFile(row.ldv);
+      row.fattura_proforma = wrapFile(row.fattura_proforma);
+      row.fattura_commerciale = wrapFile(row.fattura_commerciale);
+      row.dle = wrapFile(row.dle);
+      row.allegato1 = wrapFile(row.allegato1);
+      row.allegato2 = wrapFile(row.allegato2);
+      row.allegato3 = wrapFile(row.allegato3);
+      row.allegato4 = wrapFile(row.allegato4);
+
+      return NextResponse.json({ ok: true, shipment: row, scope: "staff" });
+    }
+
+    // client: RLS
     const { data, error } = await supa
-      .schema("spst")
       .from("shipments")
       .select(
         `
@@ -74,189 +128,74 @@ export async function GET(
         email_cliente,email_norm,
         status,carrier,tracking_code,declared_value,
         tipo_spedizione,incoterm,giorno_ritiro,note_ritiro,
-        mittente_rs,mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-        mittente_telefono,mittente_piva,
-        dest_rs,dest_paese,dest_citta,dest_cap,
-        dest_telefono,dest_piva,dest_abilitato_import,
-        fatt_rs,fatt_paese,fatt_citta,fatt_cap,fatt_indirizzo,
-        fatt_telefono,fatt_piva,fatt_valuta,
-        colli_n,peso_reale_kg,formato_sped,contenuto_generale,
-        fields,
-        ldv,fattura_proforma,fattura_commerciale,dle,
-        allegato1,allegato2,allegato3,allegato4,
-        packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
+        mittente_rs,mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,mittente_telefono,mittente_piva,
+        dest_rs,dest_paese,dest_citta,dest_cap,dest_telefono,dest_piva,
+        fatt_rs,fatt_piva,fatt_valuta,
+        colli_n,peso_reale_kg,
+        ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4,
+        fields
       `
       )
       .eq("id", id)
       .single();
 
     if (error) {
-      console.error("[API/spedizioni/:id] db error:", error);
-      return NextResponse.json(
-        { ok: false, error: "Errore nel recupero della spedizione" },
-        { status: 500 }
-      );
+      // se non è owner, RLS spesso produce "no rows" o 406/404
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
     }
 
-    if (!data) {
-      return NextResponse.json(
-        { ok: false, error: "Spedizione non trovata" },
-        { status: 404 }
-      );
-    }
+    const row: any = data || null;
+    if (!row) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
 
-    // fields jsonb
-    const fields: any = (data as any).fields || {};
-    const mittente = fields.mittente || {};
-    const destinatario = fields.destinatario || {};
-    const fatturazione = fields.fatturazione || {};
+    row.ldv = wrapFile(row.ldv);
+    row.fattura_proforma = wrapFile(row.fattura_proforma);
+    row.fattura_commerciale = wrapFile(row.fattura_commerciale);
+    row.dle = wrapFile(row.dle);
+    row.allegato1 = wrapFile(row.allegato1);
+    row.allegato2 = wrapFile(row.allegato2);
+    row.allegato3 = wrapFile(row.allegato3);
+    row.allegato4 = wrapFile(row.allegato4);
 
-    const shipment = {
-      id: data.id,
-      created_at: data.created_at,
-      human_id: data.human_id,
-      email_cliente: data.email_cliente,
-      email_norm: data.email_norm,
-
-      status: data.status,
-      carrier: data.carrier,
-      tracking_code: data.tracking_code,
-
-      // ✅ PATCH: declared_value in response
-      declared_value: (data as any).declared_value ?? null,
-
-      tipo_spedizione: data.tipo_spedizione,
-      incoterm: data.incoterm,
-      giorno_ritiro: data.giorno_ritiro,
-      note_ritiro: data.note_ritiro,
-
-      // MITTENTE
-      mittente_rs: data.mittente_rs || mittente.ragioneSociale || null,
-      mittente_paese: data.mittente_paese || mittente.paese || null,
-      mittente_citta: data.mittente_citta || mittente.citta || null,
-      mittente_cap: data.mittente_cap || mittente.cap || null,
-      mittente_indirizzo: data.mittente_indirizzo || mittente.indirizzo || null,
-      mittente_telefono: data.mittente_telefono || mittente.telefono || null,
-      mittente_piva: data.mittente_piva || mittente.piva || null,
-
-      // DESTINATARIO
-      dest_rs: data.dest_rs || destinatario.ragioneSociale || null,
-      dest_paese: data.dest_paese || destinatario.paese || null,
-      dest_citta: data.dest_citta || destinatario.citta || null,
-      dest_cap: data.dest_cap || destinatario.cap || null,
-      dest_indirizzo: destinatario.indirizzo || null,
-      dest_telefono: data.dest_telefono || destinatario.telefono || null,
-      dest_piva: data.dest_piva || destinatario.piva || null,
-
-      // FATTURAZIONE
-      fatt_rs: data.fatt_rs || fatturazione.ragioneSociale || null,
-      fatt_paese: data.fatt_paese || fatturazione.paese || null,
-      fatt_citta: data.fatt_citta || fatturazione.citta || null,
-      fatt_cap: data.fatt_cap || fatturazione.cap || null,
-      fatt_indirizzo: data.fatt_indirizzo || fatturazione.indirizzo || null,
-      fatt_telefono: data.fatt_telefono || fatturazione.telefono || null,
-      fatt_piva: data.fatt_piva || fatturazione.piva || null,
-      fatt_valuta: data.fatt_valuta || fields.valuta || null,
-
-      // DETTAGLIO SPEDIZIONE
-      colli_n: data.colli_n,
-      peso_reale_kg: data.peso_reale_kg,
-      formato_sped: data.formato_sped || fields.formato || null,
-      contenuto_generale: data.contenuto_generale || fields.contenuto || null,
-
-      dest_abilitato_import:
-        (data as any).dest_abilitato_import ??
-        (typeof fields.destAbilitato === "boolean" ? fields.destAbilitato : null),
-
-      // Espongo anche il jsonb completo per packing list & debug
-      fields,
-
-      // ATTACHMENTS
-      attachments: {
-        ldv: wrapFile((data as any).ldv),
-        fattura_proforma: wrapFile((data as any).fattura_proforma),
-        fattura_commerciale: wrapFile((data as any).fattura_commerciale),
-        dle: wrapFile((data as any).dle),
-        allegato1: wrapFile((data as any).allegato1),
-        allegato2: wrapFile((data as any).allegato2),
-        allegato3: wrapFile((data as any).allegato3),
-        allegato4: wrapFile((data as any).allegato4),
-      },
-
-      // COLLI
-      packages: Array.isArray((data as any).packages)
-        ? (data as any).packages.map((p: any) => ({
-            id: p.id,
-            l1: p.l1,
-            l2: p.l2,
-            l3: p.l3,
-            weight_kg: p.weight_kg,
-          }))
-        : [],
-    };
-
-    return NextResponse.json({ ok: true, shipment });
-  } catch (e) {
-    console.error("[API/spedizioni/:id] unexpected error:", e);
+    return NextResponse.json({ ok: true, shipment: row, scope: "client" });
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "Errore interno" },
+      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
       { status: 500 }
     );
   }
 }
 
-// PATCH: aggiorna corriere + tracking
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const id = params.id;
+  // staff-only
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
 
+  const id = params.id;
   if (!id) {
-    return NextResponse.json(
-      { ok: false, error: "ID spedizione mancante" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "ID spedizione mancante" }, { status: 400 });
   }
 
+  const payload = await req.json().catch(() => ({} as any));
+
   try {
-    const body = await req.json().catch(() => ({}));
-    const carrier =
-      typeof body.carrier === "string" && body.carrier.trim() !== ""
-        ? body.carrier.trim()
-        : null;
-    const tracking_code =
-      typeof body.tracking_code === "string" && body.tracking_code.trim() !== ""
-        ? body.tracking_code.trim()
-        : null;
-
-    const supa = makeSupabase();
-
-    const { data, error } = await supa
+    const supaAdmin = admin();
+    const { data, error } = await supaAdmin
       .schema("spst")
       .from("shipments")
-      .update({ carrier, tracking_code })
+      .update(payload)
       .eq("id", id)
-      .select("carrier,tracking_code")
+      .select()
       .single();
 
-    if (error) {
-      console.error("[API/spedizioni/:id] PATCH db error:", error);
-      return NextResponse.json(
-        { ok: false, error: "Errore nel salvataggio dei dati" },
-        { status: 500 }
-      );
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-    return NextResponse.json({
-      ok: true,
-      carrier: data?.carrier ?? carrier,
-      tracking_code: data?.tracking_code ?? tracking_code,
-    });
-  } catch (e) {
-    console.error("[API/spedizioni/:id] PATCH unexpected error:", e);
+    return NextResponse.json({ ok: true, shipment: data });
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "Errore interno" },
+      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
       { status: 500 }
     );
   }
