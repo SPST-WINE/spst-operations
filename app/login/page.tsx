@@ -1,25 +1,58 @@
 // app/login/page.tsx
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type Status = "idle" | "loading" | "success" | "error";
 
+function norm(s?: string | null) {
+  return (s || "").trim();
+}
+
 export default function LoginPage() {
   const router = useRouter();
+  const sp = useSearchParams();
+
+  const nextPath = useMemo(() => {
+    const n = norm(sp.get("next"));
+    return n || "/dashboard/spedizioni";
+  }, [sp]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const isLoading = status === "loading";
+
+  async function checkEnabledIfPresent(userId: string): Promise<boolean> {
+    // Se tabella/colonna non esistono o policy non consente, NON blocchiamo.
+    try {
+      const supabase = supabaseBrowser();
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("enabled")
+        .eq("id", userId)
+        .maybeSingle();
+
+      // Se errore "relation does not exist" / "column does not exist" / RLS etc → passa
+      if (error) return true;
+
+      // Se record manca → passa
+      if (!data) return true;
+
+      // Se enabled è null/undefined → passa
+      if (typeof (data as any).enabled !== "boolean") return true;
+
+      return (data as any).enabled === true;
+    } catch {
+      return true;
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,7 +60,9 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const supabase = supabaseBrowser();
+
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
@@ -38,15 +73,28 @@ export default function LoginPage() {
         return;
       }
 
+      const userId = data.user?.id;
+      if (!userId) {
+        setStatus("error");
+        setError("Sessione non valida. Riprova.");
+        return;
+      }
+
+      const okEnabled = await checkEnabledIfPresent(userId);
+      if (!okEnabled) {
+        await supabase.auth.signOut();
+        setStatus("error");
+        setError("Account non abilitato. Contatta il supporto SPST.");
+        return;
+      }
+
       setStatus("success");
-      router.push("/dashboard/spedizioni");
+      router.push(nextPath);
     } catch (err: any) {
       setStatus("error");
       setError(err?.message || "Errore imprevisto durante il login.");
     }
   }
-
-  const isLoading = status === "loading";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
@@ -126,12 +174,14 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-4 flex items-center justify-between text-xs">
-          <a
-            href="/reset-password"
-            className="text-[#1c3e5e] hover:underline"
-          >
+          <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
             Hai dimenticato la password?
           </a>
+
+          {/* info sul redirect (utile in debug, discreto) */}
+          <span className="text-slate-400">
+            → {nextPath.replace(/^\/dashboard/, "/dashboard")}
+          </span>
         </div>
       </div>
     </div>
