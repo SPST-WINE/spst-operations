@@ -1,6 +1,7 @@
 // app/api/quote-requests/[id]/options/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,9 @@ export async function GET(
   _req: NextRequest,
   context: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = context.params;
   if (!id) return jsonError(400, "MISSING_QUOTE_ID");
 
@@ -151,6 +155,9 @@ export async function POST(
   req: NextRequest,
   context: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = context.params;
   if (!id) return jsonError(400, "MISSING_QUOTE_ID");
 
