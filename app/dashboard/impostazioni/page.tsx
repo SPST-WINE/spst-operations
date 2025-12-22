@@ -2,9 +2,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-
-export const dynamic = "force-dynamic";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type ShipperDefaults = {
   paese: string;
@@ -22,7 +20,7 @@ export default function ImpostazioniPage() {
   return (
     <Suspense
       fallback={
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h1 className="text-xl font-semibold text-slate-800">Impostazioni</h1>
           <div className="text-sm text-slate-500">Caricamento…</div>
         </div>
@@ -35,6 +33,8 @@ export default function ImpostazioniPage() {
 
 function ImpostazioniPageInner() {
   const sp = useSearchParams();
+  const router = useRouter();
+
   const onboarding = sp.get("onboarding") === "1";
 
   const [email, setEmail] = useState<string>("-");
@@ -55,6 +55,11 @@ function ImpostazioniPageInner() {
   const loading = status === "loading";
   const saving = status === "saving";
 
+  const getEmailNorm = () => {
+    const raw = (email || "").trim();
+    return raw ? raw.toLowerCase() : "";
+  };
+
   useEffect(() => {
     let alive = true;
 
@@ -64,26 +69,29 @@ function ImpostazioniPageInner() {
       setErrorMsg(null);
 
       try {
-        // 1) profilo dal server (Supabase auth)
+        // ✅ ORA /api/profile deve leggere Supabase session cookie
         const profRes = await fetch("/api/profile", { cache: "no-store" });
         const profBody = await profRes.json().catch(() => ({}));
-        const profileEmail: string = profBody?.profile?.email?.toString?.() || "";
+
+        const profileEmail: string =
+          profBody?.profile?.email?.toString?.() || "";
 
         if (!alive) return;
 
         if (!profileEmail) {
-          setErrorMsg("Impossibile recuperare l'email. Fai login e riprova.");
+          setErrorMsg("Non sei autenticato. Fai login e riprova.");
           setStatus("idle");
           return;
         }
 
         setEmail(profileEmail);
 
-        // 2) self-service: niente ?email=
-        const res = await fetch(`/api/impostazioni`, {
-          method: "GET",
-          cache: "no-store",
-        });
+        const emailNorm = profileEmail.trim().toLowerCase();
+
+        const res = await fetch(
+          `/api/impostazioni?email=${encodeURIComponent(emailNorm)}`,
+          { method: "GET", cache: "no-store" }
+        );
         const body = await res.json().catch(() => ({}));
 
         if (!alive) return;
@@ -106,7 +114,7 @@ function ImpostazioniPageInner() {
               "Errore nel caricamento delle impostazioni."
           );
         }
-      } catch (e: any) {
+      } catch (e) {
         if (alive) setErrorMsg("Errore di rete nel caricamento delle impostazioni.");
       } finally {
         if (alive) setStatus("idle");
@@ -130,19 +138,36 @@ function ImpostazioniPageInner() {
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`/api/impostazioni`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mittente: form }),
-      });
+      const emailNorm = getEmailNorm();
+      if (!emailNorm) {
+        setErrorMsg("Email non disponibile. Ricarica la pagina.");
+        setStatus("idle");
+        return;
+      }
+
+      const res = await fetch(
+        `/api/impostazioni?email=${encodeURIComponent(emailNorm)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mittente: form }),
+        }
+      );
       const body = await res.json().catch(() => ({}));
 
       if (res.ok && body?.ok) {
         setStatusMsg("Impostazioni salvate correttamente.");
+
+        // ✅ se arrivi da onboarding, puoi anche togliere il parametro
+        if (onboarding) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("onboarding");
+          router.replace(url.pathname + (url.search ? url.search : ""));
+        }
       } else {
         setErrorMsg(body?.message || body?.error || "Errore durante il salvataggio.");
       }
-    } catch (e: any) {
+    } catch {
       setErrorMsg("Errore di rete durante il salvataggio.");
     } finally {
       setStatus("idle");
@@ -185,7 +210,9 @@ function ImpostazioniPageInner() {
         onSubmit={onSubmit}
         className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
       >
-        <h2 className="mb-1 text-sm font-semibold text-slate-800">Impostazioni mittente</h2>
+        <h2 className="mb-1 text-sm font-semibold text-slate-800">
+          Impostazioni mittente
+        </h2>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
