@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type ShipperDefaults = {
   paese: string;
@@ -16,6 +17,9 @@ type ShipperDefaults = {
 type Status = "idle" | "loading" | "saving";
 
 export default function ImpostazioniPage() {
+  const sp = useSearchParams();
+  const onboarding = sp.get("onboarding") === "1";
+
   const [email, setEmail] = useState<string>("-");
   const [form, setForm] = useState<ShipperDefaults>({
     paese: "",
@@ -170,6 +174,16 @@ export default function ImpostazioniPage() {
 
   return (
     <div className="space-y-6">
+      {/* Banner onboarding */}
+      {onboarding ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          <div className="font-semibold">Completa il mittente</div>
+          <div className="mt-1 text-amber-800">
+            Completa i dati del mittente per iniziare a spedire.
+          </div>
+        </div>
+      ) : null}
+
       {/* Header */}
       <div>
         <h1 className="text-xl font-semibold text-slate-800">Impostazioni</h1>
