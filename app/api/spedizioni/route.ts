@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServerSpst } from "@/lib/supabase/server";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 /* ───────────── Helpers ───────────── */
 type Party = {
@@ -14,15 +15,6 @@ type Party = {
   telefono?: string;
   piva?: string;
   email?: string;
-};
-
-type Collo = {
-  l1?: number | null;
-  l2?: number | null;
-  l3?: number | null;
-  peso?: number | null;
-  contenuto?: string | null;
-  [k: string]: any;
 };
 
 function firstNonEmpty(...vals: (string | undefined | null)[]) {
@@ -40,14 +32,9 @@ function toISODate(d?: string | null): string | null {
   const s = d.trim();
   if (!s) return null;
 
-  // supporta dd-mm-yyyy / dd/mm/yyyy / yyyy-mm-dd
   const m1 = s.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
-  if (m1) {
-    const dd = m1[1];
-    const mm = m1[2];
-    const yyyy = m1[3];
-    return `${yyyy}-${mm}-${dd}`;
-  }
+  if (m1) return `${m1[3]}-${m1[2]}-${m1[1]}`;
+
   const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m2) return s;
 
@@ -80,7 +67,7 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } }) as any;
 }
 
-/** Verifica staff usando stesso supabase cookie-based (NON fidarti di header). */
+/** staff check (cookie-based, no header spoofing) */
 async function isStaff(): Promise<boolean> {
   const supa = supabaseServerSpst();
   const { data } = await supa.auth.getUser();
@@ -103,16 +90,37 @@ async function isStaff(): Promise<boolean> {
   return enabled && (role === "admin" || role === "staff" || role === "operator");
 }
 
-function corsJson(payload: any, status = 200) {
-  return NextResponse.json(payload, {
-    status,
-    headers: { "Access-Control-Allow-Origin": "*" },
-  });
+/* ───────────── human_id generator (DEFINITIVO) ───────────── */
+function formatHumanId(d: Date, n: number) {
+  // usa UTC per coerenza (come il tuo vecchio file)
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
 }
 
-/* ───────────── GET: lista spedizioni ─────────────
-   - CLIENT: vede solo le sue (RLS)
-   - STAFF: può vedere tutte, e può filtrare per email
+async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
+  const now = new Date();
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = now.getUTCFullYear();
+
+  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
+  const supaAny = supabaseSrv as any;
+
+  const { count, error } = await supaAny
+    .schema("spst")
+    .from("shipments")
+    .select("human_id", { count: "exact", head: true })
+    .ilike("human_id", `${pattern}%`);
+
+  if (error) return formatHumanId(now, Date.now() % 100000);
+  return formatHumanId(now, (count ?? 0) + 1);
+}
+
+/* ───────────── GET /api/spedizioni ─────────────
+   - CLIENT: via RLS
+   - STAFF: service role (vede tutto)
 */
 export async function GET(req: Request) {
   try {
@@ -125,36 +133,32 @@ export async function GET(req: Request) {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // deve essere loggato (sia client che staff)
     const supa = supabaseServerSpst();
     const {
       data: { user },
     } = await supa.auth.getUser();
 
-    if (!user?.id || !user?.email) {
-      return corsJson({ ok: false, error: "UNAUTHENTICATED" }, 401);
+    if (!user?.id) {
+      return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
     const staff = await isStaff();
 
-    // STAFF MODE: service role (vedi tutto) + filtri
+    // STAFF MODE
     if (staff) {
       const supaAdmin = admin();
-
       let query = supaAdmin
         .schema("spst")
         .from("shipments")
         .select(
           `
-          id,created_at,human_id,email_cliente,email_norm,
-          tipo_spedizione,incoterm,giorno_ritiro,
-          carrier,tracking_code,
-          mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-          dest_paese,dest_citta,dest_cap,
-          colli_n,peso_reale_kg,status,
-          mittente_rs,mittente_telefono,mittente_piva,
-          dest_rs,dest_telefono,dest_piva,
-          fatt_rs,fatt_piva,fatt_valuta
+          id,created_at,human_id,
+          email_cliente,email_norm,
+          tipo_spedizione,incoterm,status,
+          mittente_paese,mittente_citta,
+          dest_paese,dest_citta,
+          colli_n,formato_sped,
+          carrier,tracking_code
         `,
           { count: "exact" }
         );
@@ -168,23 +172,23 @@ export async function GET(req: Request) {
           [
             `human_id.ilike.${pattern}`,
             `email_cliente.ilike.${pattern}`,
-            `mittente_rs.ilike.${pattern}`,
-            `dest_rs.ilike.${pattern}`,
+            `mittente_citta.ilike.${pattern}`,
+            `dest_citta.ilike.${pattern}`,
             `tracking_code.ilike.${pattern}`,
+            `carrier.ilike.${pattern}`,
           ].join(",")
         );
       }
 
-      if (sort === "created_asc") query = query.order("created_at", { ascending: true });
-      else query = query.order("created_at", { ascending: false });
+      query =
+        sort === "created_asc"
+          ? query.order("created_at", { ascending: true })
+          : query.order("created_at", { ascending: false });
 
       const { data, error, count } = await query.range(from, to);
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-      if (error) {
-        return corsJson({ ok: false, error: error.message }, 500);
-      }
-
-      return corsJson({
+      return NextResponse.json({
         ok: true,
         page,
         limit,
@@ -194,20 +198,18 @@ export async function GET(req: Request) {
       });
     }
 
-    // CLIENT MODE: RLS (vedi solo le tue). Ignora emailParam.
+    // CLIENT MODE (RLS)
     let query = supa
       .from("shipments")
       .select(
         `
-        id,created_at,human_id,email_cliente,email_norm,
-        tipo_spedizione,incoterm,giorno_ritiro,
-        carrier,tracking_code,
-        mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-        dest_paese,dest_citta,dest_cap,
-        colli_n,peso_reale_kg,status,
-        mittente_rs,mittente_telefono,mittente_piva,
-        dest_rs,dest_telefono,dest_piva,
-        fatt_rs,fatt_piva,fatt_valuta
+        id,created_at,human_id,
+        email_cliente,email_norm,
+        tipo_spedizione,incoterm,status,
+        mittente_paese,mittente_citta,
+        dest_paese,dest_citta,
+        colli_n,formato_sped,
+        carrier,tracking_code
       `,
         { count: "exact" }
       );
@@ -218,23 +220,23 @@ export async function GET(req: Request) {
       query = query.or(
         [
           `human_id.ilike.${pattern}`,
+          `mittente_citta.ilike.${pattern}`,
+          `dest_citta.ilike.${pattern}`,
           `tracking_code.ilike.${pattern}`,
-          `mittente_rs.ilike.${pattern}`,
-          `dest_rs.ilike.${pattern}`,
+          `carrier.ilike.${pattern}`,
         ].join(",")
       );
     }
 
-    if (sort === "created_asc") query = query.order("created_at", { ascending: true });
-    else query = query.order("created_at", { ascending: false });
+    query =
+      sort === "created_asc"
+        ? query.order("created_at", { ascending: true })
+        : query.order("created_at", { ascending: false });
 
     const { data, error, count } = await query.range(from, to);
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
 
-    if (error) {
-      return corsJson({ ok: false, error: error.message }, 500);
-    }
-
-    return corsJson({
+    return NextResponse.json({
       ok: true,
       page,
       limit,
@@ -243,16 +245,16 @@ export async function GET(req: Request) {
       scope: "client",
     });
   } catch (e: any) {
-    return corsJson(
+    return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      500
+      { status: 500 }
     );
   }
 }
 
-/* ───────────── POST: crea spedizione ─────────────
-   - CLIENT: crea solo per sé (email dal token/session; NO header)
-   - STAFF: può creare per altri (email dal body), usa service role
+/* ───────────── POST /api/spedizioni ─────────────
+   - CLIENT: crea solo per sé (email dalla session)
+   - STAFF: può creare per altri (email dal body)
 */
 export async function POST(req: Request) {
   try {
@@ -264,229 +266,105 @@ export async function POST(req: Request) {
     } = await supa.auth.getUser();
 
     if (!user?.id || !user?.email) {
-      return corsJson({ ok: false, error: "UNAUTHENTICATED" }, 401);
+      return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
     const staff = await isStaff();
 
-    // email “target”
     const emailTarget = staff
       ? normalizeEmail(
-          firstNonEmpty(
-            body.email_cliente,
-            body.email,
-            body?.mittente?.email,
-            body?.destinatario?.email,
-            body?.fatturazione?.email,
-            body?.fields?.fatturazione?.email
-          )
+          firstNonEmpty(body.email_cliente, body.email, body?.mittente?.email, body?.fatturazione?.email)
         ) || normalizeEmail(user.email)
       : normalizeEmail(user.email);
 
-    // customer_id (utile per ownership/RLS future). Se rpc non esiste, resta null.
-    let customer_id: string | null = null;
-    try {
-      const { data: cid } = await supa.rpc("current_customer_id");
-      if (typeof cid === "string" && cid) customer_id = cid;
-    } catch {
-      // ignore
-    }
-
-    // ── PARTY / COLLIS ────────────────────────────────────────────
     const mitt: Party = body.mittente ?? {};
     const dest: Party = body.destinatario ?? {};
     const fatt: Party = body.fatturazione ?? body.fatt ?? {};
 
-    const rawColli: any[] = Array.isArray(body.colli)
-      ? body.colli
-      : Array.isArray(body.colli_n)
-      ? body.colli_n
-      : [];
+    const rawColli: any[] = Array.isArray(body.colli) ? body.colli : [];
+    const colli_n: number | null = rawColli.length || null;
 
-    const colli: Collo[] = rawColli.map((c: any) => ({
-      l1: toNum(c.l1 ?? c.lunghezza_cm),
-      l2: toNum(c.l2 ?? c.larghezza_cm),
-      l3: toNum(c.l3 ?? c.altezza_cm),
-      peso: toNum(c.peso ?? c.peso_kg),
-      contenuto: c.contenuto ?? c.contenuto_colli ?? null,
-      ...c,
-    }));
-
-    const colli_n: number | null = Array.isArray(colli) ? colli.length : null;
-    const pesoTot = colli.reduce((sum, c) => sum + (toNum(c?.peso) || 0), 0);
-    const peso_reale_kg =
-      pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
+    const pesoTot = rawColli.reduce((sum, c) => sum + (toNum(c?.peso ?? c?.peso_kg) || 0), 0);
+    const peso_reale_kg = pesoTot > 0 ? Number(pesoTot.toFixed(3)) : toNum(body.peso_reale_kg);
 
     const giorno_ritiro = toISODate(body.ritiroData ?? body.giorno_ritiro);
     const incoterm = firstNonEmpty(body.incoterm, body.incoterm_norm).toUpperCase() || null;
     const tipo_spedizione = firstNonEmpty(body.tipoSped, body.tipo_spedizione) || null;
 
-    const dest_abilitato_import =
-      typeof body.destAbilitato === "boolean"
-        ? body.destAbilitato
-        : typeof body.dest_abilitato_import === "boolean"
-        ? body.dest_abilitato_import
-        : null;
+    // ✅ QUESTO è il campo che ti serve per l’icona pallet/pacco
+    // (preferisci colonna esplicita, non “fields”)
+    const formato_sped =
+      firstNonEmpty(
+        body.formato_sped,
+        body.shipping_method,
+        body?.fields?.shipping_method,
+        body?.fields?.tipo_pacco
+      ) || null;
 
-    const note_ritiro = body.ritiroNote ?? body.note_ritiro ?? null;
-
-    // ── Mittente normalizzato ─────────────────────────────────────
-    const mittente_paese = mitt.paese ?? body.mittente_paese ?? null;
-    const mittente_citta = mitt.citta ?? body.mittente_citta ?? null;
-    const mittente_cap = mitt.cap ?? body.mittente_cap ?? null;
-    const mittente_indirizzo = mitt.indirizzo ?? body.mittente_indirizzo ?? null;
-
-    const mittente_rs =
-      mitt.ragioneSociale ??
-      (mitt as any).ragione_sociale ??
-      body.mittente_rs ??
-      body.mittente_ragione ??
-      body.mittente_ragione_sociale ??
-      null;
-
-    const mittente_telefono = mitt.telefono ?? body.mittente_telefono ?? null;
-    const mittente_piva = mitt.piva ?? body.mittente_piva ?? null;
-
-    // ── Destinatario normalizzato ─────────────────────────────────
-    const dest_paese = dest.paese ?? body.dest_paese ?? null;
-    const dest_citta = dest.citta ?? body.dest_citta ?? null;
-    const dest_cap = dest.cap ?? body.dest_cap ?? null;
-
-    const dest_rs =
-      dest.ragioneSociale ??
-      (dest as any).ragione_sociale ??
-      body.dest_rs ??
-      body.dest_ragione ??
-      body.dest_ragione_sociale ??
-      null;
-
-    const dest_telefono = dest.telefono ?? body.dest_telefono ?? null;
-    const dest_piva = dest.piva ?? body.dest_piva ?? null;
-
-    // ── Fatturazione normalizzata ─────────────────────────────────
-    const fatt_rs =
-      fatt.ragioneSociale ??
-      (fatt as any).ragione_sociale ??
-      body.fatt_rs ??
-      body.fatt_ragione ??
-      body.fatt_ragione_sociale ??
-      null;
-
-    const fatt_piva = fatt.piva ?? body.fatt_piva ?? null;
-    const fatt_valuta = (fatt as any).valuta ?? body.fatt_valuta ?? body.valuta ?? null;
-
-    // ── Attachments legacy json in tabella ───────────────────────
     const attachments = body.attachments ?? body.allegati ?? {};
     const ldv = att(attachments.ldv ?? body.ldv);
     const fattura_proforma = att(attachments.fattura_proforma ?? body.fattura_proforma);
-    const fattura_commerciale = att(
-      attachments.fattura_commerciale ?? body.fattura_commerciale
-    );
+    const fattura_commerciale = att(attachments.fattura_commerciale ?? body.fattura_commerciale);
     const dle = att(attachments.dle ?? body.dle);
     const allegato1 = att(attachments.allegato1 ?? body.allegato1);
     const allegato2 = att(attachments.allegato2 ?? body.allegato2);
     const allegato3 = att(attachments.allegato3 ?? body.allegato3);
     const allegato4 = att(attachments.allegato4 ?? body.allegato4);
 
-    // ── Assicurazione ────────────────────────────────────────────
-    const insuranceRequested = Boolean(
-      body.assicurazioneAttiva ??
-        body.assicurazione_pallet ??
-        body.insurance_requested ??
-        body?.fields?.insurance_requested
-    );
-    const insuranceValueEur =
-      toNum(
-        body.valoreAssicurato ??
-          body.valore_assicurato ??
-          body.insurance_value_eur ??
-          body.insuranceValueEur
-      ) ?? null;
-
-    // ── Fields “raw” salvati in JSONB ─────────────────────────────
-    const fieldsSafe = (() => {
-      const clone: any = JSON.parse(JSON.stringify(body ?? {}));
-      const blocklist = [
-        "colli_n",
-        "colli",
-        "peso_reale_kg",
-        "giorno_ritiro",
-        "incoterm",
-        "incoterm_norm",
-        "tipoSped",
-        "tipo_spedizione",
-        "dest_abilitato_import",
-        "mittente_paese",
-        "mittente_citta",
-        "mittente_cap",
-        "mittente_indirizzo",
-        "dest_paese",
-        "dest_citta",
-        "dest_cap",
-        "email_cliente",
-        "email",
-        "email_norm",
-        "carrier",
-        "service_code",
-        "pickup_at",
-        "tracking_code",
-        "declared_value",
-        "status",
-        "human_id",
-        "ldv",
-        "fattura_proforma",
-        "fattura_commerciale",
-        "dle",
-        "allegato1",
-        "allegato2",
-        "allegato3",
-        "allegato4",
-        "attachments",
-        "allegati",
-      ];
-      for (const k of blocklist) delete clone[k];
-      return clone;
-    })();
-
-    (fieldsSafe as any).insurance_requested = insuranceRequested;
-    (fieldsSafe as any).insurance_value_eur = insuranceValueEur;
-
-    // ── Row principale ────────────────────────────────────────────
     const baseRow: any = {
-      customer_id, // può essere null se rpc non disponibile
       email_cliente: emailTarget || user.email,
       email_norm: emailTarget,
-      mittente_paese,
-      mittente_citta,
-      mittente_cap,
-      mittente_indirizzo,
-      mittente_rs,
-      mittente_telefono,
-      mittente_piva,
-      dest_paese,
-      dest_citta,
-      dest_cap,
-      dest_rs,
-      dest_telefono,
-      dest_piva,
-      fatt_rs,
-      fatt_piva,
-      fatt_valuta,
+
+      mittente_paese: mitt.paese ?? body.mittente_paese ?? null,
+      mittente_citta: mitt.citta ?? body.mittente_citta ?? null,
+      mittente_cap: mitt.cap ?? body.mittente_cap ?? null,
+      mittente_indirizzo: mitt.indirizzo ?? body.mittente_indirizzo ?? null,
+      mittente_rs:
+        mitt.ragioneSociale ??
+        body.mittente_rs ??
+        body.mittente_ragione ??
+        body.mittente_ragione_sociale ??
+        null,
+      mittente_telefono: mitt.telefono ?? body.mittente_telefono ?? null,
+      mittente_piva: mitt.piva ?? body.mittente_piva ?? null,
+
+      dest_paese: dest.paese ?? body.dest_paese ?? null,
+      dest_citta: dest.citta ?? body.dest_citta ?? null,
+      dest_cap: dest.cap ?? body.dest_cap ?? null,
+      dest_rs:
+        dest.ragioneSociale ??
+        body.dest_rs ??
+        body.dest_ragione ??
+        body.dest_ragione_sociale ??
+        null,
+      dest_telefono: dest.telefono ?? body.dest_telefono ?? null,
+      dest_piva: dest.piva ?? body.dest_piva ?? null,
+
+      fatt_rs:
+        fatt.ragioneSociale ??
+        body.fatt_rs ??
+        body.fatt_ragione ??
+        body.fatt_ragione_sociale ??
+        null,
+      fatt_piva: fatt.piva ?? body.fatt_piva ?? null,
+      fatt_valuta: body.fatt_valuta ?? body.valuta ?? null,
+
       tipo_spedizione,
       incoterm,
       incoterm_norm: incoterm,
-      dest_abilitato_import,
-      note_ritiro,
+
       giorno_ritiro,
       peso_reale_kg,
       colli_n,
+
+      formato_sped, // ✅ RIPRISTINATO
+
       carrier: body.carrier ?? null,
-      service_code: body.service_code ?? null,
-      pickup_at: body.pickup_at ?? null,
       tracking_code: body.tracking_code ?? null,
-      declared_value: toNum(body.declared_value) ?? null,
       status: body.status ?? "Ricevuta",
-      fields: fieldsSafe,
+
+      fields: body.fields ?? {},
+
       ldv,
       fattura_proforma,
       fattura_commerciale,
@@ -497,27 +375,10 @@ export async function POST(req: Request) {
       allegato4,
     };
 
-    // genera human_id in modo consistente (anche per client) usando service role
+    // ✅ Generazione human_id DEFINITIVA (come prima), con retry anti-duplicati
     const supaAdmin = admin();
     const supaAny = supaAdmin as any;
 
-    async function nextHumanIdForToday(srv: any) {
-      // usa la tua stessa logica già in DB/app: qui la teniamo identica
-      const { data, error } = await srv.rpc("next_shipment_human_id");
-      if (!error && typeof data === "string" && data) return data;
-
-      // fallback brutale (non dovrebbe servire)
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      const base = `${y}${m}${dd}`;
-      const rand = String(Math.floor(Math.random() * 900) + 100);
-      return `${base}-${rand}`;
-    }
-
-    // IMPORTANT: client può creare SOLO per sé → qui non c'è più spoof via header/body
-    // staff può creare per altri → già gestito da emailTarget
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -539,6 +400,7 @@ export async function POST(req: Request) {
         shipment = data;
         break;
       }
+      // retry se collisione
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
@@ -548,17 +410,17 @@ export async function POST(req: Request) {
     }
 
     if (!shipment) {
-      return corsJson(
+      return NextResponse.json(
         { ok: false, error: "INSERT_FAILED", details: lastErr?.message || lastErr },
-        500
+        { status: 500 }
       );
     }
 
-    return corsJson({ ok: true, shipment, scope: staff ? "staff" : "client" }, 200);
+    return NextResponse.json({ ok: true, shipment, scope: staff ? "staff" : "client" });
   } catch (e: any) {
-    return corsJson(
+    return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      500
+      { status: 500 }
     );
   }
 }
