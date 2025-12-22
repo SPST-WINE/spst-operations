@@ -1,6 +1,7 @@
 // app/api/backoffice/links/[id]/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,9 @@ function admin() {
 }
 
 export async function PATCH(req: Request, { params }: Params) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = params;
 
   try {
@@ -77,6 +81,9 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(_req: Request, { params }: Params) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = params;
 
   try {
