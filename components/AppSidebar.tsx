@@ -1,3 +1,4 @@
+// components/AppSidebar.tsx
 'use client';
 
 import Image from 'next/image';
@@ -20,6 +21,7 @@ type NavItem = {
   desc: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   exact?: boolean;
+
   imageSrc: string;
   accentHex: string;
 };
@@ -86,7 +88,7 @@ const NAV: NavItem[] = [
 
 function hexToRgba(hex: string, alpha: number) {
   const h = hex.replace('#', '');
-  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
   const r = parseInt(full.slice(0, 2), 16);
   const g = parseInt(full.slice(2, 4), 16);
   const b = parseInt(full.slice(4, 6), 16);
@@ -112,7 +114,7 @@ export default function AppSidebar() {
       : pathname === href || pathname.startsWith(href + '/');
   }
 
-  const anyActive = NAV.some(n => isActiveFor(n.href, n.exact));
+  const anyActive = NAV.some((n) => isActiveFor(n.href, n.exact));
 
   return (
     <aside className="sticky top-0 h-screen border-r bg-white">
@@ -137,29 +139,29 @@ export default function AppSidebar() {
                   'group relative isolate w-full overflow-hidden rounded-[18px]',
                   'flex flex-1 items-center justify-between gap-3 px-3',
                   'transition-all hover:-translate-y-[1px]',
-                  shouldDim ? 'opacity-55' : 'opacity-100',
+                  shouldDim ? 'opacity-60' : 'opacity-100',
                 ].join(' ')}
                 style={{
-                  backgroundColor: '#ffffff',
+                  backgroundColor: '#fff',
                   border: '1px solid rgba(0,0,0,0.08)',
                   boxShadow: isActive
-                    ? `0 0 0 2px ${hexToRgba(accentHex, 0.55)}, 0 20px 46px rgba(0,0,0,0.35)`
-                    : '0 16px 36px rgba(0,0,0,0.28)',
+                    ? `0 0 0 2px ${hexToRgba(accentHex, 0.55)}, 0 20px 46px rgba(0,0,0,0.32)`
+                    : '0 16px 36px rgba(0,0,0,0.24)',
                 }}
               >
-                {/* Background image + DARK overlay */}
+                {/* Background image: più visibile, NO BLUR */}
                 <div className="absolute inset-0">
                   <Image
                     src={imageSrc}
                     alt=""
                     fill
                     sizes="260px"
-                    className="object-cover opacity-[0.22] transition-transform duration-500 group-hover:scale-[1.04]"
+                    className="object-cover opacity-[0.62] transition-transform duration-500 group-hover:scale-[1.04] transform-gpu"
                     style={{ objectPosition: 'center 35%' }}
                   />
 
-                  {/* overlay più scuro */}
-                  <div className="absolute inset-0 bg-black/75" />
+                  {/* overlay: scuro ma NON ammazza la foto */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/35 to-black/15" />
 
                   {/* accent glow */}
                   <div
@@ -167,19 +169,19 @@ export default function AppSidebar() {
                     style={{
                       background: `radial-gradient(90% 120% at 18% 50%, ${hexToRgba(
                         accentHex,
-                        0.30
+                        0.22
                       )} 0%, rgba(0,0,0,0) 62%)`,
                     }}
                   />
 
-                  {/* vignetta interna marcata */}
-                  <div className="absolute inset-0 shadow-[inset_0_-90px_140px_rgba(0,0,0,0.65)]" />
+                  {/* vignetta soft (non “blur”, solo profondità) */}
+                  <div className="absolute inset-0 shadow-[inset_0_-70px_120px_rgba(0,0,0,0.45)]" />
                 </div>
 
                 {/* Content */}
                 <div className="relative flex items-center gap-3 min-w-0 py-3">
                   <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white shadow-sm"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white/95 shadow-sm transition-all group-hover:shadow-md"
                     style={{
                       color: accentHex,
                       borderColor: 'rgba(255,255,255,0.55)',
@@ -189,16 +191,20 @@ export default function AppSidebar() {
                   </div>
 
                   <div className="min-w-0">
-                    <div className="text-[12px] font-semibold text-white truncate">
+                    <div
+                      className="text-[12px] font-semibold text-white truncate"
+                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.65)' }}
+                    >
                       {label}
                     </div>
 
                     <div
                       className={[
-                        'mt-0.5 text-[10px] text-white/85 truncate',
+                        'mt-0.5 text-[10px] text-white/90 truncate',
                         isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                         'transition-opacity duration-200',
                       ].join(' ')}
+                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.65)' }}
                     >
                       {desc}
                     </div>
