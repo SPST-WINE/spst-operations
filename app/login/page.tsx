@@ -29,38 +29,34 @@ export default function LoginPage() {
   const isLoading = status === "loading";
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setStatus("loading");
-    setError(null);
+  e.preventDefault();
+  setStatus("loading");
+  setError(null);
 
-    try {
-      const supabase = supabaseBrowser();
+  try {
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
 
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+    const j = await r.json().catch(() => ({}));
 
-      if (error) {
-        setStatus("error");
-        setError(error.message || "Credenziali non valide.");
-        return;
-      }
-
-      const userId = data.user?.id;
-      if (!userId) {
-        setStatus("error");
-        setError("Sessione non valida. Riprova.");
-        return;
-      }
-
-      setStatus("success");
-      router.push(nextPath);
-    } catch (err: any) {
+    if (!r.ok || !j?.ok) {
       setStatus("error");
-      setError(err?.message || "Errore imprevisto durante il login.");
+      setError(j?.message || "Credenziali non valide.");
+      return;
     }
+
+    setStatus("success");
+    router.push(nextPath);
+    router.refresh();
+  } catch (err: any) {
+    setStatus("error");
+    setError(err?.message || "Errore imprevisto durante il login.");
   }
+}
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
