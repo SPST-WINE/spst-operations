@@ -72,7 +72,7 @@ function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
 
 export async function GET(req: NextRequest) {
   const staff = await requireStaff();
-  if (!staff.ok) return staff.response;
+if ("response" in staff) return staff.response;
 
   const emailNorm = getEmailNorm(req);
   if (!emailNorm) {
