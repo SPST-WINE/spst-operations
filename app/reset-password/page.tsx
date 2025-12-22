@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseBrowser } from "@/lib/supabase/browser";
+
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +25,7 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     setStatus("loading");
     setError(null);
+    const supabase = supabaseBrowser();
 
     try {
       const origin =
