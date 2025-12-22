@@ -61,7 +61,12 @@ type AddressRow = {
 
 function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
   const paese = addr?.country ?? "";
-  const mittente = addr?.company || addr?.full_name || cust?.company_name || cust?.name || "";
+  const mittente =
+    addr?.company ||
+    addr?.full_name ||
+    cust?.company_name ||
+    cust?.name ||
+    "";
   const citta = addr?.city ?? "";
   const cap = addr?.postal_code ?? "";
   const indirizzo = addr?.street ?? "";
@@ -72,7 +77,7 @@ function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
 
 export async function GET(req: NextRequest) {
   const staff = await requireStaff();
-if ("response" in staff) return staff.response;
+  if ("response" in staff) return staff.response;
 
   const emailNorm = getEmailNorm(req);
   if (!emailNorm) {
@@ -106,7 +111,9 @@ if ("response" in staff) return staff.response;
 
   const { data: address, error: addrErr } = await supabase
     .from("addresses")
-    .select("country, company, full_name, phone, street, city, postal_code, tax_id")
+    .select(
+      "country, company, full_name, phone, street, city, postal_code, tax_id"
+    )
     .eq("customer_id", customer.id)
     .eq("kind", "shipper")
     .order("created_at", { ascending: false })
@@ -202,7 +209,8 @@ export async function POST(req: NextRequest) {
     .eq("kind", "shipper")
     .maybeSingle();
 
-  if (addrSelErr) return jsonError(500, "DB_ERROR", { message: addrSelErr.message });
+  if (addrSelErr)
+    return jsonError(500, "DB_ERROR", { message: addrSelErr.message });
 
   const addrBase = {
     customer_id: customer.id,
@@ -218,14 +226,18 @@ export async function POST(req: NextRequest) {
   };
 
   if (!existingAddr?.id) {
-    const { error: insAddrErr } = await supabase.from("addresses").insert(addrBase);
-    if (insAddrErr) return jsonError(500, "DB_ERROR", { message: insAddrErr.message });
+    const { error: insAddrErr } = await supabase
+      .from("addresses")
+      .insert(addrBase);
+    if (insAddrErr)
+      return jsonError(500, "DB_ERROR", { message: insAddrErr.message });
   } else {
     const { error: updAddrErr } = await supabase
       .from("addresses")
       .update(addrBase)
       .eq("id", existingAddr.id);
-    if (updAddrErr) return jsonError(500, "DB_ERROR", { message: updAddrErr.message });
+    if (updAddrErr)
+      return jsonError(500, "DB_ERROR", { message: updAddrErr.message });
   }
 
   return NextResponse.json({
