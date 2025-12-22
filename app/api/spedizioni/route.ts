@@ -12,12 +12,6 @@ function normalizeEmail(x?: string | null) {
   return v ? v.toLowerCase() : null;
 }
 
-function toNum(x: any): number | null {
-  if (x === null || x === undefined) return null;
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-
 /** service-role client (no session persistence) */
 function admin() {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -56,7 +50,8 @@ async function isStaff(): Promise<boolean> {
 /* ───────────── GET /api/spedizioni ─────────────
    - CLIENT: via RLS
    - STAFF: service role (vede tutto)
-   - SEARCH: usa search_text (trigram index)
+   - SEARCH: filtra su search_text (trigram index)
+   - OUTPUT: NON include search_text nelle rows
 */
 export async function GET(req: Request) {
   try {
@@ -100,8 +95,7 @@ export async function GET(req: Request) {
           mittente_paese,mittente_citta,
           dest_paese,dest_citta,
           colli_n,formato_sped,
-          carrier,tracking_code,
-          search_text
+          carrier,tracking_code
         `,
           { count: "exact" }
         );
@@ -148,8 +142,7 @@ export async function GET(req: Request) {
         mittente_paese,mittente_citta,
         dest_paese,dest_citta,
         colli_n,formato_sped,
-        carrier,tracking_code,
-        search_text
+        carrier,tracking_code
       `,
         { count: "exact" }
       );
@@ -192,7 +185,7 @@ export async function GET(req: Request) {
 /* ───────────── POST /api/spedizioni ─────────────
    Contratti = unica fonte di verità (ShipmentInputZ)
    - CLIENT: forza email_cliente = email sessione
-   - STAFF: può creare per altri (email_cliente dal body)
+   - STAFF: può creare per altri (email_cliente dal body; fallback su email sessione)
    - COLLI: scrive su spst.packages (trigger DB aggiorna colli_n/peso_reale_kg)
 */
 export async function POST(req: NextRequest) {
@@ -226,19 +219,22 @@ export async function POST(req: NextRequest) {
     // service-role client per insert
     const supaAdmin = admin();
 
+    // ✅ robust email handling (evita .toLowerCase su null)
     // CLIENT: non può creare per altri
     if (!staff) {
-      input.email_cliente = user.email.toLowerCase().trim();
+      input.email_cliente = normalizeEmail(user.email) || user.email.toLowerCase().trim();
     } else {
-      input.email_cliente = (input.email_cliente ?? user.email).toLowerCase().trim();
+      const email = normalizeEmail(input.email_cliente) || normalizeEmail(user.email);
+      input.email_cliente = email || user.email.toLowerCase().trim();
     }
 
-    // ✅ crea shipment (senza colli_n/peso_reale_kg: li aggiorna il trigger quando inseriamo packages)
+    // ✅ crea shipment (email_norm sempre popolata)
     const { data: shipment, error } = await (supaAdmin as any)
       .schema("spst")
       .from("shipments")
       .insert({
         email_cliente: input.email_cliente,
+        email_norm: normalizeEmail(input.email_cliente), // ✅ FIX #1
 
         tipo_spedizione: input.tipo_spedizione,
         incoterm: input.incoterm,
@@ -294,20 +290,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ✅ Scrivi i colli nella tabella spst.packages (source of truth)
-    // (il trigger DB aggiorna automaticamente colli_n e peso_reale_kg su spst.shipments)
+    // FIX #3: niente toNum (Zod garantisce già number().positive())
     const rawColli: any[] = Array.isArray(input.colli) ? input.colli : [];
 
     if (rawColli.length > 0) {
       const packagesRows = rawColli.map((c) => ({
         shipment_id: shipment.id,
-        contenuto: c?.contenuto ?? c?.content ?? c?.descrizione ?? null,
-        peso_reale_kg: toNum(c?.peso_reale_kg ?? c?.peso_kg ?? c?.peso) ?? null,
-        lato1_cm: toNum(c?.lato1_cm ?? c?.l1 ?? c?.lunghezza ?? c?.length) ?? null,
-        lato2_cm: toNum(c?.lato2_cm ?? c?.l2 ?? c?.larghezza ?? c?.width) ?? null,
-        lato3_cm: toNum(c?.lato3_cm ?? c?.l3 ?? c?.altezza ?? c?.height) ?? null,
+        contenuto: c.contenuto ?? null,
+        peso_reale_kg: c.peso_reale_kg,
+        lato1_cm: c.lato1_cm,
+        lato2_cm: c.lato2_cm,
+        lato3_cm: c.lato3_cm,
       }));
 
-      // filtra righe palesemente invalide
+      // filtra righe palesemente invalide (extra safety)
       const filtered = packagesRows.filter(
         (r) =>
           r.peso_reale_kg &&
