@@ -4,7 +4,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { FileText, ArrowRight } from 'lucide-react';
 
-// Icona bicchiere di vino (SVG inline, stile lucide-like)
 function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -25,8 +24,8 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-const SPST_BLUE = '#1c3e5e';
-const BADGE_DOT_GREEN = '#22c55e'; // green-500
+const BADGE_DOT_GREEN = '#22c55e';
+const R = 28; // radius in px
 
 type CardConfig = {
   href: string;
@@ -34,7 +33,7 @@ type CardConfig = {
   description: string;
   badge: string;
   icon: React.ReactNode;
-  bgImage: string; // path in /public
+  bgImage: string;
 };
 
 const CARDS: CardConfig[] = [
@@ -45,7 +44,6 @@ const CARDS: CardConfig[] = [
     description:
       'Dati completi e fatture. Tutto ciò che serve per spedire prodotti soggetti ad accisa.',
     icon: <WineGlassIcon width={22} height={22} />,
-    // ✅ stessi path
     bgImage: '/dashboard/nuova/bg-wine.jpg',
   },
   {
@@ -54,7 +52,6 @@ const CARDS: CardConfig[] = [
     badge: 'Merce generica',
     description: 'Documenti non soggetti ad accisa, materiali, brochure, ecc.',
     icon: <FileText size={22} />,
-    // ✅ stessi path
     bgImage: '/dashboard/nuova/bg-other.jpg',
   },
 ];
@@ -72,10 +69,8 @@ export default function NuovaSpedizioneSelettore() {
           </p>
         </div>
 
-        {/* Wrapper più “stretto” + divisore centrale */}
         <div className="mx-auto mt-10 max-w-5xl">
           <div className="relative grid gap-6 lg:grid-cols-2">
-            {/* divisore verticale (desktop) */}
             <div className="pointer-events-none absolute left-1/2 top-0 hidden h-full w-px -translate-x-1/2 bg-slate-200/70 lg:block" />
 
             {CARDS.map((c) => (
@@ -83,30 +78,33 @@ export default function NuovaSpedizioneSelettore() {
                 key={c.href}
                 href={c.href}
                 aria-label={`Vai a ${c.title}`}
-                className="group relative overflow-hidden rounded-[28px] border border-slate-800/60 bg-[#0b0f17] shadow-[0_18px_55px_rgba(0,0,0,0.35)] transition-all hover:-translate-y-1 hover:shadow-[0_26px_80px_rgba(0,0,0,0.45)] focus:outline-none focus:ring-2 focus:ring-white/20"
+                className="group relative isolate bg-[#0b0f17] shadow-[0_18px_55px_rgba(0,0,0,0.35)] transition-all hover:-translate-y-1 hover:shadow-[0_26px_80px_rgba(0,0,0,0.45)] focus:outline-none focus:ring-2 focus:ring-white/20"
+                // ✅ FIX BULLETPROOF: clip-path evita qualunque glitch sugli angoli in hover
+                style={{
+                  borderRadius: R,
+                  clipPath: `inset(0 round ${R}px)`,
+                }}
               >
-                {/* Background image */}
+                {/* bordo + glow senza layer esterni che sbordano */}
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] border border-slate-800/60 transition-colors group-hover:border-white/15" />
+
+                {/* Background */}
                 <div className="absolute inset-0">
                   <Image
                     src={c.bgImage}
                     alt=""
                     fill
                     sizes="(max-width: 1024px) 100vw, 50vw"
-                    className="object-cover opacity-[0.35] transition-transform duration-500 group-hover:scale-[1.03]"
+                    className="object-cover opacity-[0.35] transition-transform duration-500 transform-gpu group-hover:scale-[1.02]"
                     style={{ objectPosition: 'center 25%' }}
                   />
-
-                  {/* overlay scuro con accento “nero” */}
                   <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-black/65 to-black/55" />
-                  {/* accento “blu scuro” in alto per match brand */}
                   <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(28,62,94,0.35),transparent_55%)]" />
-                  {/* vignetta leggera */}
                   <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_-120px_160px_rgba(0,0,0,0.55)]" />
                 </div>
 
-                {/* Content: più stretto + molto più alto (quasi doppio) */}
+                {/* Content */}
                 <div className="relative px-7 py-10 sm:px-10 sm:py-12 min-h-[440px] sm:min-h-[520px]">
-                  {/* badge */}
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-white/85 backdrop-blur">
                     <span
                       className="inline-block h-2.5 w-2.5 rounded-full"
@@ -116,14 +114,7 @@ export default function NuovaSpedizioneSelettore() {
                   </div>
 
                   <div className="mt-7 flex items-start gap-4">
-                    {/* icon bubble */}
-                    <div
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border bg-white/5 shadow-sm backdrop-blur"
-                      style={{
-                        color: 'white',
-                        borderColor: 'rgba(255,255,255,0.10)',
-                      }}
-                    >
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 shadow-sm backdrop-blur text-white">
                       {c.icon}
                     </div>
 
@@ -137,10 +128,8 @@ export default function NuovaSpedizioneSelettore() {
                     </div>
                   </div>
 
-                  {/* divisore interno (come “due card” in una) */}
                   <div className="my-10 h-px w-full bg-white/10" />
 
-                  {/* seconda “metà” */}
                   <div className="flex flex-col gap-4">
                     <div className="text-[12px] text-white/60">
                       Apri il modulo e compila i dati
@@ -156,9 +145,6 @@ export default function NuovaSpedizioneSelettore() {
                     </div>
                   </div>
                 </div>
-
-                {/* glow on hover */}
-                <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-0 ring-white/0 transition-all group-hover:ring-1 group-hover:ring-white/10" />
               </Link>
             ))}
           </div>
