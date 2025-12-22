@@ -1,6 +1,7 @@
 // app/api/quote-requests/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,9 @@ const QUOTE_LIST_SELECT = `
 // ---------- Handlers ------------------------------------------------
 
 export async function GET(_req: NextRequest) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const supabase = makeSupabase();
   if (!supabase) return jsonError(500, "NO_SUPABASE_CONFIG");
 
@@ -85,7 +89,6 @@ export async function GET(_req: NextRequest) {
       return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
-    // data ora è tipata correttamente grazie a QUOTE_LIST_SELECT as const
     return NextResponse.json(
       {
         ok: true,
