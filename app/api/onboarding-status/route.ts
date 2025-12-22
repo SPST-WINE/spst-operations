@@ -21,15 +21,13 @@ export async function GET() {
       );
     }
 
-    // 1) customer_id
+    // 1) customer_id (schema-qualified table name → avoids TS .schema typing)
     const { data: customer, error: custErr } = await supabase
-      .schema("spst")
-      .from("customers")
+      .from("spst.customers")
       .select("id")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // se manca customer (trigger mancante o caso raro) → redirect a impostazioni
     if (custErr || !customer?.id) {
       return NextResponse.json(
         { ok: true, has_shipper: false, reason: "no_customer" },
@@ -38,10 +36,9 @@ export async function GET() {
     }
 
     // 2) shipper address exists?
-    // ✅ Se hai una tabella diversa (es. shipper_defaults), me la dici e la adeguo.
+    // NOTE: change table/filters if your "mittente" is stored elsewhere.
     const { count } = await supabase
-      .schema("spst")
-      .from("addresses")
+      .from("spst.addresses")
       .select("id", { head: true, count: "exact" })
       .eq("customer_id", customer.id)
       .eq("type", "shipper");
@@ -53,9 +50,10 @@ export async function GET() {
       { status: 200 }
     );
   } catch (e: any) {
+    // fail-open (client won't block)
     return NextResponse.json(
       { ok: false, error: e?.message || "onboarding-status error" },
-      { status: 200 } // fail-open lato client
+      { status: 200 }
     );
   }
 }
