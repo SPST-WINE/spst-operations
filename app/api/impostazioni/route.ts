@@ -117,23 +117,61 @@ export async function POST(req: NextRequest) {
     piva: (m.piva || "").trim() || null,
   };
 
-  // 1) upsert customer (by user_id)
-  const { data: existingCust, error: custErr } = await supabase
+   // 1) upsert/claim customer
+  const userEmail = user.email.toLowerCase().trim();
+
+  // A) cerco per user_id
+  const { data: byUser, error: byUserErr } = await supabase
     .from("customers")
-    .select("id, user_id, email, name, phone, company_name, vat_number")
+    .select("id, user_id, email")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (custErr) return jsonError(500, "DB_ERROR", custErr.message);
+  if (byUserErr) return jsonError(500, "DB_ERROR", byUserErr.message);
 
-  let customerId: string | null = existingCust?.id || null;
+  let customerId: string | null = byUser?.id || null;
 
+  // B) se non c'è, cerco per email (record creato dal backoffice)
+  if (!customerId) {
+    const { data: byEmail, error: byEmailErr } = await supabase
+      .from("customers")
+      .select("id, user_id, email")
+      .eq("email", userEmail)
+      .maybeSingle();
+
+    if (byEmailErr) return jsonError(500, "DB_ERROR", byEmailErr.message);
+
+    if (byEmail?.id) {
+      // se è "libero" (user_id null) → claim
+      if (!byEmail.user_id) {
+        const { error: claimErr } = await supabase
+          .from("customers")
+          .update({ user_id: user.id })
+          .eq("id", byEmail.id);
+
+        if (claimErr) return jsonError(500, "DB_ERROR", claimErr.message);
+
+        customerId = byEmail.id;
+      } else if (byEmail.user_id !== user.id) {
+        // email già associata ad un altro account
+        return jsonError(
+          409,
+          "EMAIL_ALREADY_USED",
+          "Questa email risulta già associata ad un altro account."
+        );
+      } else {
+        customerId = byEmail.id;
+      }
+    }
+  }
+
+  // C) se ancora non esiste → INSERT
   if (!customerId) {
     const { data: inserted, error: insErr } = await supabase
       .from("customers")
       .insert({
         user_id: user.id,
-        email: user.email.toLowerCase(),
+        email: userEmail,
         name: mittentePayload.mittente,
         company_name: mittentePayload.mittente,
         phone: mittentePayload.telefono,
@@ -146,19 +184,20 @@ export async function POST(req: NextRequest) {
     if (insErr) return jsonError(500, "DB_ERROR", insErr.message);
     customerId = inserted?.id || null;
   } else {
-    await supabase
+    // D) update dati base (sempre)
+    const { error: updErr } = await supabase
       .from("customers")
       .update({
-        email: user.email.toLowerCase(),
+        email: userEmail,
         name: mittentePayload.mittente,
         company_name: mittentePayload.mittente,
         phone: mittentePayload.telefono,
         vat_number: mittentePayload.piva,
       })
       .eq("id", customerId);
-  }
 
-  if (!customerId) return jsonError(500, "UNEXPECTED", "customer_id non valido");
+    if (updErr) return jsonError(500, "DB_ERROR", updErr.message);
+  }
 
   // 2) upsert address shipper
   const { data: existingAddr, error: addrSelErr } = await supabase
