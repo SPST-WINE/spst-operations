@@ -12,9 +12,12 @@ export type Currency = z.infer<typeof CurrencyZ>;
 export const ShippingFormatZ = z.enum(["PACCO", "PALLET"]);
 export type ShippingFormat = z.infer<typeof ShippingFormatZ>;
 
-/* ───────────────── PARTY ───────────────── */
+/* ───────────────── PARTY ─────────────────
+   - Input: campi opzionali (il form può inviare parziale)
+   - Output: campi sempre presenti ma nullabili (più comodo per UI)
+*/
 
-export const PartyZ = z.object({
+export const PartyInputZ = z.object({
   rs: z.string().trim().min(1).nullable().optional(),
   referente: z.string().trim().min(1).nullable().optional(),
   telefono: z.string().trim().min(1).nullable().optional(),
@@ -24,25 +27,77 @@ export const PartyZ = z.object({
   cap: z.string().trim().min(1).nullable().optional(),
   indirizzo: z.string().trim().min(1).nullable().optional(),
 });
+export type PartyInput = z.infer<typeof PartyInputZ>;
 
-export type PartyInput = z.infer<typeof PartyZ>;
+export const PartyOutputZ = z.object({
+  rs: z.string().nullable(),
+  referente: z.string().nullable(),
+  telefono: z.string().nullable(),
+  piva: z.string().nullable(),
+  paese: z.string().nullable(),
+  citta: z.string().nullable(),
+  cap: z.string().nullable(),
+  indirizzo: z.string().nullable(),
+});
+export type PartyOutput = z.infer<typeof PartyOutputZ>;
 
 /* ───────────────── PACKAGES ───────────────── */
 
-export const PackageZ = z.object({
+export const PackageInputZ = z.object({
   contenuto: z.string().trim().min(1).nullable().optional(),
-  peso_reale_kg: z.number().positive(),
-  lato1_cm: z.number().positive(),
-  lato2_cm: z.number().positive(),
-  lato3_cm: z.number().positive(),
+  peso_reale_kg: z.number().positive().nullable().optional(),
+  lato1_cm: z.number().positive().nullable().optional(),
+  lato2_cm: z.number().positive().nullable().optional(),
+  lato3_cm: z.number().positive().nullable().optional(),
 });
+export type PackageInput = z.infer<typeof PackageInputZ>;
 
-export type PackageInput = z.infer<typeof PackageZ>;
+export const PackageRowZ = z.object({
+  id: z.string(),
+  peso_reale_kg: z.number().nullable(),
+  lato1_cm: z.number().nullable(),
+  lato2_cm: z.number().nullable(),
+  lato3_cm: z.number().nullable(),
+  contenuto: z.string().nullable(),
+  created_at: z.string().nullable(),
+});
+export type PackageRow = z.infer<typeof PackageRowZ>;
 
-/* ───────────────── INPUT ───────────────── */
+/* ───────────────── ATTACHMENTS ───────────────── */
+
+export const AttachmentZ = z
+  .object({
+    url: z.string().nullable().optional(),
+    file_name: z.string().nullable().optional(),
+    mime_type: z.string().nullable().optional(),
+    size: z.number().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type Attachment = z.infer<typeof AttachmentZ>;
+
+export const AttachmentsZ = z
+  .object({
+    ldv: AttachmentZ.nullable().optional(),
+    fattura_proforma: AttachmentZ.nullable().optional(),
+    fattura_commerciale: AttachmentZ.nullable().optional(),
+    dle: AttachmentZ.nullable().optional(),
+    allegato1: AttachmentZ.nullable().optional(),
+    allegato2: AttachmentZ.nullable().optional(),
+    allegato3: AttachmentZ.nullable().optional(),
+    allegato4: AttachmentZ.nullable().optional(),
+  })
+  .passthrough();
+
+export type Attachments = z.infer<typeof AttachmentsZ>;
+
+/* ───────────────── INPUT ─────────────────
+   Nota: email_cliente NON required (client lo imposta API dalla sessione)
+*/
 
 export const ShipmentInputZ = z.object({
-  email_cliente: z.string().email(),
+  email_cliente: z.string().email().nullable().optional(),
 
   tipo_spedizione: ShipmentTypeZ,
   incoterm: z.string().trim().min(1).nullable().optional(),
@@ -56,15 +111,16 @@ export const ShipmentInputZ = z.object({
   formato_sped: ShippingFormatZ.nullable().optional(),
   contenuto_generale: z.string().trim().min(1).nullable().optional(),
 
-  mittente: PartyZ,
+  mittente: PartyInputZ,
 
-  destinatario: PartyZ.extend({
+  destinatario: PartyInputZ.extend({
     abilitato_import: z.boolean().nullable().optional(),
   }).nullable().optional(),
 
-  fatturazione: PartyZ.nullable().optional(),
+  fatturazione: PartyInputZ.nullable().optional(),
 
-  colli: z.array(PackageZ).min(1),
+  // ✅ può essere vuoto (bozza o inserimento colli dopo)
+  colli: z.array(PackageInputZ).default([]),
 
   extras: z.record(z.any()).optional(),
 });
@@ -98,27 +154,19 @@ export type ShipmentDTO = {
   formato_sped: ShippingFormat | null;
   contenuto_generale: string | null;
 
-  mittente: PartyInput;
+  mittente: PartyOutput;
 
-  destinatario: (PartyInput & {
-    abilitato_import: boolean | null;
-  }) | null;
+  destinatario: (PartyOutput & { abilitato_import: boolean | null }) | null;
 
-  fatturazione: PartyInput | null;
+  fatturazione: PartyOutput | null;
 
   colli_n: number | null;
   peso_reale_kg: number | null;
 
-  packages: Array<{
-    id: string;
-    peso_reale_kg: number | null;
-    lato1_cm: number | null;
-    lato2_cm: number | null;
-    lato3_cm: number | null;
-    contenuto: string | null;
-    created_at: string | null;
-  }>;
+  packages: PackageRow[];
 
-  attachments: Record<string, any> | null;
+  attachments: Attachments | null;
+
+  // ✅ alias stabile per fields
   extras: Record<string, any> | null;
 };
