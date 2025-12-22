@@ -1,6 +1,7 @@
 // app/api/backoffice/links/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,9 @@ function admin() {
 }
 
 export async function GET() {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   try {
     const supa = admin();
 
@@ -58,6 +62,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   try {
     const body = await req.json().catch(() => ({}));
     const { category, label, url, description, sort_order } = body || {};
