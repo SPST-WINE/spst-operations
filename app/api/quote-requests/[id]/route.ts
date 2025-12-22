@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,9 @@ export async function GET(
   _req: NextRequest,
   context: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = context.params;
 
   if (!id) {
@@ -154,6 +158,9 @@ export async function PATCH(
   req: NextRequest,
   context: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const { id } = context.params;
 
   if (!id) {
@@ -184,7 +191,6 @@ export async function PATCH(
   let newToken: string | null | undefined = undefined;
 
   if (body.generatePublicToken) {
-    // recupero public_token attuale
     const { data: existing, error: exErr } = await supabase
       .from("quotes")
       .select("public_token")
@@ -211,7 +217,6 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length === 1) {
-    // solo updated_at
     return jsonError(400, "NO_FIELDS_TO_UPDATE");
   }
 
