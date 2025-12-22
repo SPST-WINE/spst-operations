@@ -1,6 +1,7 @@
 // app/api/quote-options/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +59,9 @@ export type QuoteOptionListRow = {
 };
 
 export async function GET(req: NextRequest) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const supabase = makeSupabase();
   if (!supabase) {
     return jsonError(500, "NO_SUPABASE_CONFIG");
@@ -87,9 +91,8 @@ export async function GET(req: NextRequest) {
       )
       .order("sent_at", { ascending: false });
 
-    // se scope=sent, mostro solo quelle inviate (sent_at non nullo)
     if (scope === "sent") {
-      // @ts-ignore - Supabase type helper non ama "is" ma a runtime funziona
+      // @ts-ignore
       query.not("sent_at", "is", null);
     }
 
@@ -101,12 +104,12 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(
-  {
-    ok: true,
-    rows: (data || []) as unknown as QuoteOptionListRow[],
-  },
-  { status: 200 }
-);
+      {
+        ok: true,
+        rows: (data || []) as unknown as QuoteOptionListRow[],
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     console.error("[API/quote-options:GET] ERROR", e?.message || e);
     return jsonError(500, "SERVER_ERROR", { message: e?.message });
