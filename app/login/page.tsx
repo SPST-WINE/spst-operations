@@ -174,15 +174,14 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-4 flex items-center justify-between text-xs">
-          <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
-            Hai dimenticato la password?
-          </a>
+  <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
+    Hai dimenticato la password?
+  </a>
 
-          {/* info sul redirect (utile in debug, discreto) */}
-          <span className="text-slate-400">
-            → {nextPath.replace(/^\/dashboard/, "/dashboard")}
-          </span>
-        </div>
+  <a href="/signup" className="text-[#1c3e5e] hover:underline font-medium">
+    Registrati
+  </a>
+</div>
       </div>
     </div>
   );
