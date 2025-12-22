@@ -1,100 +1,117 @@
 // app/api/spedizioni/[id]/attachments/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServerSpst } from "@/lib/supabase/server";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
-type Params = { params: { id: string } };
-
-function envOrThrow(name: string): string {
-  const v = process.env[name];
-  if (!v || !v.trim()) {
-    throw new Error(`Missing env ${name}`);
-  }
-  return v;
-}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function admin() {
-  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-  const key = envOrThrow("SUPABASE_SERVICE_ROLE");
-  return createClient(url, key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
 }
 
-function labelForDocType(t?: string | null): string {
-  switch (t) {
-    case "fattura_proforma":
-      return "Fattura Proforma";
-    case "fattura_commerciale":
-      return "Fattura Commerciale";
-    case "packing_list":
-      return "Packing List";
-    case "ldv":
-      return "Lettera di Vettura";
-    case "dle":
-      return "Dichiarazione Libera Esportazione";
-    default:
-      return t || "Documento";
-  }
+async function isStaff(): Promise<boolean> {
+  const supa = supabaseServerSpst();
+  const { data } = await supa.auth.getUser();
+  const user = data?.user;
+  if (!user?.id || !user?.email) return false;
+  const email = user.email.toLowerCase().trim();
+  if (email === "info@spst.it") return true;
+
+  const { data: staff } = await supa
+    .from("staff_users")
+    .select("role, enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const enabled =
+    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
+
+  const role = String((staff as any)?.role || "").toLowerCase().trim();
+  return enabled && (role === "admin" || role === "staff" || role === "operator");
 }
 
-// GET /api/spedizioni/[id]/attachments
-export async function GET(_req: Request, { params }: Params) {
-  const shipmentId = params.id;
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const id = params.id;
+  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+
+  const supa = supabaseServerSpst();
+  const {
+    data: { user },
+  } = await supa.auth.getUser();
+
+  if (!user?.id) return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+
+  const staff = await isStaff();
 
   try {
-    const supa = admin();
+    if (staff) {
+      const supaAdmin = admin();
+      const { data, error } = await supaAdmin
+        .schema("spst")
+        .from("shipments")
+        .select("id,ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4")
+        .eq("id", id)
+        .single();
 
-    const { data, error } = await supa
-      .from("shipment_documents")
-      .select(
-        "id, shipment_id, doc_type, file_name, mime_type, file_size, url, storage_path, created_at"
-      )
-      .eq("shipment_id", shipmentId)
-      .order("created_at", { ascending: true });
-
-    if (error) {
-      console.error(
-        "[API/spedizioni/:id/attachments] select error:",
-        error.message
-      );
-      return NextResponse.json(
-        { ok: false, error: "DB_ERROR", details: error.message },
-        { status: 500 }
-      );
+      if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      return NextResponse.json({ ok: true, attachments: data, scope: "staff" });
     }
 
-    const attachments = (data || []).map((r) => ({
-      id: r.id as string,
-      type: (r as any).doc_type as string,
-      label: labelForDocType((r as any).doc_type),
-      url: (r as any).url as string | null,
-      fileName: (r as any).file_name as string | null,
-      mimeType: (r as any).mime_type as string | null,
-      size: (r as any).file_size as number | null,
-      createdAt: (r as any).created_at as string | null,
-      path: (r as any).storage_path as string | null,
-    }));
+    const { data, error } = await supa
+      .from("shipments")
+      .select("id,ldv,fattura_proforma,fattura_commerciale,dle,allegato1,allegato2,allegato3,allegato4")
+      .eq("id", id)
+      .single();
 
-    return NextResponse.json({ ok: true, attachments });
+    if (error) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    return NextResponse.json({ ok: true, attachments: data, scope: "client" });
   } catch (e: any) {
-    console.error(
-      "[API/spedizioni/:id/attachments] unexpected error:",
-      e?.message || e
-    );
     return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
       { status: 500 }
     );
   }
 }
 
-// (facoltativo) POST ancora non necessario: lasciamo placeholder
-export async function POST(_req: Request, { params }: Params) {
-  return NextResponse.json(
-    {
-      ok: true,
-      message: `Upload allegati per spedizione ${params.id} gestito lato client tramite upload su bucket + insert su shipment_documents.`,
-    },
-    { status: 200 }
-  );
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  // staff-only: evita che clienti scrivano campi allegati arbitrari
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
+  const id = params.id;
+  if (!id) return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+
+  const body = await req.json().catch(() => ({} as any));
+
+  try {
+    const supaAdmin = admin();
+    const { data, error } = await supaAdmin
+      .schema("spst")
+      .from("shipments")
+      .update(body)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, shipment: data });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
 }
