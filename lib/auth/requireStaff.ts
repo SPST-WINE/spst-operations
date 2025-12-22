@@ -1,25 +1,47 @@
 // lib/auth/requireStaff.ts
-import { NextRequest } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
-export async function requireStaff(_req: NextRequest) {
-  const supabase = supabaseServer();
+export type StaffAuthResult =
+  | { ok: true; userId: string; email: string }
+  | { ok: false; response: NextResponse };
+
+export async function requireStaff(): Promise<StaffAuthResult> {
+  const supabase = supabaseServerSpst();
 
   const {
     data: { user },
     error: userErr,
   } = await supabase.auth.getUser();
 
-  if (userErr || !user) return { ok: false as const, user: null };
+  if (userErr || !user?.id || !user?.email) {
+    return {
+      ok: false,
+      response: NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 }),
+    };
+  }
 
-  const { data: staff } = await supabase
-    .schema("spst")
+  // staff_users: (user_id uuid, email text, role text, enabled bool, ...)
+  const { data: staff, error: staffErr } = await supabase
     .from("staff_users")
-    .select("user_id, role")
+    .select("user_id, email, enabled, role")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!staff?.user_id) return { ok: false as const, user: null };
+  // Se tabella/policy non ok → NON far passare (backoffice deve essere blindato)
+  if (staffErr || !staff) {
+    return {
+      ok: false,
+      response: NextResponse.json({ ok: false, error: "FORBIDDEN" }, { status: 403 }),
+    };
+  }
 
-  return { ok: true as const, user, role: staff.role };
+  if (typeof (staff as any).enabled === "boolean" && (staff as any).enabled !== true) {
+    return {
+      ok: false,
+      response: NextResponse.json({ ok: false, error: "STAFF_DISABLED" }, { status: 403 }),
+    };
+  }
+
+  return { ok: true, userId: user.id, email: user.email };
 }
