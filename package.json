@@ -28,7 +28,8 @@
     "react-hook-form": "^7.52.1",
     "react-qr-code": "^2.0.18",
     "resend": "^6.5.2",
-    "stripe": "^20.0.0"
+    "stripe": "^20.0.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
