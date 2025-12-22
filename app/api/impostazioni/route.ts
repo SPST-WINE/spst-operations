@@ -33,7 +33,12 @@ type AddressRow = {
 
 function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
   const paese = addr?.country ?? "";
-  const mittente = addr?.company || addr?.full_name || cust?.company_name || cust?.name || "";
+  const mittente =
+    addr?.company ||
+    addr?.full_name ||
+    cust?.company_name ||
+    cust?.name ||
+    "";
   const citta = addr?.city ?? "";
   const cap = addr?.postal_code ?? "";
   const indirizzo = addr?.street ?? "";
@@ -73,7 +78,9 @@ export async function GET() {
 
   const { data: address, error: addrErr } = await supabase
     .from("addresses")
-    .select("country, company, full_name, phone, street, city, postal_code, tax_id")
+    .select(
+      "country, company, full_name, phone, street, city, postal_code, tax_id"
+    )
     .eq("customer_id", customer.id)
     .eq("kind", "shipper")
     .order("created_at", { ascending: false })
@@ -117,50 +124,52 @@ export async function POST(req: NextRequest) {
     piva: (m.piva || "").trim() || null,
   };
 
-   // 1) upsert/claim customer
+  // 1) upsert/claim customer (by user_id, fallback by email)
   const userEmail = user.email.toLowerCase().trim();
 
-  // A) cerco per user_id
-  const { data: byUser, error: byUserErr } = await supabase
+  let customerId: string | null = null;
+
+  // A) prova per user_id
+  const { data: custByUser, error: custByUserErr } = await supabase
     .from("customers")
     .select("id, user_id, email")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (byUserErr) return jsonError(500, "DB_ERROR", byUserErr.message);
+  if (custByUserErr) return jsonError(500, "DB_ERROR", custByUserErr.message);
 
-  let customerId: string | null = byUser?.id || null;
-
-  // B) se non c'è, cerco per email (record creato dal backoffice)
-  if (!customerId) {
-    const { data: byEmail, error: byEmailErr } = await supabase
+  if (custByUser?.id) {
+    customerId = custByUser.id;
+  } else {
+    // B) fallback per email (record creato dal backoffice con user_id NULL)
+    const { data: custByEmail, error: custByEmailErr } = await supabase
       .from("customers")
       .select("id, user_id, email")
       .eq("email", userEmail)
       .maybeSingle();
 
-    if (byEmailErr) return jsonError(500, "DB_ERROR", byEmailErr.message);
+    if (custByEmailErr) return jsonError(500, "DB_ERROR", custByEmailErr.message);
 
-    if (byEmail?.id) {
-      // se è "libero" (user_id null) → claim
-      if (!byEmail.user_id) {
-        const { error: claimErr } = await supabase
-          .from("customers")
-          .update({ user_id: user.id })
-          .eq("id", byEmail.id);
-
-        if (claimErr) return jsonError(500, "DB_ERROR", claimErr.message);
-
-        customerId = byEmail.id;
-      } else if (byEmail.user_id !== user.id) {
-        // email già associata ad un altro account
+    if (custByEmail?.id) {
+      // se email già associata ad un altro account → blocco
+      if (custByEmail.user_id && custByEmail.user_id !== user.id) {
         return jsonError(
           409,
           "EMAIL_ALREADY_USED",
           "Questa email risulta già associata ad un altro account."
         );
-      } else {
-        customerId = byEmail.id;
+      }
+
+      customerId = custByEmail.id;
+
+      // se user_id è NULL, aggancialo all'utente loggato
+      if (!custByEmail.user_id) {
+        const { error: linkErr } = await supabase
+          .from("customers")
+          .update({ user_id: user.id })
+          .eq("id", custByEmail.id);
+
+        if (linkErr) return jsonError(500, "DB_ERROR", linkErr.message);
       }
     }
   }
@@ -242,7 +251,9 @@ export async function POST(req: NextRequest) {
 
   const { data: address } = await supabase
     .from("addresses")
-    .select("country, company, full_name, phone, street, city, postal_code, tax_id")
+    .select(
+      "country, company, full_name, phone, street, city, postal_code, tax_id"
+    )
     .eq("customer_id", customerId)
     .eq("kind", "shipper")
     .order("created_at", { ascending: false })
