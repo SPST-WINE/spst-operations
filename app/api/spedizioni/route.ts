@@ -294,12 +294,26 @@ export async function POST(req: Request) {
     // ✅ QUESTO è il campo che ti serve per l’icona pallet/pacco
     // (preferisci colonna esplicita, non “fields”)
     const formato_sped =
-      firstNonEmpty(
-        body.formato_sped,
-        body.shipping_method,
-        body?.fields?.shipping_method,
-        body?.fields?.tipo_pacco
-      ) || null;
+  firstNonEmpty(
+    // ✅ contratto definitivo
+    body.formato_sped,
+
+    // ✅ compat legacy (root)
+    body.shipping_method,
+    body.shippingMethod,
+    body.tipo_pacco,
+    body.tipoPacco,
+
+    // ✅ compat legacy (in fields)
+    body?.fields?.shipping_method,
+    body?.fields?.shippingMethod,
+    body?.fields?.tipo_pacco,
+    body?.fields?.tipoPacco,
+
+    // ✅ compat “form webflow” (a volte arriva come stringa)
+    body?.fields?.shipping_method?.value,
+    body?.fields?.tipo_pacco?.value
+  ) || null;
 
     const attachments = body.attachments ?? body.allegati ?? {};
     const ldv = att(attachments.ldv ?? body.ldv);
