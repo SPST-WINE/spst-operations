@@ -2,22 +2,26 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-let _client: SupabaseClient | null = null;
+type AnySupa = SupabaseClient<any, any, any, any, any>;
 
-export function supabaseBrowser(): SupabaseClient {
+let _client: AnySupa | null = null;
+
+export function supabaseBrowser(): AnySupa {
   if (_client) return _client;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!url || !anon) {
-    console.error("[supabaseBrowser] Missing env", { hasUrl: !!url, hasAnon: !!anon });
+    console.error("[supabaseBrowser] Missing env", {
+      hasUrl: !!url,
+      hasAnon: !!anon,
+    });
   }
 
-  // ✅ browser client che usa cookie (compatibile col middleware)
-  _client = createBrowserClient(url, anon, {
+  _client = createBrowserClient(url!, anon!, {
     db: { schema: "spst" },
-  });
+  }) as unknown as AnySupa;
 
   return _client;
 }
