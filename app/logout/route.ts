@@ -1,24 +1,18 @@
 // app/logout/route.ts
 import { NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-// Pulisce il cookie di sessione e reindirizza a spst.it
-function clearAndRedirect() {
-  const res = NextResponse.redirect("https://spst.it");
-  res.cookies.set({
-    name: "spst_session",
-    value: "",
-    maxAge: 0,
-    path: "/",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  });
-  return res;
-}
+export async function GET(req: Request) {
+  const supabase = supabaseServer();
 
-export async function GET() { return clearAndRedirect(); }
-export async function HEAD() { return clearAndRedirect(); }
-// opzionale ma harmless
-export async function POST() { return clearAndRedirect(); }
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // anche se fallisce, proseguiamo con redirect
+  }
+
+  const url = new URL("/login", req.url);
+  return NextResponse.redirect(url);
+}
