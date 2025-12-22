@@ -1,13 +1,13 @@
 // app/api/onboarding-status/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  const supabase = supabaseServer().schema("spst");
+  const supabase = supabaseServerSpst();
 
   const {
     data: { user },
@@ -21,7 +21,7 @@ export async function GET() {
     );
   }
 
-  // ✅ customer del user
+  // customer del user
   const { data: customer, error: custErr } = await supabase
     .from("customers")
     .select("id")
@@ -39,7 +39,7 @@ export async function GET() {
     return NextResponse.json({ ok: true, has_shipper: false });
   }
 
-  // ✅ shipper address (NOTA: colonna è kind, non type)
+  // shipper address (colonna: kind)
   const { data: shipper, error: shipErr } = await supabase
     .from("addresses")
     .select("id")
