@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export type StaffAuthResult =
-  | { ok: true; userId: string; email: string }
+  | { ok: true; userId: string; email: string; role: "admin" | "staff" | "operator" }
   | { ok: false; response: NextResponse };
+
+const ADMIN_EMAIL_ALLOWLIST = new Set<string>(["info@spst.it"]);
 
 export async function requireStaff(): Promise<StaffAuthResult> {
   const supabase = supabaseServerSpst();
@@ -16,33 +18,43 @@ export async function requireStaff(): Promise<StaffAuthResult> {
 
   if (userErr || !user?.id || !user?.email) {
     return {
-      ok: false as const,
+      ok: false,
       response: NextResponse.json(
-        { ok: false, error: "UNAUTHORIZED" },
+        { ok: false, error: "UNAUTHENTICATED" },
         { status: 401 }
       ),
     };
   }
 
-  const { data: staff, error: staffErr } = await supabase
+  const email = user.email.toLowerCase().trim();
+
+  // ✅ admin “break-glass”
+  if (ADMIN_EMAIL_ALLOWLIST.has(email)) {
+    return { ok: true, userId: user.id, email, role: "admin" };
+  }
+
+  const { data: staff, error } = await supabase
     .from("staff_users")
-    .select("user_id, enabled, role")
+    .select("user_id, role, enabled, email")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (staffErr || !staff) {
+  if (error || !staff) {
     return {
-      ok: false as const,
+      ok: false,
       response: NextResponse.json(
-        { ok: false, error: "FORBIDDEN" },
+        { ok: false, error: "STAFF_REQUIRED" },
         { status: 403 }
       ),
     };
   }
 
-  if (typeof (staff as any).enabled === "boolean" && (staff as any).enabled !== true) {
+  const enabled =
+    typeof (staff as any).enabled === "boolean" ? (staff as any).enabled : true;
+
+  if (!enabled) {
     return {
-      ok: false as const,
+      ok: false,
       response: NextResponse.json(
         { ok: false, error: "STAFF_DISABLED" },
         { status: 403 }
@@ -50,9 +62,21 @@ export async function requireStaff(): Promise<StaffAuthResult> {
     };
   }
 
-  return {
-    ok: true as const,
-    userId: user.id,
-    email: user.email,
-  };
+  const roleRaw = String((staff as any).role || "").toLowerCase().trim();
+  const role =
+    roleRaw === "admin" || roleRaw === "staff" || roleRaw === "operator"
+      ? (roleRaw as "admin" | "staff" | "operator")
+      : null;
+
+  if (!role) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "STAFF_REQUIRED" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { ok: true, userId: user.id, email, role };
 }
