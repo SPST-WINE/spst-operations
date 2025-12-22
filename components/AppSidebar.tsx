@@ -130,6 +130,10 @@ export default function AppSidebar() {
             const isActive = isActiveFor(href, exact);
             const shouldDim = anyActive && !isActive;
 
+            // ✅ FIX: zoom 5% solo su "Nuova quotazione"
+            const imgZoom =
+              href === '/dashboard/quotazioni/nuova' ? 'scale-[1.05]' : 'scale-[1.00]';
+
             return (
               <Link
                 key={href}
@@ -145,23 +149,27 @@ export default function AppSidebar() {
                   backgroundColor: '#fff',
                   border: '1px solid rgba(0,0,0,0.08)',
                   boxShadow: isActive
-                    ? `0 0 0 2px ${hexToRgba(accentHex, 0.55)}, 0 20px 46px rgba(0,0,0,0.32)`
-                    : '0 16px 36px rgba(0,0,0,0.24)',
+                    ? `0 0 0 2px ${hexToRgba(accentHex, 0.55)}, 0 20px 46px rgba(0,0,0,0.34)`
+                    : '0 16px 36px rgba(0,0,0,0.28)',
                 }}
               >
-                {/* Background image: più visibile, NO BLUR */}
+                {/* Background image: più visibile, NO BLUR + overlay più scuro */}
                 <div className="absolute inset-0">
                   <Image
                     src={imageSrc}
                     alt=""
                     fill
                     sizes="260px"
-                    className="object-cover opacity-[0.62] transition-transform duration-500 group-hover:scale-[1.04] transform-gpu"
+                    className={[
+                      'object-cover opacity-[0.66] transition-transform duration-500 transform-gpu',
+                      imgZoom,
+                      'group-hover:scale-[1.06]',
+                    ].join(' ')}
                     style={{ objectPosition: 'center 35%' }}
                   />
 
-                  {/* overlay: scuro ma NON ammazza la foto */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-black/55 via-black/35 to-black/15" />
+                  {/* ✅ overlay più dark (look più scuro) */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/30" />
 
                   {/* accent glow */}
                   <div
@@ -169,13 +177,13 @@ export default function AppSidebar() {
                     style={{
                       background: `radial-gradient(90% 120% at 18% 50%, ${hexToRgba(
                         accentHex,
-                        0.22
+                        0.24
                       )} 0%, rgba(0,0,0,0) 62%)`,
                     }}
                   />
 
-                  {/* vignetta soft (non “blur”, solo profondità) */}
-                  <div className="absolute inset-0 shadow-[inset_0_-70px_120px_rgba(0,0,0,0.45)]" />
+                  {/* ✅ vignetta più marcata */}
+                  <div className="absolute inset-0 shadow-[inset_0_-85px_140px_rgba(0,0,0,0.62)]" />
                 </div>
 
                 {/* Content */}
@@ -193,7 +201,7 @@ export default function AppSidebar() {
                   <div className="min-w-0">
                     <div
                       className="text-[12px] font-semibold text-white truncate"
-                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.65)' }}
+                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.70)' }}
                     >
                       {label}
                     </div>
@@ -204,7 +212,7 @@ export default function AppSidebar() {
                         isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                         'transition-opacity duration-200',
                       ].join(' ')}
-                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.65)' }}
+                      style={{ textShadow: '0 12px 26px rgba(0,0,0,0.70)' }}
                     >
                       {desc}
                     </div>
