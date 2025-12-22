@@ -1,109 +1,116 @@
 // app/api/my-shipments/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-/** Record minimal per la lista spedizioni */
-type Row = {
-  id: string;
-  human_id: string | null;
-  tipo_spedizione: string | null;
-  incoterm: string | null;
-  mittente_citta: string | null;
-  dest_citta: string | null;
-  giorno_ritiro: string | null;
-  colli_n: number | null;
-  peso_reale_kg: number | null;
-  created_at: string;
-  email_cliente: string | null;
-  email_norm: string | null;
-};
-
-function envOrThrow(name: string): string {
-  const v = process.env[name];
-  if (!v || v.trim() === "") throw new Error(`Missing env ${name}`);
-  return v;
-}
-
-function admin() {
-  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-  const key = envOrThrow("SUPABASE_SERVICE_ROLE");
-  return createClient(url, key, {
-    db: { schema: "api" }, // la view my_shipments sta nello schema 'api'
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { "X-Client-Info": "spst-operations/my-shipments" } },
-  });
-}
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeEmail(x?: string | null) {
+  const v = (x ?? "").trim();
+  return v ? v.toLowerCase() : null;
+}
+
+function admin() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
+
+async function isStaff(): Promise<boolean> {
+  const supa = supabaseServerSpst();
+  const { data } = await supa.auth.getUser();
+  const user = data?.user;
+  if (!user?.id || !user?.email) return false;
+
+  const email = user.email.toLowerCase().trim();
+  if (email === "info@spst.it") return true;
+
+  const { data: staff } = await (supa as any)
+    .schema("spst")
+    .from("staff_users")
+    .select("role, enabled")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const enabled =
+    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
+
+  const role = String((staff as any)?.role || "").toLowerCase().trim();
+  return enabled && (role === "admin" || role === "staff" || role === "operator");
+}
+
+const SELECT_LIST = `
+  id, created_at, human_id,
+  tipo_spedizione, incoterm,
+  mittente_citta, dest_citta,
+  giorno_ritiro,
+  colli_n, peso_reale_kg,
+  email_cliente, email_norm,
+  status, carrier, tracking_code,
+  formato_sped
+`;
+
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const debug = url.searchParams.get("debug") === "1";
-  const emailParam = (url.searchParams.get("email") || "").trim().toLowerCase();
-
-  const supa = admin();
-
   try {
-    if (debug) {
-      console.warn("[API/my-shipments] ENV summary:", {
-        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/^https?:\/\//, ""),
-        HAS_SERVICE_ROLE: !!process.env.SUPABASE_SERVICE_ROLE,
-      });
+    const url = new URL(req.url);
+
+    // compat: prima usavi header x-user-email (ma ora lo rendiamo query/header)
+    const headerEmail =
+      (req.headers.get("x-user-email") || req.headers.get("x_user_email") || "").trim();
+    const emailParam = normalizeEmail(url.searchParams.get("email")) || normalizeEmail(headerEmail);
+
+    const supa = supabaseServerSpst();
+    const { data: { user } } = await supa.auth.getUser();
+
+    if (!user?.id) {
+      return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
     }
 
-    // NOTA TIPI: per tenere disponibile .ilike sui builder usiamo cast ad 'any'
-    // (evitiamo .returns<Row[]>() che restringe il tipo a TransformBuilder senza i metodi filter)
-    let q: any = supa
-      .from("my_shipments")
-      .select(
-        "id,human_id,tipo_spedizione,incoterm,mittente_citta,dest_citta,giorno_ritiro,colli_n,peso_reale_kg,created_at,email_cliente,email_norm"
-      )
+    const staff = await isStaff();
+
+    // STAFF: service role, opzionale filtro email_norm
+    if (staff) {
+      const supaAdmin = admin();
+      let q = (supaAdmin as any)
+        .schema("spst")
+        .from("shipments")
+        .select(SELECT_LIST)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (emailParam) q = q.eq("email_norm", emailParam);
+
+      const { data, error } = await q;
+      if (error) {
+        return NextResponse.json(
+          { ok: false, error: "DB_SELECT_FAILED", details: error.message },
+          { status: 502 }
+        );
+      }
+
+      return NextResponse.json({ ok: true, rows: data ?? [], scope: "staff" });
+    }
+
+    // CLIENT: RLS → ignora filtro email per sicurezza (uno user = una inbox)
+    const { data, error } = await supa
+      .from("shipments")
+      .select(SELECT_LIST)
       .order("created_at", { ascending: false })
       .limit(20);
 
-    if (emailParam) {
-      q = q.ilike("email_norm", `%${emailParam}%`);
-    }
-
-    const { data, error } = (await q) as { data: Row[] | null; error: any };
-
     if (error) {
-      console.error("[API/my-shipments] select error:", error);
       return NextResponse.json(
-        { ok: false, error: error.code || "DB_SELECT_FAILED", details: error.message },
+        { ok: false, error: "DB_SELECT_FAILED", details: error.message },
         { status: 502 }
       );
     }
 
-    if (debug) {
-      console.log("[API/my-shipments] rows:", Array.isArray(data) ? data.length : "null");
-      if ((data?.length || 0) > 0) console.log("[API/my-shipments] sample:", data?.[0]);
-    }
-
-    // Fallback diagnostico via REST se 0 righe in debug
-    if ((!data || data.length === 0) && debug) {
-      try {
-        const restUrl =
-          `${envOrThrow("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "")}` +
-          `/rest/v1/my_shipments?select=id,human_id,created_at&order=created_at.desc&limit=3`;
-        const r = await fetch(restUrl, {
-          headers: {
-            apikey: envOrThrow("SUPABASE_SERVICE_ROLE"),
-            "Accept-Profile": "api",
-          },
-        });
-        const body = await r.json().catch(() => ({}));
-        console.warn("[API/my-shipments] REST fallback status:", r.status, r.statusText, "body:", body);
-      } catch (e: any) {
-        console.error("[API/my-shipments] REST fallback error:", e?.message || e);
-      }
-    }
-
-    return NextResponse.json({ ok: true, rows: (data as Row[]) ?? [] });
+    return NextResponse.json({ ok: true, rows: data ?? [], scope: "client" });
   } catch (e: any) {
-    console.error("[API/my-shipments] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500 }
