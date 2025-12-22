@@ -98,7 +98,6 @@ function hexToRgba(hex: string, alpha: number) {
 export default function AppSidebar() {
   const pathname = usePathname();
 
-  // calcola active per ciascun item (stessa logica che avevi)
   function isActiveFor(href: string, exact?: boolean) {
     if (href === '/dashboard/quotazioni') {
       return (
@@ -125,9 +124,15 @@ export default function AppSidebar() {
         <span className="text-sm font-medium text-slate-700">Area Riservata</span>
       </div>
 
-      {/* NAV: riempi tutto lo schermo, equamente distribuite */}
-      <nav className="px-3 pb-4" style={{ height: 'calc(100vh - 64px)' }}>
-        <div className="h-full flex flex-col gap-2">
+      {/* NAV: più “giù” (stacco dalla topbar) + riempi schermo */}
+      <nav
+        className="px-3 pb-4"
+        style={{
+          height: 'calc(100vh - 64px)',
+        }}
+      >
+        {/* ✅ spinge tutte le card un po’ più in basso */}
+        <div className="h-full flex flex-col gap-2 pt-3">
           {NAV.map(({ href, label, desc, icon: Icon, exact, imageSrc, accentHex }) => {
             const isActive = isActiveFor(href, exact);
             const shouldDim = anyActive && !isActive;
@@ -142,11 +147,8 @@ export default function AppSidebar() {
                   'rounded-[18px] border',
                   'transition-all',
                   'flex items-center justify-between gap-3',
-                  // ✅ riempie lo schermo: ogni card prende la stessa quota
                   'flex-1 min-h-0',
-                  // padding
                   'px-3',
-                  // hover
                   'hover:-translate-y-[1px]',
                   isActive
                     ? 'border-slate-200 bg-white shadow-[0_12px_28px_rgba(148,163,184,0.18)]'
@@ -176,10 +178,8 @@ export default function AppSidebar() {
                     priority={false}
                   />
 
-                  {/* ✅ overlay più scuro */}
                   <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/55 to-black/25" />
 
-                  {/* glow accent */}
                   <div
                     className="absolute inset-0"
                     style={{
@@ -190,18 +190,13 @@ export default function AppSidebar() {
                     }}
                   />
 
-                  {/* vignetta + border interno */}
                   <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),inset_0_-60px_100px_rgba(0,0,0,0.55)]" />
                 </div>
 
                 {/* Content */}
                 <div className="relative flex items-center gap-3 min-w-0 py-3">
                   <div
-                    className={[
-                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
-                      'bg-white/95 shadow-sm transition-all',
-                      'group-hover:shadow-md',
-                    ].join(' ')}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white/95 shadow-sm transition-all group-hover:shadow-md"
                     style={{
                       color: accentHex,
                       borderColor: 'rgba(255,255,255,0.55)',
@@ -218,7 +213,6 @@ export default function AppSidebar() {
                       {label}
                     </div>
 
-                    {/* ✅ descrizione: visibile solo hover o active */}
                     <div
                       className={[
                         'mt-0.5 text-[10px] text-white/85 truncate',
@@ -232,7 +226,6 @@ export default function AppSidebar() {
                   </div>
                 </div>
 
-                {/* CTA bubble */}
                 <div
                   className="relative shrink-0 rounded-full border border-white/60 bg-white p-2 shadow-sm transition-shadow group-hover:shadow-md"
                   style={{ color: accentHex }}
@@ -243,9 +236,6 @@ export default function AppSidebar() {
             );
           })}
         </div>
-
-        {/* footer soft */}
-        <div className="mt-3 px-1 text-[11px] text-slate-400">© 2025 SPST</div>
       </nav>
     </aside>
   );
