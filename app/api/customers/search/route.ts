@@ -1,6 +1,7 @@
 // app/api/customers/search/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,9 @@ function makeSupabase() {
 }
 
 export async function GET(req: NextRequest) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   try {
     const supabase = makeSupabase();
     if (!supabase) {
