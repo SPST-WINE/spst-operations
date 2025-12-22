@@ -28,32 +28,6 @@ export default function LoginPage() {
 
   const isLoading = status === "loading";
 
-  async function checkEnabledIfPresent(userId: string): Promise<boolean> {
-    // Se tabella/colonna non esistono o policy non consente, NON blocchiamo.
-    try {
-      const supabase = supabaseBrowser();
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("enabled")
-        .eq("id", userId)
-        .maybeSingle();
-
-      // Se errore "relation does not exist" / "column does not exist" / RLS etc → passa
-      if (error) return true;
-
-      // Se record manca → passa
-      if (!data) return true;
-
-      // Se enabled è null/undefined → passa
-      if (typeof (data as any).enabled !== "boolean") return true;
-
-      return (data as any).enabled === true;
-    } catch {
-      return true;
-    }
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("loading");
@@ -80,14 +54,6 @@ export default function LoginPage() {
         return;
       }
 
-      const okEnabled = await checkEnabledIfPresent(userId);
-      if (!okEnabled) {
-        await supabase.auth.signOut();
-        setStatus("error");
-        setError("Account non abilitato. Contatta il supporto SPST.");
-        return;
-      }
-
       setStatus("success");
       router.push(nextPath);
     } catch (err: any) {
@@ -99,7 +65,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-sm border border-slate-200 p-8">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-6">
           <div className="mb-3">
             <Image
@@ -174,14 +139,14 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-4 flex items-center justify-between text-xs">
-  <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
-    Hai dimenticato la password?
-  </a>
+          <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
+            Hai dimenticato la password?
+          </a>
 
-  <a href="/signup" className="text-[#1c3e5e] hover:underline font-medium">
-    Registrati
-  </a>
-</div>
+          <a href="/signup" className="text-[#1c3e5e] hover:underline font-medium">
+            Registrati
+          </a>
+        </div>
       </div>
     </div>
   );
