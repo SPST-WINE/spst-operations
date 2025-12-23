@@ -213,64 +213,99 @@ function newSessionToken() {
 }
 
 // ------------------------------------------------------------
-// API helper (usa Supabase Auth per creare la spedizione)
+// Helpers mapping → ShipmentInputZ
+// ------------------------------------------------------------
+function toNull(v?: string | null) {
+  const s = (v ?? "").trim();
+  return s ? s : null;
+}
+
+function toNumOrNull(v: any) {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function dateToYMD(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function mapTipoSped(v: "B2B" | "B2C" | "Sample") {
+  return v === "Sample" ? "CAMPIONATURA" : v;
+}
+
+function mapFormato(v: "Pacco" | "Pallet") {
+  return v === "Pallet" ? "PALLET" : "PACCO";
+}
+
+function mapParty(p: Party) {
+  return {
+    rs: toNull(p.ragioneSociale),
+    referente: toNull(p.referente),
+    telefono: toNull(p.telefono),
+    piva: toNull(p.piva),
+    paese: toNull(p.paese),
+    citta: toNull((p as any).citta),
+    cap: toNull(p.cap),
+    indirizzo: toNull(p.indirizzo),
+  };
+}
+
+// ------------------------------------------------------------
+// API helper (cookie session) → POST /api/spedizioni
 // ------------------------------------------------------------
 async function createShipmentWithAuth(payload: any, emailOverride?: string) {
-  const [
-    {
-      data: { user },
-    },
-    {
-      data: { session },
-    },
-  ] = await Promise.all([supabase.auth.getUser(), supabase.auth.getSession()]);
-
-  const rawEmail =
-    emailOverride?.toLowerCase().trim() ||
-    user?.email?.toLowerCase().trim() ||
-    null;
-
-  const token = session?.access_token ?? null;
+  // NB: l'API /api/spedizioni usa la sessione cookie (supabaseServerSpst).
+  // Non servono Authorization header né x-user-email.
+  const body: any = {
+    ...payload,
+    ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
+  };
 
   const res = await fetch("/api/spedizioni", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(rawEmail ? { "x-user-email": rawEmail, "x-client-email": rawEmail } : {}),
-    },
-    body: JSON.stringify({
-      ...payload,
-      email: rawEmail || undefined,
-    }),
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
   });
 
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body?.ok) {
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
     const details =
-      body?.details || body?.error || `${res.status} ${res.statusText}`;
+      json?.details || json?.error || `${res.status} ${res.statusText}`;
     throw new Error(
       typeof details === "string"
         ? details
         : "Errore creazione spedizione. Riprova."
     );
   }
-  // compat: se l'API ritorna { ok, shipment } usiamo shipment, altrimenti il json puro
-  return body.shipment ?? body;
+
+  // API freeze: { ok: true, shipment_id }
+  return { id: json.shipment_id as string };
 }
 
 // ------------------------------------------------------------
 // UPLOAD DOCUMENTI → stessa API del Back Office (/upload)
 // ------------------------------------------------------------
-async function uploadShipmentDocument(shipmentId: string, file: File, docType: DocType) {
+async function uploadShipmentDocument(
+  shipmentId: string,
+  file: File,
+  docType: DocType
+) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("type", docType);
 
-  const res = await fetch(`/api/spedizioni/${encodeURIComponent(shipmentId)}/upload`, {
-    method: "POST",
-    body: formData,
-  });
+  const res = await fetch(
+    `/api/spedizioni/${encodeURIComponent(shipmentId)}/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
 
   const json = await res.json().catch(() => null);
 
@@ -281,7 +316,6 @@ async function uploadShipmentDocument(shipmentId: string, file: File, docType: D
     throw new Error(msg);
   }
 
-  // json.url contiene la public URL, se serve
   return { url: json.url as string | undefined };
 }
 
@@ -304,7 +338,7 @@ export default function NuovaVinoPage() {
 }
 
 // ------------------------------------------------------------
-// Component (tutto il tuo codice originale qui dentro)
+// Component
 // ------------------------------------------------------------
 function NuovaVinoPageInner() {
   const router = useRouter();
@@ -317,7 +351,7 @@ function NuovaVinoPageInner() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // Prefill mittente da /api/impostazioni (Supabase friendly)
+  // Prefill mittente da /api/impostazioni
   useEffect(() => {
     let cancelled = false;
 
@@ -343,9 +377,6 @@ function NuovaVinoPageInner() {
         );
 
         const json = await res.json().catch(() => null);
-
-        console.log("SPST[nuova-vino] impostazioni:", json);
-
         if (!json?.ok || !json?.mittente || cancelled) return;
 
         const m = json.mittente;
@@ -376,13 +407,9 @@ function NuovaVinoPageInner() {
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState<string>("");
 
-  // ✅ NEW: assicurazione pallet (richiesta da ColliCard props)
   const [assicurazionePallet, setAssicurazionePallet] = useState(false);
-
-  // ✅ NEW: valore assicurato (EUR) — richiesto da ColliCard
   const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
 
-  // ✅ auto-reset se torno a Pacco (sostituisce il vecchio useEffect)
   useEffect(() => {
     if (formato !== "Pallet") {
       if (assicurazionePallet) setAssicurazionePallet(false);
@@ -480,7 +507,9 @@ function NuovaVinoPageInner() {
   function validate(): string[] {
     const errs: string[] = [];
     if (!isPhoneValid(mittente.telefono))
-      errs.push("Telefono mittente obbligatorio in formato internazionale (es. +393201441789).");
+      errs.push(
+        "Telefono mittente obbligatorio in formato internazionale (es. +393201441789)."
+      );
     if (!isPhoneValid(destinatario.telefono))
       errs.push("Telefono destinatario obbligatorio in formato internazionale.");
     if ((tipoSped === "B2B" || tipoSped === "Sample") && !destinatario.piva?.trim()) {
@@ -513,7 +542,6 @@ function NuovaVinoPageInner() {
       }
     }
 
-    // ✅ NEW (consigliato): se pallet + assicurazione ON, valore assicurato obbligatorio > 0
     if (formato === "Pallet" && assicurazionePallet) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
         errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
@@ -533,57 +561,71 @@ function NuovaVinoPageInner() {
       setErrors([]);
     }
     setSaving(true);
+
     try {
       const payload = {
-        sorgente: "vino" as const,
-        tipoSped,
-        destAbilitato,
-        contenuto,
-        formato,
-
-        // ✅ NEW: schema uniforme (come “altro”)
-        assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
-        valoreAssicurato:
-          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+        tipo_spedizione: mapTipoSped(tipoSped),
+        incoterm: toNull(incoterm),
         declared_value:
-          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+          formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+        fatt_valuta: (valuta as any) ?? null,
 
-        // ✅ retro-compat (puoi toglierlo quando lato API non serve più)
-        assicurazionePallet: formato === "Pallet" ? assicurazionePallet : false,
+        giorno_ritiro: ritiroData ? dateToYMD(ritiroData) : null,
+        note_ritiro: toNull(ritiroNote),
 
-        ritiroData: ritiroData ? ritiroData.toISOString() : undefined,
-        ritiroNote,
-        mittente,
-        destinatario,
-        incoterm,
-        valuta,
-        noteFatt,
-        fatturazione: sameAsDest ? destinatario : fatturazione,
-        fattSameAsDest: sameAsDest,
-        fattDelega: delega,
-        fatturaFileName: fatturaFile?.name || null,
-        colli,
-        packingList: pl,
+        formato_sped: mapFormato(formato),
+        contenuto_generale: toNull(contenuto),
+
+        mittente: mapParty(mittente),
+
+        destinatario: {
+          ...mapParty(destinatario),
+          abilitato_import: destAbilitato ? true : false,
+        },
+
+        fatturazione: sameAsDest ? mapParty(destinatario) : mapParty(fatturazione),
+
+        colli: (colli || [])
+          .filter(
+            (c) =>
+              c && (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm)
+          )
+          .map((c) => ({
+            contenuto: toNull(contenuto),
+            peso_reale_kg: toNumOrNull(c.peso_kg),
+            lato1_cm: toNumOrNull(c.lunghezza_cm),
+            lato2_cm: toNumOrNull(c.larghezza_cm),
+            lato3_cm: toNumOrNull(c.altezza_cm),
+          })),
+
+        extras: {
+          sorgente: "vino",
+          destAbilitato: destAbilitato ? true : false,
+          assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+          valoreAssicurato:
+            formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+          noteFatt: toNull(noteFatt),
+          fattSameAsDest: sameAsDest,
+          fattDelega: delega ? true : false,
+          fatturaFileName: fatturaFile?.name || null,
+          packing_list: pl, // ✅ PL obbligatoria su vino
+        },
       };
 
-      // 1) Crea spedizione (Supabase Auth, eventualmente forzando mail cliente da ?for=)
       const created = await createShipmentWithAuth(payload, forcedEmail || undefined);
 
-      // 2) Upload documenti usando la stessa API del Back Office
       try {
-        // Fattura (qui usiamo sempre "fattura_proforma" come tipo documento)
         if (fatturaFile) {
           await uploadShipmentDocument(created.id, fatturaFile, "fattura_proforma");
         }
-      } catch (err) {
-        console.error("Errore upload documenti:", err);
+      } catch (e) {
+        console.error("Errore upload documenti:", e);
         setErrors([
           "Spedizione creata, ma si è verificato un errore durante il caricamento della fattura.",
         ]);
       }
 
-      // 3) Success UI
-      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
+      const id = created?.id || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
@@ -594,6 +636,7 @@ function NuovaVinoPageInner() {
         formato,
         destinatario,
       });
+
       if (topRef.current) {
         topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
       }
@@ -832,9 +875,11 @@ function NuovaVinoPageInner() {
   // Render
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
+    const INFO_URL =
+      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
+      "https://wa.me/message/CP62RMFFDNZPO1";
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
     )}`;
@@ -857,10 +902,12 @@ function NuovaVinoPageInner() {
               <span className="text-slate-500">Incoterm:</span> {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? "—"}
+              <span className="text-slate-500">Data ritiro:</span>{" "}
+              {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} (
+              {success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
@@ -936,7 +983,12 @@ function NuovaVinoPageInner() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
-          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
+          <PartyCard
+            title="Mittente"
+            value={mittente}
+            onChange={setMittente}
+            gmapsTag="mittente"
+          />
         </div>
         <div className="rounded-2xl border bg-white p-4">
           <PartyCard
@@ -955,7 +1007,6 @@ function NuovaVinoPageInner() {
 
       <PackingListVino value={pl} onChange={setPl} />
 
-      {/* ✅ FIX: nuove props richieste da ColliCard */}
       <ColliCard
         colli={colli}
         onChange={setColli}
@@ -969,7 +1020,12 @@ function NuovaVinoPageInner() {
         setValoreAssicurato={setValoreAssicurato}
       />
 
-      <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
+      <RitiroCard
+        date={ritiroData}
+        setDate={setRitiroData}
+        note={ritiroNote}
+        setNote={setRitiroNote}
+      />
 
       <FatturaCard
         incoterm={incoterm}
