@@ -105,7 +105,7 @@ async function fetchPostalCodeByLatLng(lat: number, lng: number, lang = "it") {
   const search = (arr: any[]) => {
     for (const r of arr || []) {
       const c = (r.address_components || []).find((x: any) =>
-        x.types?.includes("postal_code"),
+        x.types?.includes("postal_code")
       );
       if (c) return c.long_name || c.short_name || "";
     }
@@ -168,54 +168,83 @@ function newSessionToken() {
 }
 
 // ------------------------------------------------------------
-// Creazione spedizione con Supabase Auth
+// Helpers mapping → ShipmentInputZ
 // ------------------------------------------------------------
-async function createShipmentWithAuth(payload: any) {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+function toNull(v?: string | null) {
+  const s = (v ?? "").trim();
+  return s ? s : null;
+}
 
-  const [
-    {
-      data: { user },
-    },
-    {
-      data: { session },
-    },
-  ] = await Promise.all([supabase.auth.getUser(), supabase.auth.getSession()]);
+function toNumOrNull(v: any) {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
 
-  const email = user?.email ?? null;
-  const token = session?.access_token ?? null;
+function dateToYMD(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
-  const res = await fetch("/api/spedizioni", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      "x-user-email": email || "",
-    },
-    body: JSON.stringify({ ...payload, email }),
-  });
+function mapTipoSped(v: "B2B" | "B2C" | "Sample") {
+  return v === "Sample" ? "CAMPIONATURA" : v;
+}
 
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body?.ok) {
-    throw new Error(body?.details || body?.error || "Errore creazione spedizione");
-  }
-  return body.shipment;
+function mapFormato(v: "Pacco" | "Pallet") {
+  return v === "Pallet" ? "PALLET" : "PACCO";
+}
+
+function mapParty(p: Party) {
+  return {
+    rs: toNull(p.ragioneSociale),
+    referente: toNull(p.referente),
+    telefono: toNull(p.telefono),
+    piva: toNull(p.piva),
+    paese: toNull(p.paese),
+    citta: toNull((p as any).citta),
+    cap: toNull(p.cap),
+    indirizzo: toNull(p.indirizzo),
+  };
 }
 
 // ------------------------------------------------------------
-// UPLOAD UNIVERSALE → fattura commerciale
+// Creazione spedizione (cookie session) → POST /api/spedizioni
+// ------------------------------------------------------------
+async function createShipmentWithAuth(payload: any, emailOverride?: string) {
+  const body: any = {
+    ...payload,
+    ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
+  };
+
+  const res = await fetch("/api/spedizioni", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
+    const details = json?.details || json?.error || `${res.status} ${res.statusText}`;
+    throw new Error(typeof details === "string" ? details : "Errore creazione spedizione. Riprova.");
+  }
+
+  return { id: json.shipment_id as string };
+}
+
+// ------------------------------------------------------------
+// UPLOAD UNIVERSALE → fattura commerciale (come tuo codice attuale)
 // ------------------------------------------------------------
 async function uploadShipmentDocument(
   shipmentId: string,
   file: File,
-  docType: "fattura_commerciale",
+  docType: "fattura_commerciale"
 ) {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
   const safeName = file.name.replace(/\s+/g, "-");
@@ -227,10 +256,7 @@ async function uploadShipmentDocument(
 
   if (uploadErr) throw new Error("Errore upload file");
 
-  const { data: urlData } = await supabase.storage
-    .from("shipment-docs")
-    .getPublicUrl(path);
-
+  const { data: urlData } = await supabase.storage.from("shipment-docs").getPublicUrl(path);
   const url = urlData?.publicUrl || null;
 
   const { error: dbErr } = await supabase.from("shipment_documents").insert({
@@ -273,7 +299,6 @@ export default function NuovaAltroPage() {
 function NuovaAltroPageInner() {
   const router = useRouter();
 
-  // Stato base
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
   const [destAbilitato, setDestAbilitato] = useState(false);
 
@@ -287,7 +312,7 @@ function NuovaAltroPageInner() {
       try {
         const supabase = createClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
         );
 
         const {
@@ -295,10 +320,13 @@ function NuovaAltroPageInner() {
         } = await supabase.auth.getUser();
         const email = user?.email || "info@spst.it";
 
-        const res = await fetch(`/api/impostazioni?email=${encodeURIComponent(email)}`, {
-          cache: "no-store",
-          headers: { "x-spst-email": email },
-        });
+        const res = await fetch(
+          `/api/impostazioni?email=${encodeURIComponent(email)}`,
+          {
+            cache: "no-store",
+            headers: { "x-spst-email": email },
+          }
+        );
 
         const json = await res.json().catch(() => null);
         if (!json?.ok || cancelled) return;
@@ -332,11 +360,9 @@ function NuovaAltroPageInner() {
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState("");
 
-  // ✅ assicurazione + ✅ NEW valore assicurato
   const [assicurazionePallet, setAssicurazionePallet] = useState(false);
   const [valoreAssicurato, setValoreAssicurato] = useState<number | null>(null);
 
-  // ✅ auto-reset se non è pallet
   useEffect(() => {
     if (formato !== "Pallet") {
       if (assicurazionePallet) setAssicurazionePallet(false);
@@ -356,7 +382,6 @@ function NuovaAltroPageInner() {
   const [delega, setDelega] = useState(false);
   const [fatturazione, setFatturazione] = useState<Party>(blankParty);
   const [sameAsDest, setSameAsDest] = useState(false);
-
   const [fatturaFile, setFatturaFile] = useState<File | undefined>();
 
   // UI
@@ -397,7 +422,6 @@ function NuovaAltroPageInner() {
 
     if (!ritiroData) errs.push("Giorno ritiro mancante.");
 
-    // opzionale: se assicurazione ON e valore mancante
     if (formato === "Pallet" && assicurazionePallet) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
         errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
@@ -406,8 +430,7 @@ function NuovaAltroPageInner() {
 
     const fatt = sameAsDest ? destinatario : fatturazione;
     if (!fatturaFile) {
-      if (!fatt.ragioneSociale?.trim())
-        errs.push("Ragione sociale fattura mancante.");
+      if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
       if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim())
         errs.push("PIVA obbligatoria per B2B/Sample.");
     }
@@ -432,30 +455,50 @@ function NuovaAltroPageInner() {
 
     try {
       const payload = {
-        sorgente: "altro" as const,
-        tipoSped,
-        destAbilitato,
-        contenuto,
-        formato,
-
-        // ✅ NEW
-        assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
-        valoreAssicurato: formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+        tipo_spedizione: mapTipoSped(tipoSped),
+        incoterm: toNull(incoterm),
         declared_value:
-          formato === "Pallet" && assicurazionePallet ? valoreAssicurato : null,
+          formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+        fatt_valuta: (valuta as any) ?? null,
 
-        ritiroData: ritiroData ? ritiroData.toISOString() : null,
-        ritiroNote,
-        mittente,
-        destinatario,
-        incoterm,
-        valuta,
-        noteFatt,
-        fatturazione: sameAsDest ? destinatario : fatturazione,
-        fattSameAsDest: sameAsDest,
-        fattDelega: delega,
-        fatturaFileName: fatturaFile?.name || null,
-        colli,
+        giorno_ritiro: ritiroData ? dateToYMD(ritiroData) : null,
+        note_ritiro: toNull(ritiroNote),
+
+        formato_sped: mapFormato(formato),
+        contenuto_generale: toNull(contenuto),
+
+        mittente: mapParty(mittente),
+
+        destinatario: destAbilitato
+          ? { ...mapParty(destinatario), abilitato_import: true }
+          : mapParty(destinatario),
+
+        fatturazione: sameAsDest ? mapParty(destinatario) : mapParty(fatturazione),
+
+        colli: (colli || [])
+          .filter(
+            (c) =>
+              c && (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm)
+          )
+          .map((c) => ({
+            contenuto: toNull(contenuto),
+            peso_reale_kg: toNumOrNull(c.peso_kg),
+            lato1_cm: toNumOrNull(c.lunghezza_cm),
+            lato2_cm: toNumOrNull(c.larghezza_cm),
+            lato3_cm: toNumOrNull(c.altezza_cm),
+          })),
+
+        extras: {
+          sorgente: "altro",
+          destAbilitato: destAbilitato ? true : false,
+          assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+          valoreAssicurato:
+            formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+          noteFatt: toNull(noteFatt),
+          fattSameAsDest: sameAsDest,
+          fattDelega: delega ? true : false,
+          fatturaFileName: fatturaFile?.name || null,
+        },
       };
 
       const created = await createShipmentWithAuth(payload);
@@ -465,8 +508,7 @@ function NuovaAltroPageInner() {
         await uploadShipmentDocument(shipmentId, fatturaFile, "fattura_commerciale");
       }
 
-      const id = created?.human_id || created?.id || created?.recId || "SPEDIZIONE";
-
+      const id = created?.id || "SPEDIZIONE";
       setSuccess({
         recId: id,
         idSped: id,
@@ -676,7 +718,7 @@ function NuovaAltroPageInner() {
 
       log.info("attach →", who, input);
     },
-    [],
+    []
   );
 
   useEffect(() => {
@@ -684,10 +726,10 @@ function NuovaAltroPageInner() {
 
     const attachAll = () => {
       const mitt = document.querySelector<HTMLInputElement>(
-        'input[data-gmaps="indirizzo-mittente"]',
+        'input[data-gmaps="indirizzo-mittente"]'
       );
       const dest = document.querySelector<HTMLInputElement>(
-        'input[data-gmaps="indirizzo-destinatario"]',
+        'input[data-gmaps="indirizzo-destinatario"]'
       );
       if (mitt) attachPlacesToInput(mitt, "mittente");
       if (dest) attachPlacesToInput(dest, "destinatario");
@@ -702,7 +744,7 @@ function NuovaAltroPageInner() {
       mo.disconnect();
       document
         .querySelectorAll<HTMLInputElement>(
-          'input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]',
+          'input[data-gmaps="indirizzo-mittente"],input[data-gmaps="indirizzo-destinatario"]'
         )
         .forEach((el) => {
           const d: any = el as any;
@@ -715,12 +757,14 @@ function NuovaAltroPageInner() {
   // SUCCESS UI
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
+    const INFO_URL =
+      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
+      "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
-      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`,
+      `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.idSped}`
     )}`;
 
     return (
@@ -745,7 +789,8 @@ function NuovaAltroPageInner() {
               {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} (
+              {success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
