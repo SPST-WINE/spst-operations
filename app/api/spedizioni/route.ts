@@ -1,173 +1,136 @@
 // app/api/spedizioni/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-import { ShipmentInputZ, type ShipmentDTO } from "@/lib/contracts/shipment";
-import { supabaseServerSpst } from "@/lib/supabase/server";
+import { cookies, headers as nextHeaders } from "next/headers";
+import { ShipmentInputZ } from "@/lib/contracts/shipment";
 
 /* ───────────── Helpers ───────────── */
+type Party = {
+  ragioneSociale?: string;
+  referente?: string;
+  paese?: string;
+  citta?: string;
+  cap?: string;
+  indirizzo?: string;
+  telefono?: string;
+  piva?: string;
+  email?: string;
+};
+
+type Collo = {
+  l1?: number | string | null;
+  l2?: number | string | null;
+  l3?: number | string | null;
+  peso?: number | string | null;
+  contenuto?: string | null;
+  [k: string]: any;
+};
+
+const toNum = (x: any): number | null => {
+  if (x === null || x === undefined) return null;
+  const n = Number(String(x).replace(",", ".").trim());
+  return Number.isFinite(n) ? n : null;
+};
+
+function firstNonEmpty(...vals: (string | undefined | null)[]) {
+  for (const v of vals) if (v && String(v).trim() !== "") return String(v).trim();
+  return "";
+}
 
 function normalizeEmail(x?: string | null) {
   const v = (x ?? "").trim();
   return v ? v.toLowerCase() : null;
 }
 
-const EMPTY_ATTACHMENTS = {
-  ldv: null,
-  fattura_proforma: null,
-  fattura_commerciale: null,
-  dle: null,
-  allegato1: null,
-  allegato2: null,
-  allegato3: null,
-  allegato4: null,
-} as const;
+function toISODate(d?: string | null): string | null {
+  if (!d) return null;
+  const s = d.trim();
+  const m1 = /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/.exec(s);
+  if (m1) {
+    const [_, dd, mm, yyyy] = m1;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const m2 = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s);
+  if (m2) return s.substring(0, 10);
+  const t = Date.parse(s);
+  if (!isNaN(t)) return new Date(t).toISOString().slice(0, 10);
+  return null;
+}
 
-function mapListRowToDTO(row: any): ShipmentDTO {
-  return {
-    id: row.id,
-    human_id: row.human_id ?? null,
-    created_at: row.created_at,
+function getAccessTokenFromRequest() {
+  const hdrs = nextHeaders();
+  const auth = hdrs.get("authorization") || hdrs.get("Authorization") || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
 
-    customer_id: row.customer_id ?? null,
-    email_cliente: row.email_cliente ?? null,
+  const jar = cookies();
+  const sb = jar.get("sb-access-token")?.value;
+  if (sb) return sb;
 
-    status: row.status ?? null,
-    carrier: row.carrier ?? null,
-    service_code: row.service_code ?? null,
-    tracking_code: row.tracking_code ?? null,
+  const supaCookie = jar.get("supabase-auth-token")?.value;
+  if (supaCookie) {
+    try {
+      const arr = JSON.parse(supaCookie);
+      if (Array.isArray(arr) && arr[0]) return arr[0];
+    } catch {}
+  }
+  return null;
+}
 
-    tipo_spedizione: row.tipo_spedizione ?? null,
-    incoterm: row.incoterm ?? null,
-    declared_value: row.declared_value ?? null,
-    fatt_valuta: row.fatt_valuta ?? null,
+const att = (x: any) => {
+  if (!x) return null;
+  if (typeof x === "string") return { url: x };
+  if (typeof x.url === "string" && x.url.trim()) {
+    const o: any = { url: String(x.url).trim() };
+    if (x.filename) o.filename = String(x.filename);
+    if (x.mime) o.mime = String(x.mime);
+    return o;
+  }
+  return null;
+};
 
-    giorno_ritiro: row.giorno_ritiro ?? null,
-    pickup_at: row.pickup_at ?? null,
-    note_ritiro: row.note_ritiro ?? null,
+/* ───────────── Next config ───────────── */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-    formato_sped: row.formato_sped ?? null,
-    contenuto_generale: row.contenuto_generale ?? null,
-
-    mittente: {
-      rs: row.mittente_rs ?? null,
-      referente: row.mittente_referente ?? null,
-      telefono: row.mittente_telefono ?? null,
-      piva: row.mittente_piva ?? null,
-      paese: row.mittente_paese ?? null,
-      citta: row.mittente_citta ?? null,
-      cap: row.mittente_cap ?? null,
-      indirizzo: row.mittente_indirizzo ?? null,
+/* ───────────── CORS preflight ───────────── */
+export function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
+      "Access-Control-Max-Age": "86400",
     },
-
-    destinatario:
-      row.dest_rs || row.dest_paese || row.dest_indirizzo
-        ? {
-            rs: row.dest_rs ?? null,
-            referente: row.dest_referente ?? null,
-            telefono: row.dest_telefono ?? null,
-            piva: row.dest_piva ?? null,
-            paese: row.dest_paese ?? null,
-            citta: row.dest_citta ?? null,
-            cap: row.dest_cap ?? null,
-            indirizzo: row.dest_indirizzo ?? null,
-            abilitato_import: row.dest_abilitato_import ?? null,
-          }
-        : null,
-
-    fatturazione:
-      row.fatt_rs || row.fatt_paese || row.fatt_indirizzo
-        ? {
-            rs: row.fatt_rs ?? null,
-            referente: row.fatt_referente ?? null,
-            telefono: row.fatt_telefono ?? null,
-            piva: row.fatt_piva ?? null,
-            paese: row.fatt_paese ?? null,
-            citta: row.fatt_citta ?? null,
-            cap: row.fatt_cap ?? null,
-            indirizzo: row.fatt_indirizzo ?? null,
-          }
-        : null,
-
-    colli_n: row.colli_n ?? null,
-    peso_reale_kg: row.peso_reale_kg ?? null,
-
-    // ✅ sempre array (anche in lista)
-    packages: [],
-
-    // ✅ shape standard (anche in lista)
-    attachments: { ...EMPTY_ATTACHMENTS },
-
-    extras: null,
-  };
+  });
 }
 
-const LIST_SELECT = `
-  id,created_at,human_id,
-  customer_id,email_cliente,email_norm,
-
-  status,carrier,service_code,tracking_code,
-
-  tipo_spedizione,incoterm,declared_value,fatt_valuta,
-
-  giorno_ritiro,pickup_at,note_ritiro,
-
-  formato_sped,contenuto_generale,
-
-  mittente_rs,mittente_referente,mittente_telefono,mittente_piva,
-  mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
-
-  dest_rs,dest_referente,dest_telefono,dest_piva,
-  dest_paese,dest_citta,dest_cap,dest_indirizzo,
-  dest_abilitato_import,
-
-  fatt_rs,fatt_referente,fatt_telefono,fatt_piva,
-  fatt_paese,fatt_citta,fatt_cap,fatt_indirizzo,
-
-  colli_n,peso_reale_kg
-`;
-
-/** service-role client (no session persistence) */
-function admin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
-  return createClient(url, key, { auth: { persistSession: false } }) as any;
+/* ───────────── human_id generator ───────────── */
+function formatHumanId(d: Date, n: number) {
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  return `SP-${dd}-${mm}-${yyyy}-${String(n).padStart(5, "0")}`;
 }
 
-/** staff check (cookie-based) */
-async function isStaff(): Promise<boolean> {
-  const supa = supabaseServerSpst();
-  const { data } = await supa.auth.getUser();
-  const user = data?.user;
-  if (!user?.id || !user?.email) return false;
-
-  const email = user.email.toLowerCase().trim();
-  if (email === "info@spst.it") return true;
-
-  const { data: staff } = await (supa as any)
+async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
+  const now = new Date();
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = now.getUTCFullYear();
+  const pattern = `SP-${dd}-${mm}-${yyyy}-`;
+  const supaAny = supabaseSrv as any;
+  const { count, error } = await supaAny
     .schema("spst")
-    .from("staff_users")
-    .select("role, enabled")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const enabled =
-    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
-
-  const role = String((staff as any)?.role || "").toLowerCase().trim();
-  return enabled && (role === "admin" || role === "staff" || role === "operator");
+    .from("shipments")
+    .select("human_id", { count: "exact", head: true })
+    .ilike("human_id", `${pattern}%`);
+  if (error) return formatHumanId(now, Date.now() % 100000);
+  return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── GET /api/spedizioni ─────────────
-   - CLIENT: via RLS
-   - STAFF: service role (vede tutto)
-   - SEARCH: filtra su search_text (trigram index)
-   - OUTPUT: rows = ShipmentDTO “DTO-safe” (subset: packages=[], attachments empty, extras null)
-*/
+/* ───────────── GET /api/spedizioni ───────────── */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -178,254 +141,341 @@ export async function GET(req: Request) {
       100,
       Math.max(1, Number(url.searchParams.get("limit") || 20))
     );
-    const emailParam = normalizeEmail(url.searchParams.get("email"));
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const emailParam = url.searchParams.get("email");
 
-    const supa = supabaseServerSpst();
-    const {
-      data: { user },
-    } = await supa.auth.getUser();
-
-    if (!user?.id) {
+    const SUPABASE_URL =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return NextResponse.json(
-        { ok: false, error: "UNAUTHENTICATED" },
-        { status: 401 }
-      );
-    }
-
-    const staff = await isStaff();
-
-    // STAFF MODE
-    if (staff) {
-      const supaAdmin = admin();
-      let query = supaAdmin
-        .schema("spst")
-        .from("shipments")
-        .select(LIST_SELECT, { count: "exact" });
-
-      if (emailParam) query = query.eq("email_norm", emailParam);
-
-      // ✅ search_text (indice trigram)
-      if (q) {
-        const safe = q.replace(/[%_]/g, "");
-        const pattern = `%${safe.toLowerCase()}%`;
-        query = query.ilike("search_text", pattern);
-      }
-
-      query =
-        sort === "created_asc"
-          ? query.order("created_at", { ascending: true })
-          : query.order("created_at", { ascending: false });
-
-      const { data, error, count } = await query.range(from, to);
-      if (error)
-        return NextResponse.json(
-          { ok: false, error: error.message },
-          { status: 500 }
-        );
-
-      return NextResponse.json({
-        ok: true,
-        page,
-        limit,
-        total: count ?? null,
-        rows: (data ?? []).map(mapListRowToDTO),
-        scope: "staff",
-      });
-    }
-
-    // CLIENT MODE (RLS)
-    let query = supa
-      .from("shipments")
-      .select(LIST_SELECT, { count: "exact" });
-
-    // ✅ search_text (indice trigram)
-    if (q) {
-      const safe = q.replace(/[%_]/g, "");
-      const pattern = `%${safe.toLowerCase()}%`;
-      query = query.ilike("search_text", pattern);
-    }
-
-    query =
-      sort === "created_asc"
-        ? query.order("created_at", { ascending: true })
-        : query.order("created_at", { ascending: false });
-
-    const { data, error, count } = await query.range(from, to);
-    if (error)
-      return NextResponse.json(
-        { ok: false, error: error.message },
+        { ok: false, error: "Missing Supabase env" },
         { status: 500 }
       );
+    }
+    const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    }) as any;
+
+    let emailNorm: string | null = normalizeEmail(emailParam);
+    if (!emailNorm) {
+      const token = getAccessTokenFromRequest();
+      if (token) {
+        const { data } = await auth.auth.getUser(token);
+        emailNorm = normalizeEmail(data?.user?.email ?? null);
+      }
+      if (!emailNorm) {
+        const hdrs = nextHeaders();
+        emailNorm = normalizeEmail(
+          hdrs.get("x-user-email") ||
+            hdrs.get("x-client-email") ||
+            hdrs.get("x-auth-email")
+        );
+      }
+    }
+
+    const srvKey =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supa = createClient(SUPABASE_URL, srvKey || SUPABASE_ANON_KEY, {
+      auth: { persistSession: false },
+    }) as any;
+
+    let query = supa
+      .schema("spst")
+      .from("shipments")
+      .select(
+        `
+  id,created_at,human_id,email_cliente,email_norm,
+  tipo_spedizione,incoterm,giorno_ritiro,
+  carrier,tracking_code, 
+  mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+  dest_paese,dest_citta,dest_cap,
+  colli_n,peso_reale_kg,status,
+  mittente_rs,mittente_telefono,mittente_piva,
+  dest_rs,dest_telefono,dest_piva,
+  fatt_rs,fatt_piva,fatt_valuta,
+  formato_sped,contenuto_generale,dest_abilitato_import,
+  fields,
+  ldv,fattura_proforma,fattura_commerciale,dle,
+  allegato1,allegato2,allegato3,allegato4,
+  packages:packages!packages_shipment_id_fkey(id,l1,l2,l3,weight_kg)
+  `,
+        { count: "exact" }
+      );
+
+    if (emailNorm) query = query.eq("email_norm", emailNorm);
+
+    if (q) {
+      query = query.or(
+        [
+          `human_id.ilike.%${q}%`,
+          `tracking_code.ilike.%${q}%`,
+          `carrier.ilike.%${q}%`,
+          `dest_citta.ilike.%${q}%`,
+          `dest_paese.ilike.%${q}%`,
+          `mittente_citta.ilike.%${q}%`,
+          `mittente_paese.ilike.%${q}%`,
+        ].join(",")
+      );
+    }
+
+    if (sort === "ritiro_desc")
+      query = query.order("giorno_ritiro", {
+        ascending: false,
+        nullsFirst: true,
+      });
+    else if (sort === "dest_az")
+      query = query
+        .order("dest_citta", { ascending: true, nullsFirst: true })
+        .order("dest_paese", { ascending: true, nullsFirst: true });
+    else if (sort === "status")
+      query = query.order("status", { ascending: true, nullsFirst: true });
+    else
+      query = query.order("created_at", {
+        ascending: false,
+        nullsFirst: true,
+      });
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const { data, error, count } = await query.range(from, to);
+    if (error) throw error;
+
+    const normAtt = (j: any) => (j && typeof j.url === "string" ? j : null);
+
+    const rows = (data || []).map((r: any) => ({
+      id: r.id,
+      created_at: r.created_at,
+      human_id: r.human_id,
+      email_cliente: r.email_cliente,
+      email_norm: r.email_norm,
+
+      tipo_spedizione: r.tipo_spedizione,
+      incoterm: r.incoterm,
+      giorno_ritiro: r.giorno_ritiro,
+
+      carrier: r.carrier ?? null,
+      tracking_code: r.tracking_code ?? null,
+
+      mittente_paese: r.mittente_paese,
+      mittente_citta: r.mittente_citta,
+      mittente_cap: r.mittente_cap,
+      mittente_indirizzo: r.mittente_indirizzo,
+      dest_paese: r.dest_paese,
+      dest_citta: r.dest_citta,
+      dest_cap: r.dest_cap,
+      colli_n: r.colli_n,
+      peso_reale_kg: r.peso_reale_kg,
+      status: r.status,
+      mittente_rs: r.mittente_rs,
+      mittente_telefono: r.mittente_telefono,
+      mittente_piva: r.mittente_piva,
+      dest_rs: r.dest_rs,
+      dest_telefono: r.dest_telefono,
+      dest_piva: r.dest_piva,
+      fatt_rs: r.fatt_rs,
+      fatt_piva: r.fatt_piva,
+      fatt_valuta: r.fatt_valuta,
+      formato_sped:
+        r.formato_sped ?? r.fields?.formato ?? r.fields?.formato_sped ?? null,
+      contenuto_generale: r.contenuto_generale,
+      dest_abilitato_import: r.dest_abilitato_import,
+      attachments: {
+        ldv: normAtt(r.ldv),
+        fattura_proforma: normAtt(r.fattura_proforma),
+        fattura_commerciale: normAtt(r.fattura_commerciale),
+        dle: normAtt(r.dle),
+        allegato1: normAtt(r.allegato1),
+        allegato2: normAtt(r.allegato2),
+        allegato3: normAtt(r.allegato3),
+        allegato4: normAtt(r.allegato4),
+      },
+      packages: Array.isArray(r.packages) ? r.packages : [],
+    }));
 
     return NextResponse.json({
       ok: true,
       page,
       limit,
-      total: count ?? null,
-      rows: (data ?? []).map(mapListRowToDTO),
-      scope: "client",
+      total: count ?? rows.length,
+      rows,
     });
   } catch (e: any) {
+    console.error("[API/spedizioni:GET] unexpected:", e);
     return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      { ok: false, error: String(e?.message || e) },
       { status: 500 }
     );
   }
 }
 
-/* ───────────── POST /api/spedizioni ─────────────
-   Contratti = unica fonte di verità (ShipmentInputZ)
-   - CLIENT: forza email_cliente = email sessione
-   - STAFF: può creare per altri (email_cliente dal body; fallback su email sessione)
-   - COLLI: scrive su spst.packages (trigger DB aggiorna colli_n/peso_reale_kg)
-*/
-export async function POST(req: NextRequest) {
+/* ───────────── POST /api/spedizioni ───────────── */
+export async function POST(req: Request) {
   try {
-    // cookie-based auth (per forzare email + staff)
-    const supaSession = supabaseServerSpst();
-    const {
-      data: { user },
-    } = await supaSession.auth.getUser();
+    const body = await req.json().catch(() => ({} as any));
 
-    if (!user?.id || !user?.email) {
+    // ✅ CONTRACT: validazione unica source
+    const input = ShipmentInputZ.parse(body);
+
+    const SUPABASE_URL =
+      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const SUPABASE_SERVICE_ROLE_KEY =
+      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return NextResponse.json(
-        { ok: false, error: "UNAUTHENTICATED" },
-        { status: 401 }
+        { ok: false, error: "Missing Supabase env" },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json(
+        { ok: false, error: "Missing SUPABASE_SERVICE_ROLE" },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
-    const staff = await isStaff();
+    const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    }) as any;
 
-    // ✅ parse + validate con contratto (enum rigidi ecc.)
-    let input: any;
-    try {
-      input = ShipmentInputZ.parse(await req.json());
-    } catch (err: any) {
+    // ✅ colli: SOLO input.colli (NO legacy / NO colli_n)
+    const colli: any[] = Array.isArray((input as any).colli) ? (input as any).colli : [];
+
+    const email_norm = normalizeEmail((input as any).email_cliente);
+
+    // ✅ shipments: INSERT MINIMO (NO peso/colli aggregati, NO lifecycle, NO allegati)
+    const baseRow: any = {
+      email_cliente: (input as any).email_cliente ?? null,
+      email_norm,
+
+      tipo_spedizione: (input as any).tipo_spedizione ?? null,
+      incoterm: (input as any).incoterm ?? null,
+      giorno_ritiro: (input as any).giorno_ritiro ?? null,
+      note_ritiro: (input as any).note_ritiro ?? null,
+      formato_sped: (input as any).formato_sped ?? null,
+      contenuto_generale: (input as any).contenuto_generale ?? null,
+
+      mittente_rs: (input as any).mittente_rs ?? null,
+      mittente_paese: (input as any).mittente_paese ?? null,
+      mittente_citta: (input as any).mittente_citta ?? null,
+      mittente_cap: (input as any).mittente_cap ?? null,
+      mittente_indirizzo: (input as any).mittente_indirizzo ?? null,
+      mittente_telefono: (input as any).mittente_telefono ?? null,
+      mittente_piva: (input as any).mittente_piva ?? null,
+
+      dest_rs: (input as any).dest_rs ?? null,
+      dest_paese: (input as any).dest_paese ?? null,
+      dest_citta: (input as any).dest_citta ?? null,
+      dest_cap: (input as any).dest_cap ?? null,
+      dest_indirizzo: (input as any).dest_indirizzo ?? null,
+      dest_telefono: (input as any).dest_telefono ?? null,
+      dest_piva: (input as any).dest_piva ?? null,
+      dest_abilitato_import:
+        typeof (input as any).dest_abilitato_import === "boolean"
+          ? (input as any).dest_abilitato_import
+          : null,
+
+      fatt_rs: (input as any).fatt_rs ?? null,
+      fatt_piva: (input as any).fatt_piva ?? null,
+      fatt_valuta: (input as any).fatt_valuta ?? null,
+
+      // ✅ solo extras
+      fields: (input as any).extras ?? null,
+    };
+
+    // ✅ human_id retry
+    let shipment: any = null;
+    const MAX_RETRY = 6;
+    let attempt = 0;
+    let lastErr: any = null;
+
+    while (attempt < MAX_RETRY) {
+      attempt++;
+      const human_id = await nextHumanIdForToday(supabaseSrv);
+      const insertRow = { ...baseRow, human_id };
+
+      const { data, error } = await supabaseSrv
+        .schema("spst")
+        .from("shipments")
+        .insert(insertRow)
+        .select()
+        .single();
+
+      if (!error) {
+        shipment = data;
+        break;
+      }
+      if (error.code === "23505" || /unique/i.test(error.message)) {
+        lastErr = error;
+        continue;
+      }
+      lastErr = error;
+      break;
+    }
+
+    if (!shipment) {
       return NextResponse.json(
-        { ok: false, error: "VALIDATION_ERROR", details: err?.errors ?? err },
-        { status: 400 }
+        {
+          ok: false,
+          error: "INSERT_FAILED",
+          details: lastErr?.message || String(lastErr),
+        },
+        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
-    // service-role client per insert
-    const supaAdmin = admin();
+    // ✅ packages: unica source peso/dimensioni (NO fields JSON)
+    if (colli.length > 0) {
+      const pkgs = colli.map((c: any) => ({
+        shipment_id: shipment.id,
+        contenuto: c?.contenuto ?? null,
+        weight_kg: toNum(c?.peso),
+        length_cm: toNum(c?.l1),
+        width_cm: toNum(c?.l2),
+        height_cm: toNum(c?.l3),
+      }));
 
-    // ✅ robust email handling (evita .toLowerCase su null)
-    // CLIENT: non può creare per altri
-    if (!staff) {
-      input.email_cliente =
-        normalizeEmail(user.email) || user.email.toLowerCase().trim();
-    } else {
-      const email = normalizeEmail(input.email_cliente) || normalizeEmail(user.email);
-      input.email_cliente = email || user.email.toLowerCase().trim();
+      const { error: pkgErr } = await supabaseSrv
+        .schema("spst")
+        .from("packages")
+        .insert(pkgs);
+
+      if (pkgErr) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "PACKAGES_INSERT_FAILED",
+            details: pkgErr.message,
+            shipment_id: shipment.id,
+          },
+          { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+        );
+      }
     }
 
-    // ✅ crea shipment (email_norm sempre popolata)
-    const { data: shipment, error } = await (supaAdmin as any)
-      .schema("spst")
-      .from("shipments")
-      .insert({
-        email_cliente: input.email_cliente,
-        email_norm: normalizeEmail(input.email_cliente), // ✅ FIX #1
+    const res = NextResponse.json({
+      ok: true,
+      shipment,
+      id: shipment.human_id || shipment.id,
+    });
+    res.headers.set("Access-Control-Allow-Origin", "*");
+    return res;
+  } catch (e: any) {
+    // Zod => 400
+    const msg = String(e?.message || e);
+    const isZod = e?.name === "ZodError" || msg.toLowerCase().includes("zod");
 
-        tipo_spedizione: input.tipo_spedizione,
-        incoterm: input.incoterm,
-
-        declared_value: input.declared_value,
-        fatt_valuta: input.fatt_valuta,
-
-        giorno_ritiro: input.giorno_ritiro,
-        pickup_at: input.pickup_at,
-        note_ritiro: input.note_ritiro,
-
-        formato_sped: input.formato_sped,
-        contenuto_generale: input.contenuto_generale,
-
-        mittente_rs: input.mittente.rs,
-        mittente_referente: input.mittente.referente,
-        mittente_telefono: input.mittente.telefono,
-        mittente_piva: input.mittente.piva,
-        mittente_paese: input.mittente.paese,
-        mittente_citta: input.mittente.citta,
-        mittente_cap: input.mittente.cap,
-        mittente_indirizzo: input.mittente.indirizzo,
-
-        dest_rs: input.destinatario?.rs ?? null,
-        dest_referente: input.destinatario?.referente ?? null,
-        dest_telefono: input.destinatario?.telefono ?? null,
-        dest_piva: input.destinatario?.piva ?? null,
-        dest_paese: input.destinatario?.paese ?? null,
-        dest_citta: input.destinatario?.citta ?? null,
-        dest_cap: input.destinatario?.cap ?? null,
-        dest_indirizzo: input.destinatario?.indirizzo ?? null,
-        dest_abilitato_import: (input.destinatario as any)?.abilitato_import ?? null,
-
-        fatt_rs: input.fatturazione?.rs ?? null,
-        fatt_referente: input.fatturazione?.referente ?? null,
-        fatt_telefono: input.fatturazione?.telefono ?? null,
-        fatt_piva: input.fatturazione?.piva ?? null,
-        fatt_paese: input.fatturazione?.paese ?? null,
-        fatt_citta: input.fatturazione?.citta ?? null,
-        fatt_cap: input.fatturazione?.cap ?? null,
-        fatt_indirizzo: input.fatturazione?.indirizzo ?? null,
-
-        // extras legacy (alias fields) — ok tenerli, ma NON come fonte primaria
-        fields: input.extras ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (error || !shipment?.id) {
-      return NextResponse.json(
-        { ok: false, error: "INSERT_FAILED", details: error?.message ?? null },
-        { status: 500 }
-      );
-    }
-
-    const shipmentId = shipment.id as string;
-
-    // ✅ scrivi colli su packages (source of truth)
-// DB columns: weight_kg + length_cm/width_cm/height_cm + contenuto
-const colli = Array.isArray(input.colli) ? input.colli : [];
-if (colli.length > 0) {
-  const payload = colli.map((c: any) => ({
-    shipment_id: shipmentId,
-    contenuto: c.contenuto ?? null,
-    weight_kg: c.peso_reale_kg ?? null,
-    length_cm: c.lato1_cm ?? null,
-    width_cm: c.lato2_cm ?? null,
-    height_cm: c.lato3_cm ?? null,
-  }));
-
-  const { error: pkgErr } = await (supaAdmin as any)
-    .schema("spst")
-    .from("packages")
-    .insert(payload);
-
-  if (pkgErr) {
     return NextResponse.json(
       {
         ok: false,
-        error: "PACKAGES_INSERT_FAILED",
-        shipment_id: shipmentId,
-        details: pkgErr.message,
+        error: isZod ? "INVALID_INPUT" : "UNEXPECTED_ERROR",
+        details: isZod ? (e?.issues ?? msg) : msg,
       },
-      { status: 500 }
-    );
-  }
-}
-
-
-    return NextResponse.json(
-      { ok: true, shipment_id: shipmentId },
-      { status: 201 }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500 }
+      {
+        status: isZod ? 400 : 500,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      }
     );
   }
 }
