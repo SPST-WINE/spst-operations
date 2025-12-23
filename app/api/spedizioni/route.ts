@@ -387,35 +387,36 @@ export async function POST(req: NextRequest) {
     const shipmentId = shipment.id as string;
 
     // ✅ scrivi colli su packages (source of truth)
-    const colli = Array.isArray(input.colli) ? input.colli : [];
-    if (colli.length > 0) {
-      const payload = colli.map((c: any) => ({
+// DB columns: weight_kg + length_cm/width_cm/height_cm + contenuto
+const colli = Array.isArray(input.colli) ? input.colli : [];
+if (colli.length > 0) {
+  const payload = colli.map((c: any) => ({
+    shipment_id: shipmentId,
+    contenuto: c.contenuto ?? null,
+    weight_kg: c.peso_reale_kg ?? null,
+    length_cm: c.lato1_cm ?? null,
+    width_cm: c.lato2_cm ?? null,
+    height_cm: c.lato3_cm ?? null,
+  }));
+
+  const { error: pkgErr } = await (supaAdmin as any)
+    .schema("spst")
+    .from("packages")
+    .insert(payload);
+
+  if (pkgErr) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "PACKAGES_INSERT_FAILED",
         shipment_id: shipmentId,
-        contenuto: c.contenuto ?? null,
-        peso_reale_kg: c.peso_reale_kg ?? null,
-        lato1_cm: c.lato1_cm ?? null,
-        lato2_cm: c.lato2_cm ?? null,
-        lato3_cm: c.lato3_cm ?? null,
-      }));
+        details: pkgErr.message,
+      },
+      { status: 500 }
+    );
+  }
+}
 
-      const { error: pkgErr } = await (supaAdmin as any)
-        .schema("spst")
-        .from("packages")
-        .insert(payload);
-
-      if (pkgErr) {
-        // non rollbacko: shipment creato = ok, ma segnalo errore
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "PACKAGES_INSERT_FAILED",
-            shipment_id: shipmentId,
-            details: pkgErr.message,
-          },
-          { status: 500 }
-        );
-      }
-    }
 
     return NextResponse.json(
       { ok: true, shipment_id: shipmentId },
