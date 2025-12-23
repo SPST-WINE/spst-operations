@@ -1,7 +1,6 @@
 // app/api/spedizioni/[id]/attachments/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { supabaseServerSpst } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
@@ -14,29 +13,6 @@ function admin() {
     process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
   return createClient(url, key, { auth: { persistSession: false } }) as any;
-}
-
-async function isStaff(): Promise<boolean> {
-  const supa = supabaseServerSpst();
-  const { data } = await supa.auth.getUser();
-  const user = data?.user;
-  if (!user?.id || !user?.email) return false;
-
-  const email = user.email.toLowerCase().trim();
-  if (email === "info@spst.it") return true;
-
-  const { data: staff } = await (supa as any)
-    .schema("spst")
-    .from("staff_users")
-    .select("role, enabled")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const enabled =
-    typeof (staff as any)?.enabled === "boolean" ? (staff as any).enabled : true;
-
-  const role = String((staff as any)?.role || "").toLowerCase().trim();
-  return enabled && (role === "admin" || role === "staff" || role === "operator");
 }
 
 const ATTACH_KEYS = [
@@ -66,47 +42,33 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const id = params.id;
-  if (!id)
+  if (!id) {
     return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
-
-  const supa = supabaseServerSpst();
-  const { data: { user } } = await supa.auth.getUser();
-  if (!user?.id)
-    return NextResponse.json(
-      { ok: false, error: "UNAUTHENTICATED" },
-      { status: 401 }
-    );
-
-  const staff = await isStaff();
+  }
 
   try {
-    if (staff) {
-      const supaAdmin = admin();
-      const { data, error } = await (supaAdmin as any)
-        .schema("spst")
-        .from("shipments")
-        .select(SELECT_ATTACH)
-        .eq("id", id)
-        .single();
-
-      if (error || !data)
-        return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
-
-      return NextResponse.json({ ok: true, shipment_id: id, attachments: data, scope: "staff" });
-    }
-
-    // client mode (RLS)
-    const { data, error } = await supa
+    const supaAdmin = admin();
+    const { data, error } = await (supaAdmin as any)
+      .schema("spst")
       .from("shipments")
       .select(SELECT_ATTACH)
       .eq("id", id)
       .single();
 
-    if (error || !data)
+    if (error || !data) {
       return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    }
 
-    return NextResponse.json({ ok: true, shipment_id: id, attachments: data, scope: "client" });
+    return NextResponse.json({
+      ok: true,
+      shipment_id: id,
+      attachments: data,
+      scope: "staff",
+    });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
@@ -128,17 +90,15 @@ export async function PATCH(
   if ("response" in staff) return staff.response;
 
   const id = params.id;
-  if (!id)
+  if (!id) {
     return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+  }
 
   const payload = (await req.json().catch(() => ({} as any))) as Record<string, any>;
   const update = pickAllowedAttachments(payload);
 
   if (Object.keys(update).length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "NO_ALLOWED_FIELDS" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "NO_ALLOWED_FIELDS" }, { status: 400 });
   }
 
   try {
@@ -151,11 +111,12 @@ export async function PATCH(
       .select(SELECT_ATTACH)
       .single();
 
-    if (error || !data)
+    if (error || !data) {
       return NextResponse.json(
         { ok: false, error: "UPDATE_FAILED", details: error?.message ?? null },
         { status: 500 }
       );
+    }
 
     return NextResponse.json({ ok: true, shipment_id: id, attachments: data });
   } catch (e: any) {
