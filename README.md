@@ -1,318 +1,97 @@
-⚠️ IMPORTANT
-Questo documento definisce il comportamento definitivo delle API `api/spedizioni`.
-Qualsiasi modifica che lo contraddice è da considerarsi un breaking change
-e NON va introdotta senza versioning esplicito.
+⚠️ SPST OPERATIONS — BACKEND CONTRACT (FREEZE)
 
-SPST Operations — API (Backend Freeze)
+IMPORTANTE
+Questo documento definisce il comportamento definitivo del dominio api/spedizioni.
+Qualsiasi modifica che contraddice quanto scritto qui è da considerarsi BREAKING CHANGE
+e NON VA INTRODOTTA senza versioning esplicito.
 
-Versione: spst-freeze-backend-v1
-Obiettivo: API stabili e prevedibili, con DB come source of truth e DTO unico come output.
+Questo README va considerato vincolante, non descrittivo.
 
-Principi non negoziabili
-Source of Truth
+🎯 OBIETTIVO
 
-Spedizione: spst.shipments
+Garantire che:
 
-Colli: spst.packages (unica fonte primaria)
+il backend api/spedizioni sia stabile, prevedibile e congelato
 
-Peso totale / numero colli: aggiornati da trigger DB su packages
+il frontend possa evolvere liberamente senza rompere il core
 
-Allegati: colonne dedicate su shipments (es: ldv, fattura_proforma, ecc.)
+DB, API e contratti abbiano responsabilità chiare
 
-Legacy extras: shipments.fields → esposto come extras (solo alias, mai fallback)
+non esistano fallback, ambiguità o “magie”
 
-RLS + Ownership
+🧠 PRINCIPIO FONDAMENTALE (DA MEMORIZZARE)
 
-RLS attiva su:
+DATABASE = UNICA SOURCE OF TRUTH
+API = ADAPTER
+ZOD = CONTRATTO
+FRONTEND = CONSUMATORE
 
-spst.shipments
+Se una modifica viola questo principio, è sbagliata.
 
-spst.packages
+1️⃣ SOURCE OF TRUTH (ASSOLUTA)
+📦 SPEDIZIONI
 
-Owner model (client): email
+Fonte: spst.shipments
 
-shipments.email_norm = lower(trim(email_cliente))
+Contiene:
 
-policy client read: email_norm = lower(auth.jwt()->>'email')
+dati anagrafici spedizione
 
-Client:
+mittente / destinatario / fatturazione
 
-✅ SELECT consentito via RLS
+stato, carrier, tracking
 
-✅ INSERT consentito (ma via API forziamo email dalla sessione)
+aggregati (colli_n, peso_reale_kg)
 
-❌ UPDATE/DELETE non consentiti
+allegati
 
-Staff/backoffice:
+extras legacy (fields)
 
-Sempre tramite service role (bypass RLS) + guard requireStaff()
+❌ NON è consentito:
 
-Autenticazione
+ricostruire dati da frontend
 
-Le API usano Supabase Auth via cookie/sessione.
+usare fields come fallback per dati strutturati
 
-Non autenticato → 401.
+📦 COLLI
 
-Contratti e DTO
+Fonte: spst.packages (UNICA)
 
-File contratti:
+Colonne DB reali:
 
-lib/contracts/shipment.ts
+packages:
+- id
+- shipment_id
+- contenuto
+- weight_kg
+- length_cm
+- width_cm
+- height_cm
+- created_at
 
-ShipmentDTO (output canonico)
 
-Tutte le GET di dettaglio devono tornare un ShipmentDTO completo.
+❌ NON ESISTONO nel DB:
 
-Regole:
+peso_reale_kg
 
-packages è sempre un array (mai null)
+lato1_cm / lato2_cm / lato3_cm
 
-attachments ha sempre lo stesso shape (chiavi fisse, valori string/null)
+👉 Questi nomi esistono SOLO a livello API/DTO.
 
-extras è fields (alias), ma non viene usato come fallback
+⚖️ AGGREGATI
 
-Nota: la lista ritorna un “subset DTO-safe”: stesso schema di chiavi principali ma packages: [], attachments vuoto (shape standard), extras: null.
+shipments.colli_n
 
-Endpoints
-1) GET /api/spedizioni
+shipments.peso_reale_kg
 
-Lista spedizioni.
+✔️ Aggiornati ESCLUSIVAMENTE da trigger DB
+❌ Mai calcolati in API o frontend
 
-Accesso
+📎 ALLEGATI
 
-Client: via RLS (vede solo le proprie)
+Fonte: colonne dedicate su spst.shipments
 
-Staff: vede tutto (service role)
-
-Query params
-
-q (string): ricerca su search_text (ilike trigram)
-
-page (number, default 1)
-
-limit (number, default 20, max 100)
-
-sort = created_desc (default) | created_asc
-
-email (staff only, opzionale): filtra per email_norm
-
-Response (200)
-{
-  "ok": true,
-  "page": 1,
-  "limit": 20,
-  "total": 123,
-  "scope": "client",
-  "rows": [
-    {
-      "id": "uuid",
-      "human_id": "SP-2025-...",
-      "created_at": "2025-12-23T...",
-      "customer_id": null,
-      "email_cliente": "buyer@email.com",
-      "status": "draft",
-      "carrier": null,
-      "service_code": null,
-      "tracking_code": null,
-      "tipo_spedizione": "B2B",
-      "incoterm": null,
-      "declared_value": null,
-      "fatt_valuta": "EUR",
-      "giorno_ritiro": "2025-12-24",
-      "pickup_at": null,
-      "note_ritiro": null,
-      "formato_sped": "PALLET",
-      "contenuto_generale": null,
-      "mittente": { "...": null },
-      "destinatario": null,
-      "fatturazione": null,
-      "colli_n": 0,
-      "peso_reale_kg": 0,
-      "packages": [],
-      "attachments": {
-        "ldv": null,
-        "fattura_proforma": null,
-        "fattura_commerciale": null,
-        "dle": null,
-        "allegato1": null,
-        "allegato2": null,
-        "allegato3": null,
-        "allegato4": null
-      },
-      "extras": null
-    }
-  ]
-}
-
-Errori
-
-401 UNAUTHENTICATED
-
-500 error DB/unexpected
-
-2) POST /api/spedizioni
-
-Crea una spedizione (bozza o completa).
-
-Accesso
-
-Client: consentito (email forzata da sessione)
-
-Staff: consentito (può specificare email nel body; fallback su sessione)
-
-Body (ShipmentInputZ)
-
-email_cliente: NON required per client (viene forzata da sessione)
-
-colli: può essere [] (bozza)
-
-no fallback: fields.colli non esiste più come logica
-
-Behavior
-
-Inserisce spst.shipments
-
-Inserisce spst.packages se colli.length > 0
-
-Trigger DB aggiorna colli_n, peso_reale_kg su shipments
-
-Response (201)
-{ "ok": true, "shipment_id": "uuid" }
-
-Errori
-
-401 UNAUTHENTICATED
-
-400 VALIDATION_ERROR
-
-500 INSERT_FAILED
-
-500 PACKAGES_INSERT_FAILED (shipment creato ma colli non inseriti)
-
-3) GET /api/spedizioni/:id
-
-Dettaglio spedizione.
-
-Accesso
-
-Client: via RLS (solo owner)
-
-Staff: service role
-
-Response (200)
-
-Ritorna ShipmentDTO completo.
-
-include packages popolato (source of truth)
-
-include attachments shape standard
-
-extras = alias di fields
-
-Errori
-
-401 UNAUTHENTICATED
-
-404 NOT_FOUND (o “invisibile” via RLS)
-
-500
-
-4) PATCH /api/spedizioni/:id
-
-Aggiornamento spedizione.
-
-Accesso
-
-Staff only
-
-Client non può modificare (by design)
-
-Note
-
-Usato per backoffice (status, carrier, ecc).
-Non deve introdurre fallback legacy.
-
-5) GET /api/spedizioni/:id/colli
-
-Legge i colli della spedizione.
-
-Accesso
-
-Client: via RLS (owner della shipment)
-
-Staff: service role
-
-Response (200)
-{
-  "ok": true,
-  "shipment_id": "uuid",
-  "packages": [
-    {
-      "id": "uuid",
-      "shipment_id": "uuid",
-      "contenuto": "Vino",
-      "peso_reale_kg": 10,
-      "lato1_cm": 40,
-      "lato2_cm": 30,
-      "lato3_cm": 20,
-      "created_at": "..."
-    }
-  ]
-}
-
-6) PUT /api/spedizioni/:id/colli
-
-Sostituisce i colli (delete + insert).
-
-Accesso
-
-Staff only
-
-Behavior
-
-cancella tutti i packages per shipment
-
-inserisce nuovi packages
-
-trigger DB aggiorna colli_n / peso_reale_kg
-
-7) GET /api/spedizioni/:id/attachments
-
-Legge allegati.
-
-Accesso
-
-Staff only (freeze rule)
-
-Response (200)
-{
-  "ok": true,
-  "shipment_id": "uuid",
-  "scope": "staff",
-  "attachments": {
-    "id": "uuid",
-    "ldv": "https://...",
-    "fattura_proforma": null,
-    "fattura_commerciale": null,
-    "dle": null,
-    "allegato1": null,
-    "allegato2": null,
-    "allegato3": null,
-    "allegato4": null
-  }
-}
-
-8) PATCH /api/spedizioni/:id/attachments
-
-Aggiorna SOLO colonne allegati (whitelist).
-
-Accesso
-
-Staff only
-
-Body
-
-Qualsiasi subset di:
+Esempio:
 
 ldv
 
@@ -324,37 +103,260 @@ dle
 
 allegato1..4
 
-Errori
+❌ Nessun JSON dinamico
+❌ Nessun fallback
+✔️ Colonne esplicite
 
-400 NO_ALLOWED_FIELDS
+🧺 EXTRAS (LEGACY)
 
-500 UPDATE_FAILED
+Fonte: shipments.fields
+Esposto come: extras
 
-Convenzioni di output
-Lista vs dettaglio
+✔️ Ammesso solo per:
 
-Lista (GET /api/spedizioni): “DTO-safe subset”
+packing list vino
+
+metadata UI
+
+dati documentali non normalizzati
+
+❌ MAI:
+
+colli
+
+peso
+
+dimensioni
+
+dati core
+
+2️⃣ RLS & OWNERSHIP
+RLS ATTIVA SU:
+
+spst.shipments
+
+spst.packages
+
+Ownership model
+shipments.email_norm = lower(trim(email_cliente))
+
+Client
+
+✅ SELECT via RLS
+
+✅ INSERT (solo via API, email forzata da sessione)
+
+❌ UPDATE
+
+❌ DELETE
+
+Staff / Backoffice
+
+sempre via service role
+
+bypass RLS
+
+protetto da requireStaff()
+
+3️⃣ AUTENTICAZIONE
+
+Supabase Auth
+
+Cookie / session-based
+
+Nessun header custom richiesto
+
+❌ Non autenticato → 401 UNAUTHENTICATED
+
+4️⃣ CONTRATTI (OBBLIGATORI)
+📄 File
+lib/contracts/shipment.ts
+
+ShipmentInputZ
+
+Contratto di ingresso
+
+Descrive cosa il mondo esterno PUÒ inviare
+
+❌ NON descrive il DB
+
+❌ NON è source of truth
+
+👉 Può avere nomi semantici (lato1_cm)
+👉 L’API deve adattarli al DB
+
+ShipmentDTO
+
+UNICO output canonico
+
+Regole:
+
+packages → sempre array
+
+attachments → shape fissa
+
+extras → alias di fields
+
+mai null dove è previsto array/oggetto
+
+⚠️ REGOLA D’ORO SUI NOMI
+
+MAI fare SELECT usando nomi DTO.
+Le SELECT usano SOLO nomi DB.
+La rimappatura avviene DOPO, in API.
+
+5️⃣ ENDPOINTS CONGELATI
+GET /api/spedizioni
+
+Lista spedizioni
+
+DTO-safe subset
 
 packages: []
 
-attachments presente con chiavi fisse
+attachments vuoto
 
 extras: null
 
-Dettaglio (GET /api/spedizioni/:id): ShipmentDTO completo
+POST /api/spedizioni
+
+Crea spedizione
+
+Input: ShipmentInputZ
+
+Email cliente forzata da sessione
+
+Inserisce:
+
+shipments
+
+packages (se presenti)
+
+Trigger DB aggiorna aggregati
+
+GET /api/spedizioni/:id
+
+Dettaglio spedizione
+
+Ritorna ShipmentDTO completo
 
 packages popolato
 
-extras popolato (alias di fields, se presente)
+extras popolato
 
-Env vars
+PATCH /api/spedizioni/:id
 
-Minime:
+Staff only
 
-NEXT_PUBLIC_SUPABASE_URL
+Update backoffice
 
-NEXT_PUBLIC_SUPABASE_ANON_KEY
+❌ Nessun fallback legacy
 
-SUPABASE_SERVICE_ROLE (o SUPABASE_SERVICE_ROLE_KEY)
+GET /api/spedizioni/:id/colli
 
-SUPABASE_URL (opzionale se già usi NEXT_PUBLIC_SUPABASE_URL)
+Source of truth: spst.packages
+
+SELECT usa colonne DB
+
+Output rimappato:
+
+weight_kg → peso_reale_kg
+
+length_cm → lato1_cm ecc.
+
+PUT /api/spedizioni/:id/colli
+
+Staff only
+
+Replace totale:
+
+delete
+
+insert
+
+Trigger DB aggiorna aggregati
+
+GET /api/spedizioni/:id/attachments
+
+Staff only
+
+Ritorna colonne dedicate
+
+PATCH /api/spedizioni/:id/attachments
+
+Staff only
+
+Whitelist rigida
+
+❌ Nessun payload libero
+
+6️⃣ COSA SI PUÒ TOCCARE (SICURO)
+
+✅ Frontend (tutto):
+
+pagine
+
+UX
+
+component
+
+validazioni UI
+
+adapter frontend → ShipmentInputZ
+
+✅ API:
+
+solo implementazione interna
+
+mapping DB ↔ DTO
+
+refactor codice
+
+performance
+
+✅ Extras:
+
+aggiungere chiavi in extras
+
+evolvere packing list
+
+7️⃣ COSA NON SI PUÒ TOCCARE (VIETATO)
+
+❌ Endpoint api/spedizioni (firma, comportamento)
+❌ Shape di ShipmentDTO
+❌ Source of truth
+❌ RLS
+❌ Ownership model
+❌ Uso di fields come fallback
+❌ Calcoli fuori dal DB
+
+8️⃣ CHECKLIST PRIMA DI OGNI MODIFICA
+
+ Sto usando il DB come unica verità?
+
+ Sto usando nomi DB nelle SELECT?
+
+ Sto rimappando i nomi solo in output?
+
+ Sto rispettando ShipmentDTO?
+
+ Sto evitando fallback legacy?
+
+ Sto rispettando questo README?
+
+Se anche una sola risposta è NO → fermati.
+
+🧊 CONCLUSIONE
+
+Questo documento è il Padre Nostro di SPST Operations.
+
+Va letto
+
+Va rispettato
+
+Va incollato in ogni nuova chat
+
+Va usato come filtro decisionale
+
+Se una modifica “sembra comoda” ma viola questo README,
+è sbagliata anche se funziona.
