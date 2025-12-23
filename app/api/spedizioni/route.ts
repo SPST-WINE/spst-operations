@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-import { ShipmentInputZ } from "@/lib/contracts/shipment";
+import { ShipmentInputZ, type ShipmentDTO } from "@/lib/contracts/shipment";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
 /* ───────────── Helpers ───────────── */
@@ -11,6 +11,121 @@ function normalizeEmail(x?: string | null) {
   const v = (x ?? "").trim();
   return v ? v.toLowerCase() : null;
 }
+
+const EMPTY_ATTACHMENTS = {
+  ldv: null,
+  fattura_proforma: null,
+  fattura_commerciale: null,
+  dle: null,
+  allegato1: null,
+  allegato2: null,
+  allegato3: null,
+  allegato4: null,
+} as const;
+
+function mapListRowToDTO(row: any): ShipmentDTO {
+  return {
+    id: row.id,
+    human_id: row.human_id ?? null,
+    created_at: row.created_at,
+
+    customer_id: row.customer_id ?? null,
+    email_cliente: row.email_cliente ?? null,
+
+    status: row.status ?? null,
+    carrier: row.carrier ?? null,
+    service_code: row.service_code ?? null,
+    tracking_code: row.tracking_code ?? null,
+
+    tipo_spedizione: row.tipo_spedizione ?? null,
+    incoterm: row.incoterm ?? null,
+    declared_value: row.declared_value ?? null,
+    fatt_valuta: row.fatt_valuta ?? null,
+
+    giorno_ritiro: row.giorno_ritiro ?? null,
+    pickup_at: row.pickup_at ?? null,
+    note_ritiro: row.note_ritiro ?? null,
+
+    formato_sped: row.formato_sped ?? null,
+    contenuto_generale: row.contenuto_generale ?? null,
+
+    mittente: {
+      rs: row.mittente_rs ?? null,
+      referente: row.mittente_referente ?? null,
+      telefono: row.mittente_telefono ?? null,
+      piva: row.mittente_piva ?? null,
+      paese: row.mittente_paese ?? null,
+      citta: row.mittente_citta ?? null,
+      cap: row.mittente_cap ?? null,
+      indirizzo: row.mittente_indirizzo ?? null,
+    },
+
+    destinatario:
+      row.dest_rs || row.dest_paese || row.dest_indirizzo
+        ? {
+            rs: row.dest_rs ?? null,
+            referente: row.dest_referente ?? null,
+            telefono: row.dest_telefono ?? null,
+            piva: row.dest_piva ?? null,
+            paese: row.dest_paese ?? null,
+            citta: row.dest_citta ?? null,
+            cap: row.dest_cap ?? null,
+            indirizzo: row.dest_indirizzo ?? null,
+            abilitato_import: row.dest_abilitato_import ?? null,
+          }
+        : null,
+
+    fatturazione:
+      row.fatt_rs || row.fatt_paese || row.fatt_indirizzo
+        ? {
+            rs: row.fatt_rs ?? null,
+            referente: row.fatt_referente ?? null,
+            telefono: row.fatt_telefono ?? null,
+            piva: row.fatt_piva ?? null,
+            paese: row.fatt_paese ?? null,
+            citta: row.fatt_citta ?? null,
+            cap: row.fatt_cap ?? null,
+            indirizzo: row.fatt_indirizzo ?? null,
+          }
+        : null,
+
+    colli_n: row.colli_n ?? null,
+    peso_reale_kg: row.peso_reale_kg ?? null,
+
+    // ✅ sempre array (anche in lista)
+    packages: [],
+
+    // ✅ shape standard (anche in lista)
+    attachments: { ...EMPTY_ATTACHMENTS },
+
+    extras: null,
+  };
+}
+
+const LIST_SELECT = `
+  id,created_at,human_id,
+  customer_id,email_cliente,email_norm,
+
+  status,carrier,service_code,tracking_code,
+
+  tipo_spedizione,incoterm,declared_value,fatt_valuta,
+
+  giorno_ritiro,pickup_at,note_ritiro,
+
+  formato_sped,contenuto_generale,
+
+  mittente_rs,mittente_referente,mittente_telefono,mittente_piva,
+  mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
+
+  dest_rs,dest_referente,dest_telefono,dest_piva,
+  dest_paese,dest_citta,dest_cap,dest_indirizzo,
+  dest_abilitato_import,
+
+  fatt_rs,fatt_referente,fatt_telefono,fatt_piva,
+  fatt_paese,fatt_citta,fatt_cap,fatt_indirizzo,
+
+  colli_n,peso_reale_kg
+`;
 
 /** service-role client (no session persistence) */
 function admin() {
@@ -51,7 +166,7 @@ async function isStaff(): Promise<boolean> {
    - CLIENT: via RLS
    - STAFF: service role (vede tutto)
    - SEARCH: filtra su search_text (trigram index)
-   - OUTPUT: NON include search_text nelle rows
+   - OUTPUT: rows = ShipmentDTO “DTO-safe” (subset: packages=[], attachments empty, extras null)
 */
 export async function GET(req: Request) {
   try {
@@ -87,18 +202,7 @@ export async function GET(req: Request) {
       let query = supaAdmin
         .schema("spst")
         .from("shipments")
-        .select(
-          `
-          id,created_at,human_id,
-          email_cliente,email_norm,
-          tipo_spedizione,incoterm,status,
-          mittente_paese,mittente_citta,
-          dest_paese,dest_citta,
-          colli_n,formato_sped,
-          carrier,tracking_code
-        `,
-          { count: "exact" }
-        );
+        .select(LIST_SELECT, { count: "exact" });
 
       if (emailParam) query = query.eq("email_norm", emailParam);
 
@@ -126,7 +230,7 @@ export async function GET(req: Request) {
         page,
         limit,
         total: count ?? null,
-        rows: data ?? [],
+        rows: (data ?? []).map(mapListRowToDTO),
         scope: "staff",
       });
     }
@@ -134,18 +238,7 @@ export async function GET(req: Request) {
     // CLIENT MODE (RLS)
     let query = supa
       .from("shipments")
-      .select(
-        `
-        id,created_at,human_id,
-        email_cliente,email_norm,
-        tipo_spedizione,incoterm,status,
-        mittente_paese,mittente_citta,
-        dest_paese,dest_citta,
-        colli_n,formato_sped,
-        carrier,tracking_code
-      `,
-        { count: "exact" }
-      );
+      .select(LIST_SELECT, { count: "exact" });
 
     // ✅ search_text (indice trigram)
     if (q) {
@@ -171,7 +264,7 @@ export async function GET(req: Request) {
       page,
       limit,
       total: count ?? null,
-      rows: data ?? [],
+      rows: (data ?? []).map(mapListRowToDTO),
       scope: "client",
     });
   } catch (e: any) {
@@ -222,7 +315,8 @@ export async function POST(req: NextRequest) {
     // ✅ robust email handling (evita .toLowerCase su null)
     // CLIENT: non può creare per altri
     if (!staff) {
-      input.email_cliente = normalizeEmail(user.email) || user.email.toLowerCase().trim();
+      input.email_cliente =
+        normalizeEmail(user.email) || user.email.toLowerCase().trim();
     } else {
       const email = normalizeEmail(input.email_cliente) || normalizeEmail(user.email);
       input.email_cliente = email || user.email.toLowerCase().trim();
@@ -258,86 +352,75 @@ export async function POST(req: NextRequest) {
         mittente_cap: input.mittente.cap,
         mittente_indirizzo: input.mittente.indirizzo,
 
-        dest_rs: input.destinatario?.rs,
-        dest_referente: input.destinatario?.referente,
-        dest_telefono: input.destinatario?.telefono,
-        dest_piva: input.destinatario?.piva,
-        dest_paese: input.destinatario?.paese,
-        dest_citta: input.destinatario?.citta,
-        dest_cap: input.destinatario?.cap,
-        dest_indirizzo: input.destinatario?.indirizzo,
-        dest_abilitato_import: input.destinatario?.abilitato_import,
+        dest_rs: input.destinatario?.rs ?? null,
+        dest_referente: input.destinatario?.referente ?? null,
+        dest_telefono: input.destinatario?.telefono ?? null,
+        dest_piva: input.destinatario?.piva ?? null,
+        dest_paese: input.destinatario?.paese ?? null,
+        dest_citta: input.destinatario?.citta ?? null,
+        dest_cap: input.destinatario?.cap ?? null,
+        dest_indirizzo: input.destinatario?.indirizzo ?? null,
+        dest_abilitato_import: (input.destinatario as any)?.abilitato_import ?? null,
 
-        fatt_rs: input.fatturazione?.rs,
-        fatt_referente: input.fatturazione?.referente,
-        fatt_telefono: input.fatturazione?.telefono,
-        fatt_piva: input.fatturazione?.piva,
-        fatt_paese: input.fatturazione?.paese,
-        fatt_citta: input.fatturazione?.citta,
-        fatt_cap: input.fatturazione?.cap,
-        fatt_indirizzo: input.fatturazione?.indirizzo,
+        fatt_rs: input.fatturazione?.rs ?? null,
+        fatt_referente: input.fatturazione?.referente ?? null,
+        fatt_telefono: input.fatturazione?.telefono ?? null,
+        fatt_piva: input.fatturazione?.piva ?? null,
+        fatt_paese: input.fatturazione?.paese ?? null,
+        fatt_citta: input.fatturazione?.citta ?? null,
+        fatt_cap: input.fatturazione?.cap ?? null,
+        fatt_indirizzo: input.fatturazione?.indirizzo ?? null,
 
-        fields: input.extras ?? {},
+        // extras legacy (alias fields) — ok tenerli, ma NON come fonte primaria
+        fields: input.extras ?? null,
       })
-      .select()
+      .select("id")
       .single();
 
     if (error || !shipment?.id) {
       return NextResponse.json(
-        { ok: false, error: "INSERT_FAILED", details: error ?? null },
+        { ok: false, error: "INSERT_FAILED", details: error?.message ?? null },
         { status: 500 }
       );
     }
 
-    // ✅ Scrivi i colli nella tabella spst.packages (source of truth)
-    // FIX #3: niente toNum (Zod garantisce già number().positive())
-    const rawColli: any[] = Array.isArray(input.colli) ? input.colli : [];
+    const shipmentId = shipment.id as string;
 
-    if (rawColli.length > 0) {
-      const packagesRows = rawColli.map((c) => ({
-        shipment_id: shipment.id,
+    // ✅ scrivi colli su packages (source of truth)
+    const colli = Array.isArray(input.colli) ? input.colli : [];
+    if (colli.length > 0) {
+      const payload = colli.map((c: any) => ({
+        shipment_id: shipmentId,
         contenuto: c.contenuto ?? null,
-        peso_reale_kg: c.peso_reale_kg,
-        lato1_cm: c.lato1_cm,
-        lato2_cm: c.lato2_cm,
-        lato3_cm: c.lato3_cm,
+        peso_reale_kg: c.peso_reale_kg ?? null,
+        lato1_cm: c.lato1_cm ?? null,
+        lato2_cm: c.lato2_cm ?? null,
+        lato3_cm: c.lato3_cm ?? null,
       }));
 
-      // filtra righe palesemente invalide (extra safety)
-      const filtered = packagesRows.filter(
-        (r) =>
-          r.peso_reale_kg &&
-          r.lato1_cm &&
-          r.lato2_cm &&
-          r.lato3_cm &&
-          r.peso_reale_kg > 0 &&
-          r.lato1_cm > 0 &&
-          r.lato2_cm > 0 &&
-          r.lato3_cm > 0
-      );
+      const { error: pkgErr } = await (supaAdmin as any)
+        .schema("spst")
+        .from("packages")
+        .insert(payload);
 
-      if (filtered.length > 0) {
-        const { error: pkgErr } = await (supaAdmin as any)
-          .schema("spst")
-          .from("packages")
-          .insert(filtered);
-
-        if (pkgErr) {
-          // non blocco la creazione (per non rompere il flow), ma ritorno warning
-          return NextResponse.json(
-            {
-              ok: true,
-              shipment,
-              warning: "PACKAGES_INSERT_FAILED",
-              details: pkgErr.message,
-            },
-            { status: 200 }
-          );
-        }
+      if (pkgErr) {
+        // non rollbacko: shipment creato = ok, ma segnalo errore
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "PACKAGES_INSERT_FAILED",
+            shipment_id: shipmentId,
+            details: pkgErr.message,
+          },
+          { status: 500 }
+        );
       }
     }
 
-    return NextResponse.json({ ok: true, shipment, scope: staff ? "staff" : "client" });
+    return NextResponse.json(
+      { ok: true, shipment_id: shipmentId },
+      { status: 201 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
