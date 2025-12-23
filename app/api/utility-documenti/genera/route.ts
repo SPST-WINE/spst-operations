@@ -22,13 +22,6 @@ function jsonError(status: number, code: string, extra?: any) {
   );
 }
 
-type PackingListItem = {
-  descrizione?: string | null;
-  qta?: number | string | null;
-  volume_l?: number | string | null;
-  prezzo_unitario?: number | string | null;
-};
-
 function toNum(v: any): number {
   const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -38,28 +31,7 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-function normalizePackingList(input: any): PackingListItem[] {
-  if (!Array.isArray(input)) return [];
-  return input.map((x) => {
-    const o = (x && typeof x === "object") ? x : {};
-    return {
-      descrizione:
-        typeof o.descrizione === "string"
-          ? o.descrizione
-          : typeof o.nome === "string"
-          ? o.nome
-          : null,
-      qta:
-        o.qta ?? o.qty ?? o.quantita ?? o.quantity ?? null,
-      volume_l:
-        o.volume_l ?? o.volumeL ?? o.litri ?? o.liters ?? null,
-      prezzo_unitario:
-        o.prezzo_unitario ?? o.unitPrice ?? o.prezzo ?? o.price ?? null,
-    };
-  });
-}
-
-function buildCsv(rows: any[]): string {
+function buildCsv(rows: Record<string, any>[]): string {
   if (!Array.isArray(rows) || rows.length === 0) return "";
   const headers = Object.keys(rows[0] || {});
   const escape = (v: any) => {
@@ -68,11 +40,10 @@ function buildCsv(rows: any[]): string {
     const out = s.replace(/"/g, '""');
     return needs ? `"${out}"` : out;
   };
-  const lines = [
+  return [
     headers.join(";"),
     ...rows.map((r) => headers.map((h) => escape((r as any)[h])).join(";")),
-  ];
-  return lines.join("\n");
+  ].join("\n");
 }
 
 export async function POST(req: Request) {
@@ -93,8 +64,8 @@ export async function POST(req: Request) {
 
     const supabase = admin();
 
-    // Carichiamo una spedizione (con fields legacy, usati solo qui per packing list)
-    const { data: shipment, error } = await supabase
+    // ✅ Canonico: shipments (NO fields)
+    const { data: shipment, error: shipErr } = await supabase
       .schema("spst")
       .from("shipments")
       .select(
@@ -126,65 +97,69 @@ export async function POST(req: Request) {
           "allegato2",
           "allegato3",
           "allegato4",
-          // legacy extras
-          "fields",
         ].join(",")
       )
       .eq("id", shipmentId)
       .single();
 
-    if (error) {
-      console.error("[API/utility-documenti/genera] DB_ERROR", error);
-      if ((error as any).code === "PGRST116") {
-        return jsonError(404, "NOT_FOUND");
-      }
-      return jsonError(500, "DB_ERROR", { details: error.message });
+    if (shipErr) {
+      if ((shipErr as any).code === "PGRST116") return jsonError(404, "NOT_FOUND");
+      console.error("[utility-documenti/genera] shipment DB_ERROR", shipErr);
+      return jsonError(500, "DB_ERROR", { details: shipErr.message });
     }
     if (!shipment) return jsonError(404, "NOT_FOUND");
 
-    const fields = (shipment as any).fields || {};
+    // ✅ Canonico: packages come source of truth per righe documento
+    const { data: packages, error: pkgErr } = await supabase
+      .schema("spst")
+      .from("packages")
+      .select("id,shipment_id,contenuto,peso_reale_kg,lato1_cm,lato2_cm,lato3_cm,created_at")
+      .eq("shipment_id", shipmentId)
+      .order("created_at", { ascending: true });
 
-    // ============================
-    // ⚠️ LEGACY: packing list da shipment.fields.packingList
-    // ============================
-    const packingJson = Array.isArray(fields.packingList)
-      ? fields.packingList
-      : Array.isArray(fields?.packing_list)
-      ? fields.packing_list
-      : Array.isArray(fields?.packinglist)
-      ? fields.packinglist
-      : null;
+    if (pkgErr) {
+      console.error("[utility-documenti/genera] packages DB_ERROR", pkgErr);
+      return jsonError(500, "DB_ERROR", { details: pkgErr.message });
+    }
 
-    const items = normalizePackingList(packingJson);
+    const pkgs = Array.isArray(packages) ? packages : [];
 
-    // Calcoli
-    const rows = items.map((it, idx) => {
-      const qty = toNum(it.qta);
-      const vol = toNum(it.volume_l);
-      const unit = toNum(it.prezzo_unitario);
-      const line = round2(qty * unit);
+    // Packing list “freeze-compliant”:
+    // - 1 riga per collo (packages)
+    // - qta = 1 (non abbiamo linee prodotto canoniche nel DB)
+    // - niente valori inventati
+    const rows = pkgs.map((p: any, idx: number) => {
+      const peso = toNum(p.peso_reale_kg);
+      const l1 = toNum(p.lato1_cm);
+      const l2 = toNum(p.lato2_cm);
+      const l3 = toNum(p.lato3_cm);
 
       return {
         n: idx + 1,
-        descrizione: it.descrizione || "",
-        qta: qty,
-        volume_l: vol,
-        prezzo_unitario: unit,
-        line_total: line,
+        package_id: p.id,
+        descrizione: p.contenuto || shipment.contenuto_generale || "Collo",
+        qta: 1,
+        peso_reale_kg: peso || 0,
+        lato1_cm: l1 || 0,
+        lato2_cm: l2 || 0,
+        lato3_cm: l3 || 0,
       };
     });
 
-    const totalQty = rows.reduce((a, r) => a + toNum(r.qta), 0);
-    const totalVolumeL = round2(rows.reduce((a, r) => a + toNum(r.volume_l), 0));
-    const totalValue = round2(rows.reduce((a, r) => a + toNum(r.line_total), 0));
+    const totalPackages = rows.length;
+    const totalWeightFromRows = round2(
+      rows.reduce((a, r) => a + toNum(r.peso_reale_kg), 0)
+    );
 
-    const currency =
-      (shipment as any).fatt_valuta ||
-      (fields && (fields.currency || fields.valuta)) ||
-      "EUR";
+    // Preferiamo il totale “canonico” su shipments (trigger DB), ma senza fallback legacy.
+    const shipmentPeso = toNum((shipment as any).peso_reale_kg);
+    const totalWeightKg = shipmentPeso > 0 ? shipmentPeso : totalWeightFromRows;
+
+    const currency = (shipment as any).fatt_valuta || "EUR";
 
     const payload = {
       ok: true,
+      scope: "staff",
       shipment_id: (shipment as any).id,
       human_id: (shipment as any).human_id,
       created_at: (shipment as any).created_at,
@@ -201,8 +176,10 @@ export async function POST(req: Request) {
       mittente: (shipment as any).mittente ?? null,
       destinatario: (shipment as any).destinatario ?? null,
       fatturazione: (shipment as any).fatturazione ?? null,
-      colli_n: (shipment as any).colli_n ?? 0,
-      peso_reale_kg: (shipment as any).peso_reale_kg ?? 0,
+      colli_n: (shipment as any).colli_n ?? totalPackages,
+      peso_reale_kg: (shipment as any).peso_reale_kg ?? totalWeightKg,
+
+      // shape standard attachments (coerente con freeze)
       attachments: {
         id: (shipment as any).id,
         ldv: (shipment as any).ldv ?? null,
@@ -214,11 +191,11 @@ export async function POST(req: Request) {
         allegato3: (shipment as any).allegato3 ?? null,
         allegato4: (shipment as any).allegato4 ?? null,
       },
+
       packing_list: rows,
       totals: {
-        total_qty: totalQty,
-        total_volume_l: totalVolumeL,
-        total_value: totalValue,
+        total_packages: totalPackages,
+        total_weight_kg: totalWeightKg,
         currency,
       },
     };
@@ -236,14 +213,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
-    console.error("[API/utility-documenti/genera] UNEXPECTED", e);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED",
-        details: String(e?.message || e),
-      },
-      { status: 500 }
-    );
+    console.error("[utility-documenti/genera] UNEXPECTED", e);
+    return jsonError(500, "UNEXPECTED", { details: String(e?.message || e) });
   }
 }
+
