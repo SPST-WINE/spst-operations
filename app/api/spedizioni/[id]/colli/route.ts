@@ -162,13 +162,13 @@ export async function PUT(
       if (peso <= 0 || l1 <= 0 || l2 <= 0 || l3 <= 0) return null;
 
       return {
-        shipment_id: id,
-        contenuto,
-        peso_reale_kg: peso,
-        lato1_cm: l1,
-        lato2_cm: l2,
-        lato3_cm: l3,
-      };
+  shipment_id: id,
+  contenuto,
+  weight_kg: peso,
+  length_cm: l1,
+  width_cm: l2,
+  height_cm: l3,
+};
     })
     .filter(Boolean) as any[];
 
