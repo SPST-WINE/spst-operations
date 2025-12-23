@@ -1,5 +1,6 @@
 // app/api/impostazioni/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -10,17 +11,28 @@ function jsonError(status: number, error: string, message?: string) {
   return NextResponse.json({ ok: false, error, message }, { status });
 }
 
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
+
 type CustomerRow = {
   id: string;
   user_id: string | null;
   email: string | null;
-  name: string | null;
-  phone: string | null;
-  company_name: string | null;
-  vat_number: string | null;
+  name?: string | null;
+  phone?: string | null;
+  company_name?: string | null;
+  vat_number?: string | null;
 };
 
 type AddressRow = {
+  id: string;
+  customer_id: string;
+  kind: "shipper" | "consignee" | string;
   country: string | null;
   company: string | null;
   full_name: string | null;
@@ -31,42 +43,93 @@ type AddressRow = {
   tax_id: string | null;
 };
 
-function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
-  const paese = addr?.country ?? "";
-  const mittente =
-    addr?.company ||
-    addr?.full_name ||
-    cust?.company_name ||
-    cust?.name ||
-    "";
-  const citta = addr?.city ?? "";
-  const cap = addr?.postal_code ?? "";
-  const indirizzo = addr?.street ?? "";
-  const telefono = addr?.phone || cust?.phone || "";
-  const piva = addr?.tax_id || cust?.vat_number || "";
-  return { paese, mittente, citta, cap, indirizzo, telefono, piva };
+function mapToMittente(address: AddressRow | null, customer: CustomerRow | null) {
+  return {
+    paese: address?.country ?? null,
+    mittente: customer?.company_name ?? customer?.name ?? null,
+    citta: address?.city ?? null,
+    cap: address?.postal_code ?? null,
+    indirizzo: address?.street ?? null,
+    telefono: customer?.phone ?? address?.phone ?? null,
+    piva: customer?.vat_number ?? address?.tax_id ?? null,
+  };
 }
 
-// GET self-service
+async function getOrClaimCustomerId(userId: string, userEmail: string) {
+  const db = admin();
+
+  // A) customer by user_id
+  const { data: byUser, error: byUserErr } = await db
+    .from("customers")
+    .select("id, user_id, email, name, phone, company_name, vat_number")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (byUserErr) throw new Error(byUserErr.message);
+  if (byUser?.id) return { customer: byUser as CustomerRow, claimed: false };
+
+  // B) fallback per email (record creato dal backoffice con user_id NULL)
+  const { data: byEmail, error: byEmailErr } = await db
+    .from("customers")
+    .select("id, user_id, email, name, phone, company_name, vat_number")
+    .eq("email", userEmail)
+    .maybeSingle();
+
+  if (byEmailErr) throw new Error(byEmailErr.message);
+
+  if (byEmail?.id) {
+    // se email già associata ad un altro account → blocco
+    if (byEmail.user_id && byEmail.user_id !== userId) {
+      return { conflict: true as const };
+    }
+
+    // se user_id è NULL, aggancialo all'utente loggato
+    if (!byEmail.user_id) {
+      const { error: linkErr } = await db
+        .from("customers")
+        .update({ user_id: userId })
+        .eq("id", byEmail.id);
+
+      if (linkErr) throw new Error(linkErr.message);
+    }
+
+    return {
+      customer: { ...(byEmail as any), user_id: userId } as CustomerRow,
+      claimed: true,
+    };
+  }
+
+  return { customer: null as any, claimed: false };
+}
+
 export async function GET() {
-  const supabase = supabaseServerSpst();
+  const supa = supabaseServerSpst();
 
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await supa.auth.getUser();
 
   if (!user?.id || !user?.email) {
     return jsonError(401, "UNAUTHORIZED", "Fai login e riprova.");
   }
 
-  // customer by user_id (non per email)
-  const { data: customer, error: custErr } = await supabase
-    .from("customers")
-    .select("id, user_id, email, name, phone, company_name, vat_number")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const userEmail = user.email.trim().toLowerCase();
 
-  if (custErr) return jsonError(500, "DB_ERROR", custErr.message);
+  // ✅ DB via service-role, ma email vincolata alla sessione
+  let customer: CustomerRow | null = null;
+  try {
+    const res = await getOrClaimCustomerId(user.id, userEmail);
+    if ((res as any).conflict) {
+      return jsonError(
+        409,
+        "EMAIL_ALREADY_USED",
+        "Questa email risulta già associata ad un altro account."
+      );
+    }
+    customer = (res as any).customer ?? null;
+  } catch (e: any) {
+    return jsonError(500, "DB_ERROR", String(e?.message || e));
+  }
 
   if (!customer?.id) {
     return NextResponse.json({
@@ -76,10 +139,12 @@ export async function GET() {
     });
   }
 
-  const { data: address, error: addrErr } = await supabase
+  const db = admin();
+
+  const { data: address, error: addrErr } = await db
     .from("addresses")
     .select(
-      "country, company, full_name, phone, street, city, postal_code, tax_id"
+      "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
     )
     .eq("customer_id", customer.id)
     .eq("kind", "shipper")
@@ -92,17 +157,16 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     email: user.email,
-    mittente: mapToMittente((address as any) ?? null, customer as any),
+    mittente: mapToMittente((address as any) ?? null, (customer as any) ?? null),
   });
 }
 
-// POST self-service
 export async function POST(req: NextRequest) {
-  const supabase = supabaseServerSpst();
+  const supa = supabaseServerSpst();
 
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await supa.auth.getUser();
 
   if (!user?.id || !user?.email) {
     return jsonError(401, "UNAUTHORIZED", "Fai login e riprova.");
@@ -124,77 +188,66 @@ export async function POST(req: NextRequest) {
     piva: (m.piva || "").trim() || null,
   };
 
-  // 1) upsert/claim customer (by user_id, fallback by email)
-  const userEmail = user.email.toLowerCase().trim();
+  const userEmail = user.email.trim().toLowerCase();
+  const db = admin();
 
+  // 1) get-or-create customer (service role) + claim by email se necessario
   let customerId: string | null = null;
 
-  // A) prova per user_id
-  const { data: custByUser, error: custByUserErr } = await supabase
-    .from("customers")
-    .select("id, user_id, email")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  try {
+    const res = await getOrClaimCustomerId(user.id, userEmail);
+    if ((res as any).conflict) {
+      return jsonError(
+        409,
+        "EMAIL_ALREADY_USED",
+        "Questa email risulta già associata ad un altro account."
+      );
+    }
+    const existing = (res as any).customer as CustomerRow | null;
 
-  if (custByUserErr) return jsonError(500, "DB_ERROR", custByUserErr.message);
+    if (existing?.id) {
+      customerId = existing.id;
+    } else {
+      // C) INSERT (email sempre da sessione)
+      const { data: inserted, error: insErr } = await db
+        .from("customers")
+        .insert({
+          user_id: user.id,
+          email: userEmail,
+          name: mittentePayload.mittente,
+          company_name: mittentePayload.mittente,
+          phone: mittentePayload.telefono,
+          vat_number: mittentePayload.piva,
+          fields: {},
+        })
+        .select("id")
+        .single();
 
-  if (custByUser?.id) {
-    customerId = custByUser.id;
-  } else {
-    // B) fallback per email (record creato dal backoffice con user_id NULL)
-    const { data: custByEmail, error: custByEmailErr } = await supabase
-      .from("customers")
-      .select("id, user_id, email")
-      .eq("email", userEmail)
-      .maybeSingle();
-
-    if (custByEmailErr) return jsonError(500, "DB_ERROR", custByEmailErr.message);
-
-    if (custByEmail?.id) {
-      // se email già associata ad un altro account → blocco
-      if (custByEmail.user_id && custByEmail.user_id !== user.id) {
-        return jsonError(
-          409,
-          "EMAIL_ALREADY_USED",
-          "Questa email risulta già associata ad un altro account."
-        );
-      }
-
-      customerId = custByEmail.id;
-
-      // se user_id è NULL, aggancialo all'utente loggato
-      if (!custByEmail.user_id) {
-        const { error: linkErr } = await supabase
-          .from("customers")
-          .update({ user_id: user.id })
-          .eq("id", custByEmail.id);
-
-        if (linkErr) return jsonError(500, "DB_ERROR", linkErr.message);
+      if (insErr) {
+        // se collisione (race) → rileggo e claim
+        if ((insErr as any).code === "23505") {
+          const res2 = await getOrClaimCustomerId(user.id, userEmail);
+          if ((res2 as any).conflict) {
+            return jsonError(
+              409,
+              "EMAIL_ALREADY_USED",
+              "Questa email risulta già associata ad un altro account."
+            );
+          }
+          const c2 = (res2 as any).customer as CustomerRow | null;
+          customerId = c2?.id ?? null;
+        } else {
+          return jsonError(500, "DB_ERROR", insErr.message);
+        }
+      } else {
+        customerId = inserted?.id || null;
       }
     }
-  }
 
-  // C) se ancora non esiste → INSERT
-  if (!customerId) {
-    const { data: inserted, error: insErr } = await supabase
-      .from("customers")
-      .insert({
-        user_id: user.id,
-        email: userEmail,
-        name: mittentePayload.mittente,
-        company_name: mittentePayload.mittente,
-        phone: mittentePayload.telefono,
-        vat_number: mittentePayload.piva,
-        fields: {},
-      })
-      .select("id")
-      .single();
+    if (!customerId) return jsonError(500, "DB_ERROR", "Customer non creato.");
 
-    if (insErr) return jsonError(500, "DB_ERROR", insErr.message);
-    customerId = inserted?.id || null;
-  } else {
     // D) update dati base (sempre)
-    const { error: updErr } = await supabase
+    const { error: updErr } = await db
       .from("customers")
       .update({
         email: userEmail,
@@ -206,17 +259,23 @@ export async function POST(req: NextRequest) {
       .eq("id", customerId);
 
     if (updErr) return jsonError(500, "DB_ERROR", updErr.message);
+  } catch (e: any) {
+    return jsonError(500, "DB_ERROR", String(e?.message || e));
   }
 
-  // 2) upsert address shipper
-  const { data: existingAddr, error: addrSelErr } = await supabase
+  // 2) upsert address shipper (service role)
+  const { data: existingAddr, error: addrErr } = await db
     .from("addresses")
-    .select("id")
+    .select(
+      "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
+    )
     .eq("customer_id", customerId)
     .eq("kind", "shipper")
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  if (addrSelErr) return jsonError(500, "DB_ERROR", addrSelErr.message);
+  if (addrErr) return jsonError(500, "DB_ERROR", addrErr.message);
 
   const addrBase = {
     customer_id: customerId,
@@ -232,10 +291,10 @@ export async function POST(req: NextRequest) {
   };
 
   if (!existingAddr?.id) {
-    const { error: insAddrErr } = await supabase.from("addresses").insert(addrBase);
+    const { error: insAddrErr } = await db.from("addresses").insert(addrBase);
     if (insAddrErr) return jsonError(500, "DB_ERROR", insAddrErr.message);
   } else {
-    const { error: updAddrErr } = await supabase
+    const { error: updAddrErr } = await db
       .from("addresses")
       .update(addrBase)
       .eq("id", existingAddr.id);
@@ -243,22 +302,26 @@ export async function POST(req: NextRequest) {
   }
 
   // ritorno una vista coerente
-  const { data: customer } = await supabase
+  const { data: customer, error: cErr } = await db
     .from("customers")
     .select("id, user_id, email, name, phone, company_name, vat_number")
     .eq("id", customerId)
     .single();
 
-  const { data: address } = await supabase
+  if (cErr) return jsonError(500, "DB_ERROR", cErr.message);
+
+  const { data: address, error: aErr } = await db
     .from("addresses")
     .select(
-      "country, company, full_name, phone, street, city, postal_code, tax_id"
+      "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
     )
     .eq("customer_id", customerId)
     .eq("kind", "shipper")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (aErr) return jsonError(500, "DB_ERROR", aErr.message);
 
   return NextResponse.json({
     ok: true,
