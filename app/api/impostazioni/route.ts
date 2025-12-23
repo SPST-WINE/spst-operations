@@ -60,6 +60,7 @@ async function getOrClaimCustomerId(userId: string, userEmail: string) {
 
   // A) customer by user_id
   const { data: byUser, error: byUserErr } = await db
+    .schema("spst")
     .from("customers")
     .select("id, user_id, email, name, phone, company_name, vat_number")
     .eq("user_id", userId)
@@ -70,6 +71,7 @@ async function getOrClaimCustomerId(userId: string, userEmail: string) {
 
   // B) fallback per email (record creato dal backoffice con user_id NULL)
   const { data: byEmail, error: byEmailErr } = await db
+    .schema("spst")
     .from("customers")
     .select("id, user_id, email, name, phone, company_name, vat_number")
     .eq("email", userEmail)
@@ -86,6 +88,7 @@ async function getOrClaimCustomerId(userId: string, userEmail: string) {
     // se user_id è NULL, aggancialo all'utente loggato
     if (!byEmail.user_id) {
       const { error: linkErr } = await db
+        .schema("spst")
         .from("customers")
         .update({ user_id: userId })
         .eq("id", byEmail.id);
@@ -142,6 +145,7 @@ export async function GET() {
   const db = admin();
 
   const { data: address, error: addrErr } = await db
+    .schema("spst")
     .from("addresses")
     .select(
       "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
@@ -210,6 +214,7 @@ export async function POST(req: NextRequest) {
     } else {
       // C) INSERT (email sempre da sessione)
       const { data: inserted, error: insErr } = await db
+        .schema("spst")
         .from("customers")
         .insert({
           user_id: user.id,
@@ -248,6 +253,7 @@ export async function POST(req: NextRequest) {
 
     // D) update dati base (sempre)
     const { error: updErr } = await db
+      .schema("spst")
       .from("customers")
       .update({
         email: userEmail,
@@ -265,6 +271,7 @@ export async function POST(req: NextRequest) {
 
   // 2) upsert address shipper (service role)
   const { data: existingAddr, error: addrErr } = await db
+    .schema("spst")
     .from("addresses")
     .select(
       "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
@@ -291,10 +298,11 @@ export async function POST(req: NextRequest) {
   };
 
   if (!existingAddr?.id) {
-    const { error: insAddrErr } = await db.from("addresses").insert(addrBase);
+    const { error: insAddrErr } = await db.schema("spst").from("addresses").insert(addrBase);
     if (insAddrErr) return jsonError(500, "DB_ERROR", insAddrErr.message);
   } else {
     const { error: updAddrErr } = await db
+      .schema("spst")
       .from("addresses")
       .update(addrBase)
       .eq("id", existingAddr.id);
@@ -303,6 +311,7 @@ export async function POST(req: NextRequest) {
 
   // ritorno una vista coerente
   const { data: customer, error: cErr } = await db
+    .schema("spst")
     .from("customers")
     .select("id, user_id, email, name, phone, company_name, vat_number")
     .eq("id", customerId)
@@ -311,6 +320,7 @@ export async function POST(req: NextRequest) {
   if (cErr) return jsonError(500, "DB_ERROR", cErr.message);
 
   const { data: address, error: aErr } = await db
+    .schema("spst")
     .from("addresses")
     .select(
       "id, customer_id, kind, country, company, full_name, phone, street, city, postal_code, tax_id"
