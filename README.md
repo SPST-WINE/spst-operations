@@ -1,3 +1,8 @@
+⚠️ IMPORTANT
+Questo documento definisce il comportamento definitivo delle API `api/spedizioni`.
+Qualsiasi modifica che lo contraddice è da considerarsi un breaking change
+e NON va introdotta senza versioning esplicito.
+
 SPST Operations — API (Backend Freeze)
 
 Versione: spst-freeze-backend-v1
