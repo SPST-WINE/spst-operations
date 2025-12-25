@@ -467,66 +467,66 @@ export async function POST(req: Request) {
     }
 
     // ✅ packages: schema reale (length_cm/width_cm/height_cm/weight_kg)
-    if (colli.length > 0) {
-      const pkgs = colli.map((c: any) => ({
-        shipment_id: shipment.id,
-        contenuto: c?.contenuto ?? null,
+if (colli.length > 0) {
+  const pkgs = colli.map((c: any) => {
+    // WHITELIST hard: nessuna key "random" può entrare in insert
+    const length_cm = toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1);
+    const width_cm  = toNum(c?.width_cm  ?? c?.lato2_cm ?? c?.l2);
+    const height_cm = toNum(c?.height_cm ?? c?.lato3_cm ?? c?.l3);
 
-        // preferisci campi DB-shape, fallback legacy
-        length_cm: toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1),
-        width_cm: toNum(c?.width_cm ?? c?.lato2_cm ?? c?.l2),
-        height_cm: toNum(c?.height_cm ?? c?.lato3_cm ?? c?.l3),
-        weight_kg: toNum(c?.weight_kg ?? c?.peso_reale_kg ?? c?.peso),
+    // input legacy ok, ma colonna DB è weight_kg
+    const weight_kg = toNum(c?.weight_kg ?? c?.peso ?? c?.peso_kg ?? c?.peso_reale_kg);
 
-        // opzionale (se la colonna esiste nel DB)
-        volumetric_divisor:
-          toNum(c?.volumetric_divisor) ?? toNum(c?.divisor) ?? 5000,
-      }));
+    const volumetric_divisor =
+  toNum(c?.volumetric_divisor ?? c?.divisor) ?? null;
 
-      const { error: pkgErr } = await supabaseSrv
-        .schema("spst")
-        .from("packages")
-        .insert(pkgs);
 
-      if (pkgErr) {
-        console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
-        console.error("code:", (pkgErr as any)?.code);
-        console.error("message:", (pkgErr as any)?.message);
-        console.error("raw:", pkgErr);
+    return {
+      shipment_id: shipment.id,
+      contenuto: c?.contenuto ?? null,
+      length_cm,
+      width_cm,
+      height_cm,
+      weight_kg,
+      volumetric_divisor,
+    };
+  });
 
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "PACKAGES_INSERT_FAILED",
-            details: (pkgErr as any).message,
-            shipment_id: shipment.id,
-          },
-          { status: 500, headers: withCorsHeaders() }
-        );
-      }
-    }
+  // 🔍 DEBUG: cosa stiamo davvero inserendo?
+  console.log("[SPEDIZIONI] packages target = spst.packages");
+  console.log("[SPEDIZIONI] pkgs[0] keys =", Object.keys(pkgs?.[0] ?? {}));
+  console.log("[SPEDIZIONI] pkgs[0] =", JSON.stringify(pkgs?.[0] ?? null));
 
-    return NextResponse.json(
-      {
-        ok: true,
-        shipment,
-        id: shipment.human_id || shipment.id,
-      },
-      { headers: withCorsHeaders() }
-    );
-  } catch (e: any) {
-    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
-    console.error("message:", e?.message);
-    console.error("stack:", e?.stack);
-    console.error("raw:", e);
+  const { error: pkgErr } = await supabaseSrv
+    .schema("spst")
+    .from("packages")
+    .insert(pkgs);
+
+  if (pkgErr) {
+    console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
+    console.error("code:", (pkgErr as any)?.code);
+    console.error("message:", (pkgErr as any)?.message);
+    console.error("details:", (pkgErr as any)?.details);
+    console.error("hint:", (pkgErr as any)?.hint);
+    console.error("raw:", pkgErr);
 
     return NextResponse.json(
       {
         ok: false,
-        error: "UNEXPECTED_ERROR",
-        details: String(e?.message || e),
+        error: "PACKAGES_INSERT_FAILED",
+        details: (pkgErr as any).message,
+        shipment_id: shipment.id,
       },
       { status: 500, headers: withCorsHeaders() }
     );
   }
 }
+
+return NextResponse.json(
+  {
+    ok: true,
+    shipment,
+    id: shipment.human_id || shipment.id,
+  },
+  { headers: withCorsHeaders() }
+);
