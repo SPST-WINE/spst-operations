@@ -258,8 +258,6 @@ function mapParty(p: Party) {
 // API helper (cookie session) → POST /api/spedizioni
 // ------------------------------------------------------------
 async function createShipmentWithAuth(payload: any, emailOverride?: string) {
-  // NB: l'API /api/spedizioni usa la sessione cookie (supabaseServerSpst).
-  // Non servono Authorization header né x-user-email.
   const body: any = {
     ...payload,
     ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
@@ -272,7 +270,7 @@ async function createShipmentWithAuth(payload: any, emailOverride?: string) {
     body: JSON.stringify(body),
   });
 
-  const json = await res.json().catch(() => ({}));
+  const json = await res.json().catch(() => ({} as any));
   if (!res.ok || !json?.ok) {
     const details =
       json?.details || json?.error || `${res.status} ${res.statusText}`;
@@ -283,9 +281,17 @@ async function createShipmentWithAuth(payload: any, emailOverride?: string) {
     );
   }
 
-  // API freeze: { ok: true, shipment_id }
-  return { id: json.shipment_id as string };
+  // ✅ la tua API POST ritorna: { ok:true, shipment, id }
+  const recId = json?.shipment?.id;        // uuid
+  const humanId = json?.id || json?.shipment?.human_id; // SP-... (fallback)
+
+  if (!recId || !humanId) {
+    throw new Error("Missing id from /api/spedizioni response");
+  }
+
+  return { recId, humanId };
 }
+
 
 // ------------------------------------------------------------
 // UPLOAD DOCUMENTI → stessa API del Back Office (/upload)
@@ -614,32 +620,30 @@ function NuovaVinoPageInner() {
 
       const created = await createShipmentWithAuth(payload, forcedEmail || undefined);
 
-      try {
-        if (fatturaFile) {
-          await uploadShipmentDocument(created.id, fatturaFile, "fattura_proforma");
-        }
-      } catch (e) {
-        console.error("Errore upload documenti:", e);
-        setErrors([
-          "Spedizione creata, ma si è verificato un errore durante il caricamento della fattura.",
-        ]);
-      }
+try {
+  if (fatturaFile) {
+    // ✅ upload vuole UUID
+    await uploadShipmentDocument(created.recId, fatturaFile, "fattura_proforma");
+  }
+} catch (e) {
+  console.error("Errore upload documenti:", e);
+  setErrors([
+    "Spedizione creata, ma si è verificato un errore durante il caricamento della fattura.",
+  ]);
+}
 
-    const recId = created?.shipment?.id;
-    const humanId = created?.id ?? created?.shipment?.human_id;
+// ✅ UI vuole HUMAN ID (SP-...)
+setSuccess({
+  recId: created.recId,
+  idSped: created.humanId,
+  tipoSped,
+  incoterm,
+  dataRitiro: ritiroData?.toLocaleDateString(),
+  colli: colli.length,
+  formato,
+  destinatario,
+});
 
-     if (!recId || !humanId) throw new Error("Missing id from /api/spedizioni response");
-
-    setSuccess({
-    recId,
-    idSped: humanId,
-    tipoSped,
-    incoterm,
-    dataRitiro: ritiroData?.toLocaleDateString(),
-    colli: colli.length,
-    formato,
-    destinatario,
-    });
 
 
       if (topRef.current) {
