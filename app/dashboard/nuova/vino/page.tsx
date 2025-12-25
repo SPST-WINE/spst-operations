@@ -625,17 +625,22 @@ function NuovaVinoPageInner() {
         ]);
       }
 
-      const id = created?.id || "SPEDIZIONE";
-      setSuccess({
-        recId: id,
-        idSped: id,
-        tipoSped,
-        incoterm,
-        dataRitiro: ritiroData?.toLocaleDateString(),
-        colli: colli.length,
-        formato,
-        destinatario,
-      });
+    const recId = created?.shipment?.id;
+    const humanId = created?.id ?? created?.shipment?.human_id;
+
+     if (!recId || !humanId) throw new Error("Missing id from /api/spedizioni response");
+
+    setSuccess({
+    recId,
+    idSped: humanId,
+    tipoSped,
+    incoterm,
+    dataRitiro: ritiroData?.toLocaleDateString(),
+    colli: colli.length,
+    formato,
+    destinatario,
+    });
+
 
       if (topRef.current) {
         topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
