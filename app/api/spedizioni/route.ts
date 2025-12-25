@@ -283,21 +283,18 @@ export async function GET(req: Request) {
       { headers: withCorsHeaders() }
     );
   } catch (e: any) {
-    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (GET)");
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
     console.error("message:", e?.message);
     console.error("stack:", e?.stack);
     console.error("raw:", e);
 
     return NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED_ERROR",
-        details: String(e?.message || e),
-      },
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
     );
   }
 }
+
 
 /* ───────────── POST /api/spedizioni ─────────────
    ✅ insert packages con mapping robusto:
@@ -478,7 +475,7 @@ if (colli.length > 0) {
     const weight_kg = toNum(c?.weight_kg ?? c?.peso ?? c?.peso_kg ?? c?.peso_reale_kg);
 
     const volumetric_divisor =
-  toNum(c?.volumetric_divisor ?? c?.divisor) ?? null;
+  toNum(c?.volumetric_divisor ?? c?.divisor) ?? 4000;
 
 
     return {
@@ -530,3 +527,19 @@ return NextResponse.json(
   },
   { headers: withCorsHeaders() }
 );
+
+  } catch (e: any) {
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
+    console.error("message:", e?.message);
+    console.error("stack:", e?.stack);
+    console.error("raw:", e);
+
+    return NextResponse.json(
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
+      { status: 500, headers: withCorsHeaders() }
+    );
+  }
+}
+
+
+  
