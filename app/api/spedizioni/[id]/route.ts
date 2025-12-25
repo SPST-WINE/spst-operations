@@ -21,6 +21,13 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } }) as any;
 }
 
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    x
+  );
+}
+
+
 async function isStaff(): Promise<boolean> {
   const supa = supabaseServerSpst();
   const { data } = await supa.auth.getUser();
@@ -77,25 +84,31 @@ const SHIPMENT_SELECT = `
 const PACKAGES_SELECT = `
   id,created_at,
   contenuto,
-  peso_reale_kg,
-  lato1_cm,lato2_cm,lato3_cm
+  length_cm,width_cm,height_cm,
+  weight_kg,
+  weight_volumetric_kg,
+  weight_tariff_kg,
+  volumetric_divisor,
+  volume_cm3
 `;
+
 
 /* ───────────── GET /api/spedizioni/[id] ─────────────
    - STAFF: service role
    - CLIENT: RLS
    Output: ShipmentDTO (sempre)
 */
+// ───────────── GET /api/spedizioni/[id] ─────────────
+// ✅ Supporta sia UUID che human_id (SP-DD-MM-YYYY-XXXXX)
+// ✅ In client mode usa SEMPRE schema("spst") (evita 404 “finti”)
+// ✅ PACKAGES_SELECT deve essere allineato alle colonne reali (weight_kg/length_cm/...)
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const id = params.id;
-  if (!id) {
-    return NextResponse.json(
-      { ok: false, error: "MISSING_ID" },
-      { status: 400 }
-    );
+  const idOrHuman = params.id;
+  if (!idOrHuman) {
+    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
   }
 
   const supa = supabaseServerSpst();
@@ -104,42 +117,78 @@ export async function GET(
   } = await supa.auth.getUser();
 
   if (!user?.id) {
-    return NextResponse.json(
-      { ok: false, error: "UNAUTHENTICATED" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
   const staff = await isStaff();
 
   try {
+    const isIdUuid = isUuid(idOrHuman);
+
+    // ───── STAFF: service role ─────
     if (staff) {
       const supaAdmin = admin();
 
-      const { data: row, error } = await (supaAdmin as any)
+      const shipQ = (supaAdmin as any)
         .schema("spst")
         .from("shipments")
-        .select(SHIPMENT_SELECT)
-        .eq("id", id)
-        .single();
+        .select(SHIPMENT_SELECT);
+
+      const { data: row, error } = isIdUuid
+        ? await shipQ.eq("id", idOrHuman).single()
+        : await shipQ.eq("human_id", idOrHuman).single();
 
       if (error || !row) {
-        return NextResponse.json(
-          { ok: false, error: "NOT_FOUND" },
-          { status: 404 }
-        );
+        return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
       }
+
+      const shipmentId = row.id;
 
       const { data: pkgs } = await (supaAdmin as any)
         .schema("spst")
         .from("packages")
         .select(PACKAGES_SELECT)
-        .eq("shipment_id", id)
+        .eq("shipment_id", shipmentId)
         .order("created_at", { ascending: true });
 
       const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
       return NextResponse.json({ ok: true, shipment: dto, scope: "staff" });
     }
+
+    // ───── CLIENT: RLS ─────
+    const shipQ = (supa as any)
+      .schema("spst")
+      .from("shipments")
+      .select(SHIPMENT_SELECT);
+
+    const { data: row, error } = isIdUuid
+      ? await shipQ.eq("id", idOrHuman).single()
+      : await shipQ.eq("human_id", idOrHuman).single();
+
+    if (error || !row) {
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    }
+
+    const shipmentId = row.id;
+
+    const { data: pkgs } = await (supa as any)
+      .schema("spst")
+      .from("packages")
+      .select(PACKAGES_SELECT)
+      .eq("shipment_id", shipmentId)
+      .order("created_at", { ascending: true });
+
+    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
+    return NextResponse.json({ ok: true, shipment: dto, scope: "client" });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
+
 
     // CLIENT mode (RLS)
     const { data: row, error } = await supa
