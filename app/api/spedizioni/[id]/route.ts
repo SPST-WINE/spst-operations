@@ -27,7 +27,6 @@ function isUuid(x: string) {
   );
 }
 
-
 async function isStaff(): Promise<boolean> {
   const supa = supabaseServerSpst();
   const { data } = await supa.auth.getUser();
@@ -92,16 +91,11 @@ const PACKAGES_SELECT = `
   volume_cm3
 `;
 
-
 /* ───────────── GET /api/spedizioni/[id] ─────────────
-   - STAFF: service role
-   - CLIENT: RLS
-   Output: ShipmentDTO (sempre)
+   ✅ Supporta sia UUID che human_id
+   ✅ Staff: service role
+   ✅ Client: RLS (schema("spst"))
 */
-// ───────────── GET /api/spedizioni/[id] ─────────────
-// ✅ Supporta sia UUID che human_id (SP-DD-MM-YYYY-XXXXX)
-// ✅ In client mode usa SEMPRE schema("spst") (evita 404 “finti”)
-// ✅ PACKAGES_SELECT deve essere allineato alle colonne reali (weight_kg/length_cm/...)
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -125,7 +119,7 @@ export async function GET(
   try {
     const isIdUuid = isUuid(idOrHuman);
 
-    // ───── STAFF: service role ─────
+    // ───── STAFF ─────
     if (staff) {
       const supaAdmin = admin();
 
@@ -155,7 +149,7 @@ export async function GET(
       return NextResponse.json({ ok: true, shipment: dto, scope: "staff" });
     }
 
-    // ───── CLIENT: RLS ─────
+    // ───── CLIENT (RLS) ─────
     const shipQ = (supa as any)
       .schema("spst")
       .from("shipments")
@@ -188,41 +182,8 @@ export async function GET(
   }
 }
 
-
-
-    // CLIENT mode (RLS)
-    const { data: row, error } = await supa
-      .from("shipments")
-      .select(SHIPMENT_SELECT)
-      .eq("id", id)
-      .single();
-
-    if (error || !row) {
-      return NextResponse.json(
-        { ok: false, error: "NOT_FOUND" },
-        { status: 404 }
-      );
-    }
-
-    // packages per client: se vuoi via RLS, usa supa; altrimenti service role è rischioso.
-    const { data: pkgs } = await supa
-      .from("packages")
-      .select(PACKAGES_SELECT)
-      .eq("shipment_id", id)
-      .order("created_at", { ascending: true });
-
-    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
-    return NextResponse.json({ ok: true, shipment: dto, scope: "client" });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
-      { status: 500 }
-    );
-  }
-}
-
 /* ───────────── PATCH /api/spedizioni/[id] ─────────────
-   Staff-only. Payload whitelisted (no "update any column").
+   Staff-only. Payload whitelisted.
 */
 const PATCH_ALLOWED_KEYS = new Set<string>([
   "status",
@@ -237,7 +198,6 @@ const PATCH_ALLOWED_KEYS = new Set<string>([
 
   "declared_value",
 
-  // allegati principali (se li gestisci via PATCH)
   "ldv",
   "fattura_proforma",
   "fattura_commerciale",
@@ -247,7 +207,6 @@ const PATCH_ALLOWED_KEYS = new Set<string>([
   "allegato3",
   "allegato4",
 
-  // extras (solo se vuoi davvero permetterlo)
   "fields",
 ]);
 
@@ -260,28 +219,18 @@ export async function PATCH(
 
   const id = params.id;
   if (!id) {
-    return NextResponse.json(
-      { ok: false, error: "MISSING_ID" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
   }
 
-  const payload = (await req.json().catch(() => ({} as any))) as Record<
-    string,
-    any
-  >;
+  const payload = (await req.json().catch(() => ({} as any))) as Record<string, any>;
 
-  // ✅ whitelist
   const update: Record<string, any> = {};
   for (const [k, v] of Object.entries(payload)) {
     if (PATCH_ALLOWED_KEYS.has(k)) update[k] = v;
   }
 
   if (Object.keys(update).length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "NO_ALLOWED_FIELDS" },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, error: "NO_ALLOWED_FIELDS" }, { status: 400 });
   }
 
   try {
