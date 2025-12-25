@@ -38,6 +38,13 @@ function getAccessTokenFromRequest() {
 
 const normAtt = (j: any) => (j && typeof j.url === "string" ? j : null);
 
+function withCorsHeaders(init?: HeadersInit) {
+  return {
+    ...(init || {}),
+    "Access-Control-Allow-Origin": "*",
+  } as Record<string, string>;
+}
+
 /* ───────────── Next config ───────────── */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +89,7 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
 }
 
 /* ───────────── GET /api/spedizioni ─────────────
-   ✅ Fix: packages columns allineate allo schema reale (length_cm/width_cm/height_cm/weight_kg)
+   ✅ packages columns allineate allo schema reale (length_cm/width_cm/height_cm/weight_kg)
 */
 export async function GET(req: Request) {
   try {
@@ -103,16 +110,18 @@ export async function GET(req: Request) {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return NextResponse.json(
         { ok: false, error: "Missing Supabase env" },
-        { status: 500 }
+        { status: 500, headers: withCorsHeaders() }
       );
     }
 
+    // auth client (anon) per risolvere email da token
     const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false },
     }) as any;
 
     let emailNorm: string | null = normalizeEmail(emailParam);
 
+    // se non arriva ?email=..., prova a recuperare da token/cookie/header
     if (!emailNorm) {
       const token = getAccessTokenFromRequest();
       if (token) {
@@ -129,6 +138,7 @@ export async function GET(req: Request) {
       }
     }
 
+    // server-side: preferisci service role se presente
     const srvKey =
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -262,29 +272,44 @@ export async function GET(req: Request) {
       packages: Array.isArray(r.packages) ? r.packages : [],
     }));
 
-    return NextResponse.json({
-      ok: true,
-      page,
-      limit,
-      total: count ?? rows.length,
-      rows,
-    });
-  } catch (e: any) {
-    console.error("[API/spedizioni:GET] unexpected:", e);
     return NextResponse.json(
-      { ok: false, error: String(e?.message || e) },
-      { status: 500 }
+      {
+        ok: true,
+        page,
+        limit,
+        total: count ?? rows.length,
+        rows,
+      },
+      { headers: withCorsHeaders() }
+    );
+  } catch (e: any) {
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (GET)");
+    console.error("message:", e?.message);
+    console.error("stack:", e?.stack);
+    console.error("raw:", e);
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "UNEXPECTED_ERROR",
+        details: String(e?.message || e),
+      },
+      { status: 500, headers: withCorsHeaders() }
     );
   }
 }
 
 /* ───────────── POST /api/spedizioni ─────────────
-   ✅ Fix: insert packages con mapping robusto:
+   ✅ insert packages con mapping robusto:
    - preferisce length_cm/width_cm/height_cm/weight_kg
    - fallback su latoX_cm/peso_reale_kg (legacy)
 */
 export async function POST(req: Request) {
   try {
+    console.log("──────── SPST /api/spedizioni POST ────────");
+    console.log("BUILD COMMIT:", process.env.VERCEL_GIT_COMMIT_SHA || "NO_SHA");
+    console.log("NODE ENV:", process.env.NODE_ENV);
+
     const body = await req.json().catch(() => ({} as any));
 
     // ✅ CONTRACT
@@ -299,13 +324,13 @@ export async function POST(req: Request) {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       return NextResponse.json(
         { ok: false, error: "Missing Supabase env" },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+        { status: 500, headers: withCorsHeaders() }
       );
     }
     if (!SUPABASE_SERVICE_ROLE_KEY) {
       return NextResponse.json(
         { ok: false, error: "Missing SUPABASE_SERVICE_ROLE" },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+        { status: 500, headers: withCorsHeaders() }
       );
     }
 
@@ -319,7 +344,7 @@ export async function POST(req: Request) {
 
     const email_norm = normalizeEmail((input as any).email_cliente);
 
-    // ✅ shipments: insert minimo
+    // ✅ shipments: insert (no calcoli peso/colli qui)
     const baseRow: any = {
       email_cliente: (input as any).email_cliente ?? null,
       email_norm,
@@ -331,8 +356,7 @@ export async function POST(req: Request) {
       formato_sped: (input as any).formato_sped ?? null,
       contenuto_generale: (input as any).contenuto_generale ?? null,
 
-      // ⚠️ NOTE: questi campi dipendono da come ShipmentInputZ espone il party.
-      // Se nel tuo contract è mittente: { rs, paese, ... }, adegua qui (vedi TODO sotto).
+      // ⚠️ mapping party: supporta sia shape flat che nested
       mittente_rs:
         (input as any).mittente_rs ?? (input as any).mittente?.rs ?? null,
       mittente_paese:
@@ -384,11 +408,14 @@ export async function POST(req: Request) {
         (input as any).fatturazione?.valuta ??
         null,
 
-      // ✅ solo extras
+      // ✅ extras
       fields: (input as any).extras ?? null,
     };
 
-    // ✅ human_id retry
+    console.log("[SPEDIZIONI] Insert shipments → schema: spst");
+    console.log("[SPEDIZIONI] Shipments payload keys:", Object.keys(baseRow));
+
+    // ✅ human_id retry (evita collisioni)
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -410,22 +437,32 @@ export async function POST(req: Request) {
         shipment = data;
         break;
       }
+
+      // unique collision -> retry
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
       }
+
       lastErr = error;
       break;
     }
 
     if (!shipment) {
+      console.error("[SPEDIZIONI] INSERT shipments FAILED");
+      console.error("code:", lastErr?.code);
+      console.error("message:", lastErr?.message);
+      console.error("details:", lastErr?.details);
+      console.error("hint:", lastErr?.hint);
+      console.error("raw:", lastErr);
+
       return NextResponse.json(
         {
           ok: false,
           error: "INSERT_FAILED",
           details: lastErr?.message || String(lastErr),
         },
-        { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+        { status: 500, headers: withCorsHeaders() }
       );
     }
 
@@ -435,14 +472,13 @@ export async function POST(req: Request) {
         shipment_id: shipment.id,
         contenuto: c?.contenuto ?? null,
 
-        // ✅ preferisci campi DB-shape, fallback su legacy
+        // preferisci campi DB-shape, fallback legacy
         length_cm: toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1),
         width_cm: toNum(c?.width_cm ?? c?.lato2_cm ?? c?.l2),
         height_cm: toNum(c?.height_cm ?? c?.lato3_cm ?? c?.l3),
-
         weight_kg: toNum(c?.weight_kg ?? c?.peso_reale_kg ?? c?.peso),
 
-        // opzionale ma utile: coerente con default DB
+        // opzionale (se la colonna esiste nel DB)
         volumetric_divisor:
           toNum(c?.volumetric_divisor) ?? toNum(c?.divisor) ?? 5000,
       }));
@@ -453,39 +489,44 @@ export async function POST(req: Request) {
         .insert(pkgs);
 
       if (pkgErr) {
+        console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
+        console.error("code:", (pkgErr as any)?.code);
+        console.error("message:", (pkgErr as any)?.message);
+        console.error("raw:", pkgErr);
+
         return NextResponse.json(
           {
             ok: false,
             error: "PACKAGES_INSERT_FAILED",
-            details: pkgErr.message,
+            details: (pkgErr as any).message,
             shipment_id: shipment.id,
           },
-          { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
+          { status: 500, headers: withCorsHeaders() }
         );
       }
     }
 
-    const res = NextResponse.json({
-      ok: true,
-      shipment,
-      id: shipment.human_id || shipment.id,
-    });
-    res.headers.set("Access-Control-Allow-Origin", "*");
-    return res;
+    return NextResponse.json(
+      {
+        ok: true,
+        shipment,
+        id: shipment.human_id || shipment.id,
+      },
+      { headers: withCorsHeaders() }
+    );
   } catch (e: any) {
-    const msg = String(e?.message || e);
-    const isZod = e?.name === "ZodError" || msg.toLowerCase().includes("zod");
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
+    console.error("message:", e?.message);
+    console.error("stack:", e?.stack);
+    console.error("raw:", e);
 
     return NextResponse.json(
       {
         ok: false,
-        error: isZod ? "INVALID_INPUT" : "UNEXPECTED_ERROR",
-        details: isZod ? (e?.issues ?? msg) : msg,
+        error: "UNEXPECTED_ERROR",
+        details: String(e?.message || e),
       },
-      {
-        status: isZod ? 400 : 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      }
+      { status: 500, headers: withCorsHeaders() }
     );
   }
 }
