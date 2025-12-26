@@ -302,12 +302,17 @@ export async function GET(req: Request) {
    - fallback su latoX_cm/peso_reale_kg (legacy)
 */
 export async function POST(req: Request) {
+  const request_id = rid();
+
   try {
     console.log("──────── SPST /api/spedizioni POST ────────");
+    console.log("request_id:", request_id);
     console.log("BUILD COMMIT:", process.env.VERCEL_GIT_COMMIT_SHA || "NO_SHA");
     console.log("NODE ENV:", process.env.NODE_ENV);
 
     const body = await req.json().catch(() => ({} as any));
+    console.log("[SPEDIZIONI] raw body keys:", Object.keys(body || {}).join(","));
+    console.log("[SPEDIZIONI] raw email_cliente:", (body as any)?.email_cliente);
 
     // ✅ CONTRACT
     const input = ShipmentInputZ.parse(body);
@@ -319,16 +324,20 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing Supabase env" },
+      const res = NextResponse.json(
+        { ok: false, error: "Missing Supabase env", request_id },
         { status: 500, headers: withCorsHeaders() }
       );
+      res.headers.set("x-request-id", request_id);
+      return res;
     }
     if (!SUPABASE_SERVICE_ROLE_KEY) {
-      return NextResponse.json(
-        { ok: false, error: "Missing SUPABASE_SERVICE_ROLE" },
+      const res = NextResponse.json(
+        { ok: false, error: "Missing SUPABASE_SERVICE_ROLE", request_id },
         { status: 500, headers: withCorsHeaders() }
       );
+      res.headers.set("x-request-id", request_id);
+      return res;
     }
 
     const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -339,11 +348,28 @@ export async function POST(req: Request) {
       ? (input as any).colli
       : [];
 
-    const email_norm = normalizeEmail((input as any).email_cliente);
+    const email_cliente = ((input as any).email_cliente ?? "").trim();
+    const email_norm = normalizeEmail(email_cliente);
+
+    // ✅ HARD GUARD: mai più spedizioni senza email
+    if (!email_norm) {
+      console.error("[SPEDIZIONI] MISSING/INVALID email_cliente in input");
+      const res = NextResponse.json(
+        {
+          ok: false,
+          error: "INVALID_EMAIL_CLIENTE",
+          request_id,
+          details: "email_cliente is required and must be a valid email",
+        },
+        { status: 400, headers: withCorsHeaders() }
+      );
+      res.headers.set("x-request-id", request_id);
+      return res;
+    }
 
     // ✅ shipments: insert (no calcoli peso/colli qui)
     const baseRow: any = {
-      email_cliente: (input as any).email_cliente ?? null,
+      email_cliente,
       email_norm,
 
       tipo_spedizione: (input as any).tipo_spedizione ?? null,
@@ -410,7 +436,8 @@ export async function POST(req: Request) {
     };
 
     console.log("[SPEDIZIONI] Insert shipments → schema: spst");
-    console.log("[SPEDIZIONI] Shipments payload keys:", Object.keys(baseRow));
+    console.log("[SPEDIZIONI] baseRow email_cliente/email_norm:", email_cliente, email_norm);
+    console.log("[SPEDIZIONI] baseRow keys:", Object.keys(baseRow));
 
     // ✅ human_id retry (evita collisioni)
     let shipment: any = null;
@@ -423,12 +450,21 @@ export async function POST(req: Request) {
       const human_id = await nextHumanIdForToday(supabaseSrv);
       const insertRow = { ...baseRow, human_id };
 
-      const { data, error } = await supabaseSrv
+      const ins = await (supabaseSrv as any)
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
-        .select()
+        .select("id,human_id,email_cliente,email_norm,created_at")
         .single();
+
+      const { data, error } = ins;
+
+      console.log(
+        `[SPEDIZIONI] insert attempt=${attempt} human_id=${human_id} error=${error?.message ?? null} data=${safeJson(
+          data,
+          2000
+        )}`
+      );
 
       if (!error) {
         shipment = data;
@@ -451,95 +487,121 @@ export async function POST(req: Request) {
       console.error("message:", lastErr?.message);
       console.error("details:", lastErr?.details);
       console.error("hint:", lastErr?.hint);
-      console.error("raw:", lastErr);
 
-      return NextResponse.json(
+      const res = NextResponse.json(
         {
           ok: false,
           error: "INSERT_FAILED",
+          request_id,
           details: lastErr?.message || String(lastErr),
         },
         { status: 500, headers: withCorsHeaders() }
       );
+      res.headers.set("x-request-id", request_id);
+      return res;
+    }
+
+    // ✅ sanity check post-insert
+    if (!shipment.email_norm || !shipment.email_cliente) {
+      console.error("[SPEDIZIONI] POST-INSERT EMAIL IS NULL (DB overwrote or insertRow wrong)");
+      console.error("shipment:", safeJson(shipment, 2000));
+      const res = NextResponse.json(
+        {
+          ok: false,
+          error: "EMAIL_NOT_PERSISTED",
+          request_id,
+          details: "email_cliente/email_norm not persisted on shipments row",
+          shipment_id: shipment.id,
+        },
+        { status: 500, headers: withCorsHeaders() }
+      );
+      res.headers.set("x-request-id", request_id);
+      return res;
     }
 
     // ✅ packages: schema reale (length_cm/width_cm/height_cm/weight_kg)
-if (colli.length > 0) {
-  const pkgs = colli.map((c: any) => {
-    // WHITELIST hard: nessuna key "random" può entrare in insert
-    const length_cm = toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1);
-    const width_cm  = toNum(c?.width_cm  ?? c?.lato2_cm ?? c?.l2);
-    const height_cm = toNum(c?.height_cm ?? c?.lato3_cm ?? c?.l3);
+    if (colli.length > 0) {
+      const pkgs = colli.map((c: any) => {
+        const length_cm = toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1);
+        const width_cm = toNum(c?.width_cm ?? c?.lato2_cm ?? c?.l2);
+        const height_cm = toNum(c?.height_cm ?? c?.lato3_cm ?? c?.l3);
 
-    // input legacy ok, ma colonna DB è weight_kg
-    const weight_kg = toNum(c?.weight_kg ?? c?.peso ?? c?.peso_kg ?? c?.peso_reale_kg);
+        const weight_kg = toNum(
+          c?.weight_kg ?? c?.peso ?? c?.peso_kg ?? c?.peso_reale_kg
+        );
 
-    const volumetric_divisor =
-  toNum(c?.volumetric_divisor ?? c?.divisor) ?? 4000;
+        const volumetric_divisor =
+          toNum(c?.volumetric_divisor ?? c?.divisor) ?? 4000;
 
+        return {
+          shipment_id: shipment.id,
+          contenuto: c?.contenuto ?? null,
+          length_cm,
+          width_cm,
+          height_cm,
+          weight_kg,
+          volumetric_divisor,
+        };
+      });
 
-    return {
-      shipment_id: shipment.id,
-      contenuto: c?.contenuto ?? null,
-      length_cm,
-      width_cm,
-      height_cm,
-      weight_kg,
-      volumetric_divisor,
-    };
-  });
+      console.log("[SPEDIZIONI] packages target = spst.packages");
+      console.log("[SPEDIZIONI] pkgs[0] keys =", Object.keys(pkgs?.[0] ?? {}));
+      console.log("[SPEDIZIONI] pkgs[0] =", safeJson(pkgs?.[0] ?? null, 2000));
 
-  // 🔍 DEBUG: cosa stiamo davvero inserendo?
-  console.log("[SPEDIZIONI] packages target = spst.packages");
-  console.log("[SPEDIZIONI] pkgs[0] keys =", Object.keys(pkgs?.[0] ?? {}));
-  console.log("[SPEDIZIONI] pkgs[0] =", JSON.stringify(pkgs?.[0] ?? null));
+      const { error: pkgErr } = await (supabaseSrv as any)
+        .schema("spst")
+        .from("packages")
+        .insert(pkgs);
 
-  const { error: pkgErr } = await supabaseSrv
-    .schema("spst")
-    .from("packages")
-    .insert(pkgs);
+      if (pkgErr) {
+        console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
+        console.error("code:", (pkgErr as any)?.code);
+        console.error("message:", (pkgErr as any)?.message);
+        console.error("details:", (pkgErr as any)?.details);
+        console.error("hint:", (pkgErr as any)?.hint);
 
-  if (pkgErr) {
-    console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
-    console.error("code:", (pkgErr as any)?.code);
-    console.error("message:", (pkgErr as any)?.message);
-    console.error("details:", (pkgErr as any)?.details);
-    console.error("hint:", (pkgErr as any)?.hint);
-    console.error("raw:", pkgErr);
+        const res = NextResponse.json(
+          {
+            ok: false,
+            error: "PACKAGES_INSERT_FAILED",
+            request_id,
+            details: (pkgErr as any).message,
+            shipment_id: shipment.id,
+          },
+          { status: 500, headers: withCorsHeaders() }
+        );
+        res.headers.set("x-request-id", request_id);
+        return res;
+      }
+    }
 
-    return NextResponse.json(
+    const res = NextResponse.json(
+      {
+        ok: true,
+        request_id,
+        shipment,
+        id: shipment.human_id || shipment.id,
+      },
+      { headers: withCorsHeaders() }
+    );
+    res.headers.set("x-request-id", request_id);
+    return res;
+  } catch (e: any) {
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
+    console.error("request_id:", request_id);
+    console.error("message:", e?.message);
+    console.error("stack:", e?.stack);
+
+    const res = NextResponse.json(
       {
         ok: false,
-        error: "PACKAGES_INSERT_FAILED",
-        details: (pkgErr as any).message,
-        shipment_id: shipment.id,
+        error: "UNEXPECTED_ERROR",
+        request_id,
+        details: String(e?.message || e),
       },
       { status: 500, headers: withCorsHeaders() }
     );
+    res.headers.set("x-request-id", request_id);
+    return res;
   }
 }
-
-return NextResponse.json(
-  {
-    ok: true,
-    shipment,
-    id: shipment.human_id || shipment.id,
-  },
-  { headers: withCorsHeaders() }
-);
-
-  } catch (e: any) {
-    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
-    console.error("message:", e?.message);
-    console.error("stack:", e?.stack);
-    console.error("raw:", e);
-
-    return NextResponse.json(
-      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
-      { status: 500, headers: withCorsHeaders() }
-    );
-  }
-}
-
-
-  
