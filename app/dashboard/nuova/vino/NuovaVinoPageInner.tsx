@@ -1,7 +1,7 @@
 // FILE: app/dashboard/nuova/vino/NuovaVinoPageInner.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -23,9 +23,6 @@ import { usePrefillMittente } from "./_hooks/usePrefillMittente";
 import { useAutoscrollErrors } from "./_hooks/useAutoscrollErrors";
 import { usePlacesAutocomplete } from "./_places/usePlacesAutocomplete";
 
-// ------------------------------------------------------------
-// Supabase client (riusiamo sempre lo stesso)
-// ------------------------------------------------------------
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -42,20 +39,30 @@ export default function NuovaVinoPageInner() {
   const [mittente, setMittenteState] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // Prefill mittente da /api/impostazioni
-  usePrefillMittente({
-    supabase,
-    forcedEmail,
-    setMittente: (fn) => setMittenteState((prev) => fn(prev)),
-  });
+  // ✅ STABILI (non ricreate a ogni render)
+  const setMittente = useCallback(
+    (fn: (prev: Party) => Party) => setMittenteState((prev) => fn(prev)),
+    []
+  );
 
-  // Places Autocomplete
-  usePlacesAutocomplete({
-    onFill: (who, parts) => {
+  const handlePlacesFill = useCallback(
+    (who: "mittente" | "destinatario", parts: any) => {
       if (who === "mittente") setMittenteState((prev) => ({ ...prev, ...parts }));
       else setDestinatario((prev) => ({ ...prev, ...parts }));
     },
+    []
+  );
+
+  usePrefillMittente({
+    supabase,
+    forcedEmail,
+    setMittente,
   });
+
+  usePlacesAutocomplete({
+    onFill: handlePlacesFill,
+  });
+
 
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
