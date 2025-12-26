@@ -366,8 +366,21 @@ export async function POST(req: Request) {
       ? (input as any).colli
       : [];
 
-    const email_cliente = ((input as any).email_cliente ?? "").trim();
-    const email_norm = normalizeEmail(email_cliente);
+   const supa = supabaseServerSpst();
+const { data: { user } } = await supa.auth.getUser();
+
+if (!user?.email) {
+  const res = NextResponse.json(
+    { ok: false, error: "UNAUTHENTICATED", request_id },
+    { status: 401, headers: withCorsHeaders() }
+  );
+  res.headers.set("x-request-id", request_id);
+  return res;
+}
+
+const email_cliente = user.email.toLowerCase().trim();
+const email_norm = email_cliente;
+
 
     // ✅ HARD GUARD: mai più spedizioni senza email
     if (!email_norm) {
