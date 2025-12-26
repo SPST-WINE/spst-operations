@@ -13,13 +13,12 @@ export async function createShipmentWithAuth(
     ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
   };
 
-  const {
-    data: { session },
-    error: sessErr,
-  } = await supabase.auth.getSession();
-
-  const accessToken = session?.access_token;
-  if (sessErr) console.error("[createShipmentWithAuth] getSession error:", sessErr);
+  // prova token (se esiste), ma NON è richiesto
+  let accessToken: string | undefined;
+  try {
+    const { data } = await supabase.auth.getSession();
+    accessToken = data?.session?.access_token;
+  } catch {}
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -27,7 +26,7 @@ export async function createShipmentWithAuth(
   const res = await fetch("/api/spedizioni", {
     method: "POST",
     headers,
-    credentials: "include",
+    credentials: "include", // ✅ qui sta la sessione vera
     body: JSON.stringify(body),
   });
 
@@ -40,10 +39,7 @@ export async function createShipmentWithAuth(
   const recId = json?.shipment?.id;
   const humanId = json?.id || json?.shipment?.human_id;
 
-  if (!recId || !humanId) {
-    throw new Error("Missing id from /api/spedizioni response");
-  }
+  if (!recId || !humanId) throw new Error("Missing id from /api/spedizioni response");
 
   return { recId, humanId };
 }
-
