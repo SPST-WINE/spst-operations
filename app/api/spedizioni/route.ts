@@ -3,9 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { ShipmentInputZ } from "@/lib/contracts/shipment";
-
-
-// helper crypto //
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
 import crypto from "crypto";
 
@@ -21,7 +19,6 @@ function safeJson(x: any, max = 2000) {
     return String(x);
   }
 }
-
 
 /* ───────────── Helpers ───────────── */
 
@@ -107,9 +104,7 @@ async function nextHumanIdForToday(supabaseSrv: any): Promise<string> {
   return formatHumanId(now, (count ?? 0) + 1);
 }
 
-/* ───────────── GET /api/spedizioni ─────────────
-   ✅ packages columns allineate allo schema reale (length_cm/width_cm/height_cm/weight_kg)
-*/
+/* ───────────── GET /api/spedizioni ───────────── */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -133,14 +128,12 @@ export async function GET(req: Request) {
       );
     }
 
-    // auth client (anon) per risolvere email da token
     const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false },
     }) as any;
 
     let emailNorm: string | null = normalizeEmail(emailParam);
 
-    // se non arriva ?email=..., prova a recuperare da token/cookie/header
     if (!emailNorm) {
       const token = getAccessTokenFromRequest();
       if (token) {
@@ -157,7 +150,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // server-side: preferisci service role se presente
     const srvKey =
       process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -240,14 +232,11 @@ export async function GET(req: Request) {
       human_id: r.human_id,
       email_cliente: r.email_cliente,
       email_norm: r.email_norm,
-
       tipo_spedizione: r.tipo_spedizione,
       incoterm: r.incoterm,
       giorno_ritiro: r.giorno_ritiro,
-
       carrier: r.carrier ?? null,
       tracking_code: r.tracking_code ?? null,
-
       mittente_paese: r.mittente_paese,
       mittente_citta: r.mittente_citta,
       mittente_cap: r.mittente_cap,
@@ -255,28 +244,22 @@ export async function GET(req: Request) {
       dest_paese: r.dest_paese,
       dest_citta: r.dest_citta,
       dest_cap: r.dest_cap,
-
       colli_n: r.colli_n,
       peso_reale_kg: r.peso_reale_kg,
       status: r.status,
-
       mittente_rs: r.mittente_rs,
       mittente_telefono: r.mittente_telefono,
       mittente_piva: r.mittente_piva,
-
       dest_rs: r.dest_rs,
       dest_telefono: r.dest_telefono,
       dest_piva: r.dest_piva,
-
       fatt_rs: r.fatt_rs,
       fatt_piva: r.fatt_piva,
       fatt_valuta: r.fatt_valuta,
-
       formato_sped:
         r.formato_sped ?? r.fields?.formato ?? r.fields?.formato_sped ?? null,
       contenuto_generale: r.contenuto_generale,
       dest_abilitato_import: r.dest_abilitato_import,
-
       attachments: {
         ldv: normAtt(r.ldv),
         fattura_proforma: normAtt(r.fattura_proforma),
@@ -287,26 +270,17 @@ export async function GET(req: Request) {
         allegato3: normAtt(r.allegato3),
         allegato4: normAtt(r.allegato4),
       },
-
       packages: Array.isArray(r.packages) ? r.packages : [],
     }));
 
     return NextResponse.json(
-      {
-        ok: true,
-        page,
-        limit,
-        total: count ?? rows.length,
-        rows,
-      },
+      { ok: true, page, limit, total: count ?? rows.length, rows },
       { headers: withCorsHeaders() }
     );
   } catch (e: any) {
-    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (POST)");
+    console.error("❌ [SPEDIZIONI] UNEXPECTED ERROR (GET)");
     console.error("message:", e?.message);
     console.error("stack:", e?.stack);
-    console.error("raw:", e);
-
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
@@ -314,12 +288,7 @@ export async function GET(req: Request) {
   }
 }
 
-
-/* ───────────── POST /api/spedizioni ─────────────
-   ✅ insert packages con mapping robusto:
-   - preferisce length_cm/width_cm/height_cm/weight_kg
-   - fallback su latoX_cm/peso_reale_kg (legacy)
-*/
+/* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
   const request_id = rid();
 
@@ -329,12 +298,10 @@ export async function POST(req: Request) {
     console.log("BUILD COMMIT:", process.env.VERCEL_GIT_COMMIT_SHA || "NO_SHA");
     console.log("NODE ENV:", process.env.NODE_ENV);
 
-    const body = await req.json().catch(() => ({} as any));
-    console.log("[SPEDIZIONI] raw body keys:", Object.keys(body || {}).join(","));
-    console.log("[SPEDIZIONI] raw email_cliente:", (body as any)?.email_cliente);
-
-    // ✅ CONTRACT
-    const input = ShipmentInputZ.parse(body);
+    // 0) read raw
+    const bodyRaw = await req.json().catch(() => ({} as any));
+    console.log("[SPEDIZIONI] raw body keys:", Object.keys(bodyRaw || {}).join(","));
+    console.log("[SPEDIZIONI] raw email_cliente:", bodyRaw?.email_cliente);
 
     const SUPABASE_URL =
       process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -359,6 +326,68 @@ export async function POST(req: Request) {
       return res;
     }
 
+    // 1) AUTH (dual): cookie session (SSR) → bearer → headers
+    let userEmail: string | null = null;
+
+    // A) SSR cookie session (come /api/impostazioni)
+    try {
+      const supa = supabaseServerSpst();
+      const { data, error } = await supa.auth.getUser();
+      if (error) console.log("[SPEDIZIONI] cookie getUser error:", error.message);
+      userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
+      console.log("[SPEDIZIONI] cookie session email:", userEmail);
+    } catch (e: any) {
+      console.log("[SPEDIZIONI] cookie getUser exception:", e?.message || e);
+    }
+
+    // B) Bearer/sb token
+    if (!userEmail) {
+      const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false },
+      }) as any;
+
+      const token = getAccessTokenFromRequest();
+      console.log("[SPEDIZIONI] token present:", !!token);
+
+      if (token) {
+        const { data, error } = await auth.auth.getUser(token);
+        if (error) console.log("[SPEDIZIONI] bearer getUser error:", error.message);
+        userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
+      }
+    }
+
+    // C) headers fallback
+    if (!userEmail) {
+      const hdrs = nextHeaders();
+      userEmail =
+        hdrs.get("x-user-email") ||
+        hdrs.get("x-client-email") ||
+        hdrs.get("x-auth-email") ||
+        null;
+      console.log("[SPEDIZIONI] header email:", userEmail);
+    }
+
+    if (!userEmail) {
+      const res = NextResponse.json(
+        { ok: false, error: "UNAUTHENTICATED", request_id },
+        { status: 401, headers: withCorsHeaders() }
+      );
+      res.headers.set("x-request-id", request_id);
+      return res;
+    }
+
+    // 2) inject email into body BEFORE Zod
+    const email_cliente = userEmail.toLowerCase().trim();
+    const body = {
+      ...bodyRaw,
+      email_cliente: bodyRaw?.email_cliente ? String(bodyRaw.email_cliente) : email_cliente,
+    };
+
+    console.log("[SPEDIZIONI] effective email_cliente:", body.email_cliente);
+
+    // 3) CONTRACT (ora passa anche senza email dal frontend)
+    const input = ShipmentInputZ.parse(body);
+
     const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     }) as any;
@@ -367,48 +396,9 @@ export async function POST(req: Request) {
       ? (input as any).colli
       : [];
 
-   
-    // 🔐 email cliente = utente autenticato (da token/cookie/header)
-const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false },
-}) as any;
+    const email_norm = normalizeEmail(body.email_cliente);
 
-const token = getAccessTokenFromRequest();
-let userEmail: string | null = null;
-
-if (token) {
-  const { data, error } = await auth.auth.getUser(token);
-  if (error) {
-    console.log("[SPEDIZIONI] auth.getUser error:", error.message);
-  }
-  userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
-}
-
-// fallback header (debug/dev)
-if (!userEmail) {
-  const hdrs = nextHeaders();
-  userEmail =
-    hdrs.get("x-user-email") ||
-    hdrs.get("x-client-email") ||
-    hdrs.get("x-auth-email") ||
-    null;
-}
-
-if (!userEmail) {
-  const res = NextResponse.json(
-    { ok: false, error: "UNAUTHENTICATED", request_id },
-    { status: 401, headers: withCorsHeaders() }
-  );
-  res.headers.set("x-request-id", request_id);
-  return res;
-}
-
-const email_cliente = userEmail.toLowerCase().trim();
-const email_norm = email_cliente;
-
-    // ✅ HARD GUARD: mai più spedizioni senza email
     if (!email_norm) {
-      console.error("[SPEDIZIONI] MISSING/INVALID email_cliente in input");
       const res = NextResponse.json(
         {
           ok: false,
@@ -422,9 +412,9 @@ const email_norm = email_cliente;
       return res;
     }
 
-    // ✅ shipments: insert (no calcoli peso/colli qui)
+    // shipments row
     const baseRow: any = {
-      email_cliente,
+      email_cliente: email_norm,
       email_norm,
 
       tipo_spedizione: (input as any).tipo_spedizione ?? null,
@@ -434,7 +424,6 @@ const email_norm = email_cliente;
       formato_sped: (input as any).formato_sped ?? null,
       contenuto_generale: (input as any).contenuto_generale ?? null,
 
-      // ⚠️ mapping party: supporta sia shape flat che nested
       mittente_rs:
         (input as any).mittente_rs ?? (input as any).mittente?.rs ?? null,
       mittente_paese:
@@ -486,15 +475,13 @@ const email_norm = email_cliente;
         (input as any).fatturazione?.valuta ??
         null,
 
-      // ✅ extras
       fields: (input as any).extras ?? null,
     };
 
-    console.log("[SPEDIZIONI] Insert shipments → schema: spst");
-    console.log("[SPEDIZIONI] baseRow email_cliente/email_norm:", email_cliente, email_norm);
+    console.log("[SPEDIZIONI] baseRow email_norm:", email_norm);
     console.log("[SPEDIZIONI] baseRow keys:", Object.keys(baseRow));
 
-    // ✅ human_id retry (evita collisioni)
+    // human_id retry
     let shipment: any = null;
     const MAX_RETRY = 6;
     let attempt = 0;
@@ -526,7 +513,6 @@ const email_norm = email_cliente;
         break;
       }
 
-      // unique collision -> retry
       if (error.code === "23505" || /unique/i.test(error.message)) {
         lastErr = error;
         continue;
@@ -537,12 +523,6 @@ const email_norm = email_cliente;
     }
 
     if (!shipment) {
-      console.error("[SPEDIZIONI] INSERT shipments FAILED");
-      console.error("code:", lastErr?.code);
-      console.error("message:", lastErr?.message);
-      console.error("details:", lastErr?.details);
-      console.error("hint:", lastErr?.hint);
-
       const res = NextResponse.json(
         {
           ok: false,
@@ -556,25 +536,7 @@ const email_norm = email_cliente;
       return res;
     }
 
-    // ✅ sanity check post-insert
-    if (!shipment.email_norm || !shipment.email_cliente) {
-      console.error("[SPEDIZIONI] POST-INSERT EMAIL IS NULL (DB overwrote or insertRow wrong)");
-      console.error("shipment:", safeJson(shipment, 2000));
-      const res = NextResponse.json(
-        {
-          ok: false,
-          error: "EMAIL_NOT_PERSISTED",
-          request_id,
-          details: "email_cliente/email_norm not persisted on shipments row",
-          shipment_id: shipment.id,
-        },
-        { status: 500, headers: withCorsHeaders() }
-      );
-      res.headers.set("x-request-id", request_id);
-      return res;
-    }
-
-    // ✅ packages: schema reale (length_cm/width_cm/height_cm/weight_kg)
+    // packages insert
     if (colli.length > 0) {
       const pkgs = colli.map((c: any) => {
         const length_cm = toNum(c?.length_cm ?? c?.lato1_cm ?? c?.l1);
@@ -599,22 +561,12 @@ const email_norm = email_cliente;
         };
       });
 
-      console.log("[SPEDIZIONI] packages target = spst.packages");
-      console.log("[SPEDIZIONI] pkgs[0] keys =", Object.keys(pkgs?.[0] ?? {}));
-      console.log("[SPEDIZIONI] pkgs[0] =", safeJson(pkgs?.[0] ?? null, 2000));
-
       const { error: pkgErr } = await (supabaseSrv as any)
         .schema("spst")
         .from("packages")
         .insert(pkgs);
 
       if (pkgErr) {
-        console.error("[SPEDIZIONI] PACKAGES INSERT FAILED");
-        console.error("code:", (pkgErr as any)?.code);
-        console.error("message:", (pkgErr as any)?.message);
-        console.error("details:", (pkgErr as any)?.details);
-        console.error("hint:", (pkgErr as any)?.hint);
-
         const res = NextResponse.json(
           {
             ok: false,
@@ -631,12 +583,7 @@ const email_norm = email_cliente;
     }
 
     const res = NextResponse.json(
-      {
-        ok: true,
-        request_id,
-        shipment,
-        id: shipment.human_id || shipment.id,
-      },
+      { ok: true, request_id, shipment, id: shipment.human_id || shipment.id },
       { headers: withCorsHeaders() }
     );
     res.headers.set("x-request-id", request_id);
