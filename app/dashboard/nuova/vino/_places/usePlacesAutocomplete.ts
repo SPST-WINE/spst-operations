@@ -216,8 +216,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
     const mo = new MutationObserver(() => attachAll());
     mo.observe(document.body, { childList: true, subtree: true });
 
-   // FILE: app/dashboard/nuova/vino/_places/usePlacesAutocomplete.ts
-// ... tutto uguale sopra ...
+
 
   useEffect(() => {
     const attachAll = () => {
@@ -232,7 +231,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
     const mo = new MutationObserver(() => attachAll());
     mo.observe(document.body, { childList: true, subtree: true });
 
-    return () => {
+        return () => {
       mo.disconnect();
       document
         .querySelectorAll<HTMLInputElement>(
@@ -254,4 +253,3 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
     };
   }, [attachPlacesToInput, selectors.destinatario, selectors.mittente]);
 }
-
