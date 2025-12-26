@@ -93,8 +93,8 @@ export default function ShipmentDetail({
           P.IVA/CF: {d.fatturazione?.piva || "—"}
         </div>
         <div className="text-[11px] text-slate-500">
-          Valuta: {d.fatturazione?.valuta || "—"}
-        </div>
+  Valuta: {d.fatt_valuta || "—"}
+</div>
       </div>
 
       {/* Colli */}
