@@ -1,4 +1,3 @@
-// components/SpedizioniClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +7,7 @@ import ShipmentDetail from "@/components/ShipmentDetail";
 
 type Row = {
   id: string;
+  human_id?: string;
   _createdTime?: string | null;
   [key: string]: any;
 };
@@ -23,18 +23,14 @@ function StatusBadge({ value }: { value?: string }) {
   const v = (value || "").toLowerCase();
   let cls = "bg-amber-50 text-amber-700 ring-amber-200";
   let text = value || "—";
-  if (v.includes("in transito") || v.includes("intransit"))
-    cls = "bg-sky-50 text-sky-700 ring-sky-200";
-  else if (v.includes("in consegna") || v.includes("outfordelivery"))
+  if (v.includes("in transito")) cls = "bg-sky-50 text-sky-700 ring-sky-200";
+  else if (v.includes("in consegna"))
     cls = "bg-amber-50 text-amber-700 ring-amber-200";
   else if (v.includes("consegn"))
     cls = "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  else if (
-    v.includes("eccez") ||
-    v.includes("exception") ||
-    v.includes("failed")
-  )
+  else if (v.includes("eccez") || v.includes("failed"))
     cls = "bg-rose-50 text-rose-700 ring-rose-200";
+
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}
@@ -45,36 +41,31 @@ function StatusBadge({ value }: { value?: string }) {
 }
 
 function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
-  const isPallet = /pallet/i.test(r.formato_sped || r["Formato"] || "");
-  const ref = r.human_id || r["ID Spedizione"] || r.id;
-  const destRS =
-    r.dest_rs || r["Destinatario - Ragione Sociale"] || r["Destinatario"] || "—";
+  const isPallet = /pallet/i.test(r.formato_sped || "");
+  const ref = r.human_id || r.id;
+  const destRS = r.dest_rs || "—";
   const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(" ");
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow min-h-[112px] flex items-start gap-4">
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 shrink-0">
-        {isPallet ? (
-          <Boxes className="h-5 w-5" />
-        ) : (
-          <Package className="h-5 w-5" />
-        )}
+        {isPallet ? <Boxes className="h-5 w-5" /> : <Package className="h-5 w-5" />}
       </span>
+
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="font-semibold text-slate-900 truncate">{ref}</div>
-            {destRS ? (
-              <div className="text-sm text-slate-700 truncate">
-                Destinatario: {destRS}
-              </div>
-            ) : null}
+            <div className="text-sm text-slate-700 truncate">
+              Destinatario: {destRS}
+            </div>
             <div className="text-sm text-slate-500 truncate">
               Destinazione: {dest || "—"}
             </div>
           </div>
-          <StatusBadge value={r.status || r["Stato"]} />
+          <StatusBadge value={r.status} />
         </div>
+
         <div className="mt-3">
           <button
             onClick={onDetails}
@@ -97,8 +88,13 @@ export default function SpedizioniClient() {
   >("created_desc");
 
   const [open, setOpen] = useState(false);
-  const [sel, setSel] = useState<Row | null>(null);
+  const [selected, setSelected] = useState<Row | null>(null);
 
+  // 🔥 DTO COMPLETO PER IL DRAWER
+  const [detail, setDetail] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  /* ───────────── LOAD LIST ───────────── */
   useEffect(() => {
     let alive = true;
 
@@ -109,31 +105,27 @@ export default function SpedizioniClient() {
         if (q.trim()) params.set("q", q.trim());
         if (sort) params.set("sort", sort);
 
-        // filtro per email cliente (supabase auth -> salviamo email in localStorage)
-        if (typeof window !== "undefined") {
-          const email = window.localStorage.getItem("userEmail") || "";
-          if (email) params.set("email", email);
-        }
-
-        const res = await fetch(`/api/spedizioni?${params.toString()}`, {
+        const res = await fetch(`/api/spedizioni?${params}`, {
           cache: "no-store",
         });
-        const j = await res.json().catch(() => ({}));
+        const j = await res.json();
 
         if (!alive) return;
 
         if (j?.ok && Array.isArray(j.rows)) {
-          const flat: Row[] = j.rows.map((r: any) => ({
-            id: r.id,
-            _createdTime: r.created_at || null,
-            ...r,
-          }));
-          setRows(flat);
+          setRows(
+            j.rows.map((r: any) => ({
+              id: r.id,
+              human_id: r.human_id,
+              _createdTime: r.created_at,
+              ...r,
+            }))
+          );
         } else {
           setRows([]);
         }
-      } catch (err) {
-        console.error("[SpedizioniClient] load error:", err);
+      } catch (e) {
+        console.error("load list error", e);
         if (alive) setRows([]);
       } finally {
         if (alive) setLoading(false);
@@ -145,12 +137,14 @@ export default function SpedizioniClient() {
     };
   }, [q, sort]);
 
+  /* ───────────── FILTER + SORT ───────────── */
   const filtered = useMemo(() => {
     const needle = norm(q);
+
     const arr = !needle
       ? rows
-      : rows.filter((r) => {
-          const hay = [
+      : rows.filter((r) =>
+          [
             r.human_id,
             r.dest_rs,
             r.dest_citta,
@@ -158,53 +152,28 @@ export default function SpedizioniClient() {
             r.mittente_rs,
           ]
             .map(norm)
-            .join(" | ");
-          return hay.includes(needle);
-        });
+            .join(" ")
+            .includes(needle)
+        );
 
-    const copy = [...arr];
-    copy.sort((a, b) => {
-      if (sort === "ritiro_desc") {
-        const da = a.giorno_ritiro ? new Date(a.giorno_ritiro).getTime() : 0;
-        const db = b.giorno_ritiro ? new Date(b.giorno_ritiro).getTime() : 0;
-        return db - da;
-      }
-      if (sort === "dest_az") {
-        const aa = `${a.dest_citta || ""} ${a.dest_paese || ""}`.toLowerCase();
-        const bb = `${b.dest_citta || ""} ${b.dest_paese || ""}`.toLowerCase();
-        return aa.localeCompare(bb);
-      }
-      if (sort === "status") {
-        const order = (s?: string) => {
-          const v = (s || "").toLowerCase();
-          if (v.includes("in transito") || v.includes("intransit")) return 2;
-          if (v.includes("in consegna") || v.includes("outfordelivery")) return 1;
-          if (v.includes("consegn")) return 0;
-          if (v.includes("eccez") || v.includes("exception") || v.includes("failed"))
-            return 3;
-          return 4;
-        };
-        return order(a.status) - order(b.status);
-      }
+    return [...arr].sort((a, b) => {
       const ca = a._createdTime ? new Date(a._createdTime).getTime() : 0;
       const cb = b._createdTime ? new Date(b._createdTime).getTime() : 0;
       return cb - ca;
     });
-
-    return copy;
   }, [rows, q, sort]);
 
   return (
     <>
-      {/* Toolbar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* TOOLBAR */}
+      <div className="flex gap-3 mb-4">
         <div className="relative">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Cerca: destinatario, città, paese, ID…"
-            className="pl-8 pr-3 py-2 text-sm rounded-lg border bg-white w-72"
+            placeholder="Cerca spedizione…"
+            className="pl-8 pr-3 py-2 text-sm rounded-lg border bg-white"
           />
         </div>
         <div className="relative">
@@ -213,17 +182,16 @@ export default function SpedizioniClient() {
             value={sort}
             onChange={(e) => setSort(e.target.value as any)}
             className="pl-8 pr-3 py-2 text-sm rounded-lg border bg-white"
-            title="Ordina per"
           >
-            <option value="created_desc">Data creazione (nuove prima)</option>
-            <option value="ritiro_desc">Data ritiro (recenti prima)</option>
-            <option value="dest_az">Destinazione A → Z</option>
+            <option value="created_desc">Data creazione</option>
+            <option value="ritiro_desc">Data ritiro</option>
+            <option value="dest_az">Destinazione</option>
             <option value="status">Stato</option>
           </select>
         </div>
       </div>
 
-      {/* Lista 1 card per riga */}
+      {/* LIST */}
       {loading ? (
         <div className="text-sm text-slate-500">Caricamento…</div>
       ) : filtered.length === 0 ? (
@@ -234,22 +202,41 @@ export default function SpedizioniClient() {
             <Card
               key={r.id}
               r={r}
-              onDetails={() => {
-                setSel(r);
+              onDetails={async () => {
+                setSelected(r);
                 setOpen(true);
+                setDetail(null);
+                setDetailLoading(true);
+
+                try {
+                  const ref = r.human_id || r.id;
+                  const res = await fetch(`/api/spedizioni/${ref}`, {
+                    cache: "no-store",
+                  });
+                  const j = await res.json();
+                  if (j?.ok) setDetail(j.shipment);
+                } catch (e) {
+                  console.error("detail load error", e);
+                } finally {
+                  setDetailLoading(false);
+                }
               }}
             />
           ))}
         </div>
       )}
 
-      {/* Drawer dettagli */}
+      {/* DRAWER */}
       <Drawer
         open={open}
         onClose={() => setOpen(false)}
-        title={sel ? sel.human_id || sel.id : undefined}
+        title={detail?.human_id || selected?.human_id || selected?.id}
       >
-        {sel ? <ShipmentDetail f={sel as any} /> : null}
+        {detailLoading ? (
+          <div className="text-sm text-slate-500">Caricamento dettagli…</div>
+        ) : detail ? (
+          <ShipmentDetail f={detail} />
+        ) : null}
       </Drawer>
     </>
   );
