@@ -4,6 +4,24 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { ShipmentInputZ } from "@/lib/contracts/shipment";
 
+// helper crypto //
+
+import crypto from "crypto";
+
+function rid() {
+  return crypto.randomUUID();
+}
+
+function safeJson(x: any, max = 2000) {
+  try {
+    const s = JSON.stringify(x);
+    return s.length > max ? s.slice(0, max) + "…(truncated)" : s;
+  } catch {
+    return String(x);
+  }
+}
+
+
 /* ───────────── Helpers ───────────── */
 
 const toNum = (x: any): number | null => {
