@@ -27,7 +27,10 @@ const DEFAULT_SELECTORS = {
   destinatario: 'input[data-gmaps="indirizzo-destinatario"]',
 };
 
-export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }: Args) {
+export function usePlacesAutocomplete({
+  selectors = DEFAULT_SELECTORS,
+  onFill,
+}: Args) {
   const attachPlacesToInput = useCallback(
     (input: HTMLInputElement, who: Who) => {
       if (!input || (input as any).__acAttached) return;
@@ -74,8 +77,16 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
         ul.innerHTML = "";
       };
 
+      const highlight = () => {
+        Array.from(ul.children).forEach((el, i) => {
+          (el as HTMLElement).style.background =
+            i === activeIndex ? "#f1f5f9" : "transparent";
+        });
+      };
+
       const render = () => {
         ul.innerHTML = "";
+
         if (!items.length) {
           const li = document.createElement("li");
           li.textContent = "Nessun suggerimento";
@@ -84,33 +95,32 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
           ul.appendChild(li);
           return;
         }
+
         items.forEach((s, i) => {
           const li = document.createElement("li");
           li.style.padding = "8px 10px";
           li.style.borderRadius = "8px";
           li.style.cursor = "pointer";
+
           li.onmouseenter = () => {
             activeIndex = i;
             highlight();
           };
+
           li.onclick = () => choose(i);
+
           const main = document.createElement("div");
           main.textContent = s.main;
           main.style.fontWeight = "600";
           main.style.fontSize = "13px";
+
           const sec = document.createElement("div");
           sec.textContent = s.secondary || "";
           sec.style.fontSize = "12px";
           sec.style.color = "#6b7280";
+
           li.append(main, sec);
           ul.appendChild(li);
-        });
-      };
-
-      const highlight = () => {
-        Array.from(ul.children).forEach((el, i) => {
-          (el as HTMLElement).style.background =
-            i === activeIndex ? "#f1f5f9" : "transparent";
         });
       };
 
@@ -124,6 +134,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
       const choose = async (idx: number) => {
         const sel = items[idx];
         if (!sel) return;
+
         close();
 
         input.value = sel.main + (sel.secondary ? `, ${sel.secondary}` : "");
@@ -136,11 +147,14 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
 
         const lat = (details as any)?.location?.latitude;
         const lng = (details as any)?.location?.longitude;
+
         if (!addr.cap && typeof lat === "number" && typeof lng === "number") {
           try {
             const cap = await fetchPostalCodeByLatLng(lat, lng, GMAPS_LANG);
             if (cap) addr.cap = cap;
-          } catch {}
+          } catch {
+            // ignore
+          }
         }
 
         onFill(who, addr);
@@ -152,6 +166,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
           close();
           return;
         }
+
         items = await fetchSuggestions(q, session);
         render();
         openMenu();
@@ -159,6 +174,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
 
       const onKey = (e: KeyboardEvent) => {
         if (!open) return;
+
         if (e.key === "ArrowDown") {
           e.preventDefault();
           activeIndex = Math.min(activeIndex + 1, Math.max(items.length - 1, 0));
@@ -169,7 +185,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
           highlight();
         } else if (e.key === "Enter" && activeIndex >= 0) {
           e.preventDefault();
-          choose(activeIndex);
+          void choose(activeIndex);
         } else if (e.key === "Escape") {
           close();
         }
@@ -206,7 +222,10 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
   useEffect(() => {
     const attachAll = () => {
       const mitt = document.querySelector<HTMLInputElement>(selectors.mittente);
-      const dest = document.querySelector<HTMLInputElement>(selectors.destinatario);
+      const dest = document.querySelector<HTMLInputElement>(
+        selectors.destinatario
+      );
+
       if (mitt) attachPlacesToInput(mitt, "mittente");
       if (dest) attachPlacesToInput(dest, "destinatario");
     };
@@ -216,23 +235,9 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
     const mo = new MutationObserver(() => attachAll());
     mo.observe(document.body, { childList: true, subtree: true });
 
-
-
-  useEffect(() => {
-    const attachAll = () => {
-      const mitt = document.querySelector<HTMLInputElement>(selectors.mittente);
-      const dest = document.querySelector<HTMLInputElement>(selectors.destinatario);
-      if (mitt) attachPlacesToInput(mitt, "mittente");
-      if (dest) attachPlacesToInput(dest, "destinatario");
-    };
-
-    attachAll();
-
-    const mo = new MutationObserver(() => attachAll());
-    mo.observe(document.body, { childList: true, subtree: true });
-
-        return () => {
+    return () => {
       mo.disconnect();
+
       document
         .querySelectorAll<HTMLInputElement>(
           `${selectors.mittente},${selectors.destinatario}`
