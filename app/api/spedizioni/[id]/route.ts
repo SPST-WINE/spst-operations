@@ -11,6 +11,50 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+// HELPER CRYPTO //
+
+import crypto from "crypto";
+
+function rid() {
+  return crypto.randomUUID();
+}
+
+function safeJson(x: any, max = 2000) {
+  try {
+    const s = JSON.stringify(x);
+    return s.length > max ? s.slice(0, max) + "…(truncated)" : s;
+  } catch {
+    return String(x);
+  }
+}
+
+function pickKeys(obj: any, keys: string[]) {
+  const out: Record<string, any> = {};
+  for (const k of keys) out[k] = obj?.[k];
+  return out;
+}
+
+// evita di loggare allegati/fields enormi
+function redactPayload(payload: Record<string, any>) {
+  const redacted = { ...payload };
+  const bigKeys = [
+    "fields",
+    "ldv",
+    "fattura_proforma",
+    "fattura_commerciale",
+    "dle",
+    "allegato1",
+    "allegato2",
+    "allegato3",
+    "allegato4",
+  ];
+  for (const k of bigKeys) {
+    if (k in redacted) redacted[k] = "[REDACTED]";
+  }
+  return redacted;
+}
+
+
 /* ───────────── Helpers ───────────── */
 
 function admin() {
@@ -97,12 +141,28 @@ const PACKAGES_SELECT = `
    ✅ Client: RLS (schema("spst"))
 */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const request_id = rid();
   const idOrHuman = params.id;
+
+  const debug =
+    process.env.DEBUG_API === "1" ||
+    req.nextUrl.searchParams.get("debug") === "1";
+
+  console.log(
+    `[api/spedizioni/[id]] GET start request_id=${request_id} idOrHuman=${idOrHuman}`
+  );
+
   if (!idOrHuman) {
-    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+    console.log(
+      `[api/spedizioni/[id]] GET missing id request_id=${request_id}`
+    );
+    return NextResponse.json(
+      { ok: false, error: "MISSING_ID", request_id },
+      { status: 400 }
+    );
   }
 
   const supa = supabaseServerSpst();
@@ -110,16 +170,25 @@ export async function GET(
     data: { user },
   } = await supa.auth.getUser();
 
+  console.log(
+    `[api/spedizioni/[id]] GET auth request_id=${request_id} user_id=${user?.id ?? null} email=${user?.email ?? null}`
+  );
+
   if (!user?.id) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+    return NextResponse.json(
+      { ok: false, error: "UNAUTHENTICATED", request_id },
+      { status: 401 }
+    );
   }
 
   const staff = await isStaff();
+  const isIdUuid = isUuid(idOrHuman);
+
+  console.log(
+    `[api/spedizioni/[id]] GET ctx request_id=${request_id} staff=${staff} isUuid=${isIdUuid}`
+  );
 
   try {
-    const isIdUuid = isUuid(idOrHuman);
-
-    // ───── STAFF ─────
     if (staff) {
       const supaAdmin = admin();
 
@@ -128,59 +197,118 @@ export async function GET(
         .from("shipments")
         .select(SHIPMENT_SELECT);
 
-      const { data: row, error } = isIdUuid
+      const shipRes = isIdUuid
         ? await shipQ.eq("id", idOrHuman).single()
         : await shipQ.eq("human_id", idOrHuman).single();
 
+      const { data: row, error } = shipRes;
+
       if (error || !row) {
-        return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+        console.log(
+          `[api/spedizioni/[id]] GET staff NOT_FOUND request_id=${request_id} supabase_error=${safeJson({
+            message: error?.message,
+            code: (error as any)?.code,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+          })}`
+        );
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "NOT_FOUND",
+            request_id,
+            ...(debug ? { supabase_error: error } : {}),
+          },
+          { status: 404 }
+        );
       }
 
       const shipmentId = row.id;
 
-      const { data: pkgs } = await (supaAdmin as any)
+      const pkgsRes = await (supaAdmin as any)
         .schema("spst")
         .from("packages")
         .select(PACKAGES_SELECT)
         .eq("shipment_id", shipmentId)
         .order("created_at", { ascending: true });
 
-      const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
-      return NextResponse.json({ ok: true, shipment: dto, scope: "staff" });
+      console.log(
+        `[api/spedizioni/[id]] GET staff ok request_id=${request_id} shipment_id=${shipmentId} packages=${pkgsRes.data?.length ?? 0} packages_error=${pkgsRes.error?.message ?? null}`
+      );
+
+      const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgsRes.data ?? []);
+
+      const res = NextResponse.json(
+        { ok: true, shipment: dto, scope: "staff", request_id },
+        { status: 200 }
+      );
+      res.headers.set("x-request-id", request_id);
+      return res;
     }
 
-    // ───── CLIENT (RLS) ─────
-    const shipQ = (supa as any)
-      .schema("spst")
-      .from("shipments")
-      .select(SHIPMENT_SELECT);
+    // CLIENT (RLS)
+    const shipQ = (supa as any).schema("spst").from("shipments").select(SHIPMENT_SELECT);
 
-    const { data: row, error } = isIdUuid
+    const shipRes = isIdUuid
       ? await shipQ.eq("id", idOrHuman).single()
       : await shipQ.eq("human_id", idOrHuman).single();
 
+    const { data: row, error } = shipRes;
+
     if (error || !row) {
-      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+      console.log(
+        `[api/spedizioni/[id]] GET client NOT_FOUND request_id=${request_id} supabase_error=${safeJson({
+          message: error?.message,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+        })}`
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "NOT_FOUND",
+          request_id,
+          ...(debug ? { supabase_error: error } : {}),
+        },
+        { status: 404 }
+      );
     }
 
     const shipmentId = row.id;
 
-    const { data: pkgs } = await (supa as any)
+    const pkgsRes = await (supa as any)
       .schema("spst")
       .from("packages")
       .select(PACKAGES_SELECT)
       .eq("shipment_id", shipmentId)
       .order("created_at", { ascending: true });
 
-    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
-    return NextResponse.json({ ok: true, shipment: dto, scope: "client" });
+    console.log(
+      `[api/spedizioni/[id]] GET client ok request_id=${request_id} shipment_id=${shipmentId} packages=${pkgsRes.data?.length ?? 0} packages_error=${pkgsRes.error?.message ?? null}`
+    );
+
+    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgsRes.data ?? []);
+
+    const res = NextResponse.json(
+      { ok: true, shipment: dto, scope: "client", request_id },
+      { status: 200 }
+    );
+    res.headers.set("x-request-id", request_id);
+    return res;
   } catch (e: any) {
+    console.log(
+      `[api/spedizioni/[id]] GET server_error request_id=${request_id} err=${String(
+        e?.message || e
+      )}`
+    );
     return NextResponse.json(
-      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
+      { ok: false, error: "SERVER_ERROR", request_id, details: String(e?.message || e) },
       { status: 500 }
     );
   }
 }
+
 
 /* ───────────── PATCH /api/spedizioni/[id] ─────────────
    Staff-only. Payload whitelisted.
@@ -214,26 +342,57 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const request_id = rid();
+
   const staff = await requireStaff();
   if ("response" in staff) return staff.response;
 
   const id = params.id;
   if (!id) {
-    return NextResponse.json({ ok: false, error: "MISSING_ID" }, { status: 400 });
+    const res = NextResponse.json(
+      { ok: false, error: "MISSING_ID", request_id },
+      { status: 400 }
+    );
+    res.headers.set("x-request-id", request_id);
+    return res;
   }
 
+  console.log(`[api/spedizioni/[id]] PATCH start request_id=${request_id} id=${id}`);
+
   const payload = (await req.json().catch(() => ({} as any))) as Record<string, any>;
+
+
+  console.log(
+    `[api/spedizioni/[id]] PATCH payload request_id=${request_id} keys=${Object.keys(payload || {}).join(",")} body=${safeJson(
+      redactPayload(payload),
+      4000
+    )}`
+  );
 
   const update: Record<string, any> = {};
   for (const [k, v] of Object.entries(payload)) {
     if (PATCH_ALLOWED_KEYS.has(k)) update[k] = v;
   }
 
-  if (Object.keys(update).length === 0) {
-    return NextResponse.json({ ok: false, error: "NO_ALLOWED_FIELDS" }, { status: 400 });
+    console.log(
+    `[api/spedizioni/[id]] PATCH update request_id=${request_id} updateKeys=${Object.keys(update).join(",")} update=${safeJson(
+      redactPayload(update),
+      3000
+    )}`
+  );
+
+
+    if (Object.keys(update).length === 0) {
+    const res = NextResponse.json(
+      { ok: false, error: "NO_ALLOWED_FIELDS", request_id },
+      { status: 400 }
+    );
+    res.headers.set("x-request-id", request_id);
+    return res;
   }
 
-  try {
+
+    try {
     const supaAdmin = admin();
 
     const { data: row, error } = await (supaAdmin as any)
@@ -245,25 +404,54 @@ export async function PATCH(
       .single();
 
     if (error || !row) {
-      return NextResponse.json(
-        { ok: false, error: "UPDATE_FAILED", details: error?.message ?? null },
+      console.log(
+        `[api/spedizioni/[id]] PATCH update_failed request_id=${request_id} id=${id} supabase_error=${safeJson({
+          message: error?.message,
+          code: (error as any)?.code,
+          details: (error as any)?.details,
+          hint: (error as any)?.hint,
+        })}`
+      );
+
+      const res = NextResponse.json(
+        { ok: false, error: "UPDATE_FAILED", request_id, details: error?.message ?? null },
         { status: 500 }
       );
+      res.headers.set("x-request-id", request_id);
+      return res;
     }
 
-    const { data: pkgs } = await (supaAdmin as any)
+    const { data: pkgs, error: pkgsError } = await (supaAdmin as any)
       .schema("spst")
       .from("packages")
       .select(PACKAGES_SELECT)
       .eq("shipment_id", id)
       .order("created_at", { ascending: true });
 
+    if (pkgsError) {
+      console.log(
+        `[api/spedizioni/[id]] PATCH packages_select_error request_id=${request_id} id=${id} err=${pkgsError.message}`
+      );
+    } else {
+      console.log(
+        `[api/spedizioni/[id]] PATCH ok request_id=${request_id} id=${id} packages=${pkgs?.length ?? 0}`
+      );
+    }
+
     const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
-    return NextResponse.json({ ok: true, shipment: dto });
+    const res = NextResponse.json({ ok: true, shipment: dto, request_id });
+    res.headers.set("x-request-id", request_id);
+    return res;
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "SERVER_ERROR", details: String(e?.message || e) },
+    console.log(
+      `[api/spedizioni/[id]] PATCH server_error request_id=${request_id} id=${id} err=${String(
+        e?.message || e
+      )}`
+    );
+    const res = NextResponse.json(
+      { ok: false, error: "SERVER_ERROR", request_id, details: String(e?.message || e) },
       { status: 500 }
     );
+    res.headers.set("x-request-id", request_id);
+    return res;
   }
-}
