@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { ShipmentInputZ } from "@/lib/contracts/shipment";
 
+
 // helper crypto //
 
 import crypto from "crypto";
@@ -366,10 +367,34 @@ export async function POST(req: Request) {
       ? (input as any).colli
       : [];
 
-   const supa = supabaseServerSpst();
-const { data: { user } } = await supa.auth.getUser();
+   
+    // 🔐 email cliente = utente autenticato (da token/cookie/header)
+const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false },
+}) as any;
 
-if (!user?.email) {
+const token = getAccessTokenFromRequest();
+let userEmail: string | null = null;
+
+if (token) {
+  const { data, error } = await auth.auth.getUser(token);
+  if (error) {
+    console.log("[SPEDIZIONI] auth.getUser error:", error.message);
+  }
+  userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
+}
+
+// fallback header (debug/dev)
+if (!userEmail) {
+  const hdrs = nextHeaders();
+  userEmail =
+    hdrs.get("x-user-email") ||
+    hdrs.get("x-client-email") ||
+    hdrs.get("x-auth-email") ||
+    null;
+}
+
+if (!userEmail) {
   const res = NextResponse.json(
     { ok: false, error: "UNAUTHENTICATED", request_id },
     { status: 401, headers: withCorsHeaders() }
@@ -378,9 +403,8 @@ if (!user?.email) {
   return res;
 }
 
-const email_cliente = user.email.toLowerCase().trim();
+const email_cliente = userEmail.toLowerCase().trim();
 const email_norm = email_cliente;
-
 
     // ✅ HARD GUARD: mai più spedizioni senza email
     if (!email_norm) {
