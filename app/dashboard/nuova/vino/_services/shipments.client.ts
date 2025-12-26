@@ -3,6 +3,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+function getCookie(name: string) {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export async function createShipmentWithAuth(
   supabase: SupabaseClient,
   payload: any,
@@ -13,12 +19,18 @@ export async function createShipmentWithAuth(
     ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
   };
 
-  // prova token (se esiste), ma NON è richiesto
+  // 1) prova session token via supabase-js (se c'è)
   let accessToken: string | undefined;
   try {
     const { data } = await supabase.auth.getSession();
     accessToken = data?.session?.access_token;
   } catch {}
+
+  // 2) fallback: token cookie (tipico con @supabase/ssr)
+  if (!accessToken) {
+    const c = getCookie("sb-access-token");
+    if (c) accessToken = c;
+  }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -26,14 +38,16 @@ export async function createShipmentWithAuth(
   const res = await fetch("/api/spedizioni", {
     method: "POST",
     headers,
-    credentials: "include", // ✅ qui sta la sessione vera
+    credentials: "include",
     body: JSON.stringify(body),
   });
 
   const json = await res.json().catch(() => ({} as any));
   if (!res.ok || !json?.ok) {
     const details = json?.details || json?.error || `${res.status} ${res.statusText}`;
-    throw new Error(typeof details === "string" ? details : "Errore creazione spedizione. Riprova.");
+    throw new Error(
+      typeof details === "string" ? details : "Errore creazione spedizione. Riprova."
+    );
   }
 
   const recId = json?.shipment?.id;
