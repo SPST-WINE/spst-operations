@@ -219,27 +219,39 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
    // FILE: app/dashboard/nuova/vino/_places/usePlacesAutocomplete.ts
 // ... tutto uguale sopra ...
 
-return () => {
-  mo.disconnect();
-  document
-    .querySelectorAll<HTMLInputElement>(
-      `${selectors.mittente},${selectors.destinatario}`
-    )
-    .forEach((el) => {
-      const d: any = el as any;
-      if (d.__acDetach) d.__acDetach();
+  useEffect(() => {
+    const attachAll = () => {
+      const mitt = document.querySelector<HTMLInputElement>(selectors.mittente);
+      const dest = document.querySelector<HTMLInputElement>(selectors.destinatario);
+      if (mitt) attachPlacesToInput(mitt, "mittente");
+      if (dest) attachPlacesToInput(dest, "destinatario");
+    };
 
-      // ✅ allow re-attach if the hook re-mounts
-      try {
-        delete d.__acAttached;
-        delete d.__acDetach;
-      } catch {
-        d.__acAttached = false;
-        d.__acDetach = undefined;
-      }
-    });
-};
+    attachAll();
+
+    const mo = new MutationObserver(() => attachAll());
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      mo.disconnect();
+      document
+        .querySelectorAll<HTMLInputElement>(
+          `${selectors.mittente},${selectors.destinatario}`
+        )
+        .forEach((el) => {
+          const d: any = el as any;
+          if (d.__acDetach) d.__acDetach();
+
+          // ✅ allow re-attach if the hook re-mounts
+          try {
+            delete d.__acAttached;
+            delete d.__acDetach;
+          } catch {
+            d.__acAttached = false;
+            d.__acDetach = undefined;
+          }
         });
     };
   }, [attachPlacesToInput, selectors.destinatario, selectors.mittente]);
 }
+
