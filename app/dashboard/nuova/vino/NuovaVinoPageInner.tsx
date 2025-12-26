@@ -54,10 +54,10 @@ export default function NuovaVinoPageInner() {
   );
 
   usePrefillMittente({
-    supabase,
-    forcedEmail,
-    setMittente,
-  });
+  forcedEmail,
+  setMittente,
+});
+
 
   usePlacesAutocomplete({
     onFill: handlePlacesFill,
