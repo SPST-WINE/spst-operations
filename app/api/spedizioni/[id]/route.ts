@@ -442,7 +442,8 @@ export async function PATCH(
     const res = NextResponse.json({ ok: true, shipment: dto, request_id });
     res.headers.set("x-request-id", request_id);
     return res;
-  } catch (e: any) {
+  
+      } catch (e: any) {
     console.log(
       `[api/spedizioni/[id]] PATCH server_error request_id=${request_id} id=${id} err=${String(
         e?.message || e
@@ -455,3 +456,4 @@ export async function PATCH(
     res.headers.set("x-request-id", request_id);
     return res;
   }
+} 
