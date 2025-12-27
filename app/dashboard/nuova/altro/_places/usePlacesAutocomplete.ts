@@ -27,7 +27,46 @@ const DEFAULT_SELECTORS = {
   destinatario: 'input[data-gmaps="indirizzo-destinatario"]',
 };
 
-export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }: Args) {
+// ✅ risolve sempre l’input, anche se il selector matcha un wrapper div/label/etc
+function resolveInputFromSelector(sel: string): HTMLInputElement | null {
+  const el = document.querySelector(sel) as any;
+  if (!el) return null;
+
+  if (el instanceof HTMLInputElement) return el;
+
+  // wrapper → trova input dentro
+  const inner = el.querySelector?.("input");
+  return inner instanceof HTMLInputElement ? inner : null;
+}
+
+// ✅ fallback se PartyCard emette attributi diversi
+function resolveAddressInput(who: Who, sel: string): HTMLInputElement | null {
+  const direct = resolveInputFromSelector(sel);
+  if (direct) return direct;
+
+  // fallback 1: data-gmaps più “corto”
+  const alt1 =
+    who === "mittente"
+      ? 'input[data-gmaps*="mittente"]'
+      : 'input[data-gmaps*="destinatario"]';
+  const a1 = resolveInputFromSelector(alt1);
+  if (a1) return a1;
+
+  // fallback 2: input con name/id contenente "indirizzo"
+  const alt2 =
+    who === "mittente"
+      ? 'input[name*="indirizzo"][name*="mitt"], input[id*="indirizzo"][id*="mitt"]'
+      : 'input[name*="indirizzo"][name*="dest"], input[id*="indirizzo"][id*="dest"]';
+  const a2 = resolveInputFromSelector(alt2);
+  if (a2) return a2;
+
+  return null;
+}
+
+export function usePlacesAutocomplete({
+  selectors = DEFAULT_SELECTORS,
+  onFill,
+}: Args) {
   const attachPlacesToInput = useCallback(
     (input: HTMLInputElement, who: Who) => {
       if (!input || (input as any).__acAttached) return;
@@ -42,7 +81,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
       dd.className = "spst-ac-dd";
       dd.style.cssText = [
         "position:absolute",
-        "z-index:9999",
+        "z-index:999999", // 🔥 super alto
         "background:#fff",
         "border:1px solid #e2e8f0",
         "border-radius:10px",
@@ -104,7 +143,7 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
             highlight();
           };
 
-          li.onclick = () => choose(i);
+          li.onclick = () => void choose(i);
 
           const main = document.createElement("div");
           main.textContent = s.main;
@@ -218,8 +257,8 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
 
   useEffect(() => {
     const attachAll = () => {
-      const mitt = document.querySelector<HTMLInputElement>(selectors.mittente);
-      const dest = document.querySelector<HTMLInputElement>(selectors.destinatario);
+      const mitt = resolveAddressInput("mittente", selectors.mittente);
+      const dest = resolveAddressInput("destinatario", selectors.destinatario);
 
       if (mitt) attachPlacesToInput(mitt, "mittente");
       if (dest) attachPlacesToInput(dest, "destinatario");
@@ -234,14 +273,11 @@ export function usePlacesAutocomplete({ selectors = DEFAULT_SELECTORS, onFill }:
       mo.disconnect();
 
       document
-        .querySelectorAll<HTMLInputElement>(
-          `${selectors.mittente},${selectors.destinatario}`
-        )
+        .querySelectorAll<HTMLInputElement>("input")
         .forEach((el) => {
           const d: any = el as any;
           if (d.__acDetach) d.__acDetach();
 
-          // ✅ allow re-attach if the hook re-mounts
           try {
             delete d.__acAttached;
             delete d.__acDetach;
