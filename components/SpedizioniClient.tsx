@@ -235,7 +235,7 @@ export default function SpedizioniClient() {
         {detailLoading ? (
           <div className="text-sm text-slate-500">Caricamento dettagli…</div>
         ) : detail ? (
-          <ShipmentDetail f={detail} />
+          <ShipmentDetail shipment={detail} />
         ) : null}
       </Drawer>
     </>
