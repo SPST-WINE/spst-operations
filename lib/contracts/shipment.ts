@@ -12,6 +12,17 @@ export type Currency = z.infer<typeof CurrencyZ>;
 export const ShippingFormatZ = z.enum(["PACCO", "PALLET"]);
 export type ShippingFormat = z.infer<typeof ShippingFormatZ>;
 
+export const ShipmentStatusZ = z.enum([
+  "CREATA",
+  "IN RITIRO",
+  "IN TRANSITO",
+  "CONSEGNATA",
+  "ECCEZIONE",
+  "ANNULLATA",
+]);
+export type ShipmentStatus = z.infer<typeof ShipmentStatusZ>;
+
+
 /* ───────────────── PARTY ─────────────────
    - Input: campi opzionali (il form può inviare parziale)
    - Output: campi sempre presenti ma nullabili (più comodo per UI)
@@ -166,6 +177,9 @@ export type ShipmentDTO = {
   packages: PackageRow[];
 
   attachments: Attachments | null;
+
+  status: ShipmentStatus | null;
+
 
   // ✅ alias stabile per fields
   extras: Record<string, any> | null;
