@@ -148,7 +148,7 @@ export type ShipmentDTO = {
   customer_id: string | null;
   email_cliente: string | null;
 
-  status: string | null;
+ 
   carrier: string | null;
   service_code: string | null;
   tracking_code: string | null;
