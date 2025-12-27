@@ -1,7 +1,7 @@
 // FILE: app/dashboard/nuova/altro/NuovaAltroPageInner.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -17,6 +17,9 @@ import { usePrefillMittente } from "./_hooks/usePrefillMittente";
 import { usePlacesAutocomplete } from "./_places/usePlacesAutocomplete";
 import type { AddressParts } from "./_logic/types";
 
+// ------------------------------------------------------------
+// Tipi / costanti UI
+// ------------------------------------------------------------
 type SuccessInfo = {
   recId: string;
   humanId: string;
@@ -39,6 +42,9 @@ const blankParty: Party = {
   piva: "",
 };
 
+// ------------------------------------------------------------
+// Helpers mapping → ShipmentInputZ (contract)
+// ------------------------------------------------------------
 function toNull(v?: string | null) {
   const s = (v ?? "").trim();
   return s ? s : null;
@@ -81,6 +87,7 @@ function mapParty(p: Party) {
 export default function NuovaAltroPageInner() {
   const router = useRouter();
 
+  // Supabase client (serve per token/session in createShipmentWithAuth)
   const supabase = useRef(
     createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -88,25 +95,38 @@ export default function NuovaAltroPageInner() {
     )
   ).current;
 
+  // Stato form
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
   const [destAbilitato, setDestAbilitato] = useState(false);
 
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
+  // ✅ Prefill mittente (come vino)
   usePrefillMittente({ setMittente });
 
+  // ✅ IMPORTANTISSIMO: onFill STABILE (evita detach/reattach loop)
+  const handlePlacesFill = useCallback(
+    (who: "mittente" | "destinatario", parts: AddressParts) => {
+      if (who === "mittente") {
+        setMittente((prev) => ({ ...prev, ...parts }));
+      } else {
+        setDestinatario((prev) => ({ ...prev, ...parts }));
+      }
+    },
+    []
+  );
+
+  // ✅ Places autocomplete
   usePlacesAutocomplete({
     selectors: {
       mittente: 'input[data-gmaps="indirizzo-mittente"]',
       destinatario: 'input[data-gmaps="indirizzo-destinatario"]',
     },
-    onFill: (who, parts: AddressParts) => {
-      if (who === "mittente") setMittente((prev) => ({ ...prev, ...parts }));
-      else setDestinatario((prev) => ({ ...prev, ...parts }));
-    },
+    onFill: handlePlacesFill,
   });
 
+  // Colli
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
@@ -123,9 +143,11 @@ export default function NuovaAltroPageInner() {
     }
   }, [formato, assicurazionePallet, valoreAssicurato]);
 
+  // Ritiro
   const [ritiroData, setRitiroData] = useState<Date | undefined>();
   const [ritiroNote, setRitiroNote] = useState("");
 
+  // Fattura
   const [incoterm, setIncoterm] = useState<"DAP" | "DDP" | "EXW">("DAP");
   const [valuta, setValuta] = useState<"EUR" | "USD" | "GBP">("EUR");
   const [noteFatt, setNoteFatt] = useState("");
@@ -135,6 +157,7 @@ export default function NuovaAltroPageInner() {
   const [sameAsDest, setSameAsDest] = useState(false);
   const [fatturaFile, setFatturaFile] = useState<File | undefined>();
 
+  // UI
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
@@ -142,9 +165,14 @@ export default function NuovaAltroPageInner() {
   const topRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (errors.length && topRef.current) topRef.current.scrollIntoView({ behavior: "smooth" });
+    if (errors.length && topRef.current) {
+      topRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   }, [errors.length]);
 
+  // ------------------------------------------------------------
+  // Validazione
+  // ------------------------------------------------------------
   function validate(): string[] {
     const errs: string[] = [];
 
@@ -169,13 +197,16 @@ export default function NuovaAltroPageInner() {
 
     if (formato === "Pallet" && assicurazionePallet) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
-        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
+        errs.push(
+          "Valore assicurato mancante/non valido (assicurazione attiva)."
+        );
       }
     }
 
     const fatt = sameAsDest ? destinatario : fatturazione;
     if (!fatturaFile) {
-      if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
+      if (!fatt.ragioneSociale?.trim())
+        errs.push("Ragione sociale fattura mancante.");
       if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
         errs.push("PIVA obbligatoria per B2B/Sample.");
       }
@@ -184,6 +215,9 @@ export default function NuovaAltroPageInner() {
     return errs;
   }
 
+  // ------------------------------------------------------------
+  // SALVATAGGIO → POST /api/spedizioni
+  // ------------------------------------------------------------
   const salva = async () => {
     if (saving) return;
 
@@ -201,7 +235,9 @@ export default function NuovaAltroPageInner() {
         tipo_spedizione: mapTipoSped(tipoSped),
         incoterm: toNull(incoterm),
         declared_value:
-          formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+          formato === "Pallet" && assicurazionePallet
+            ? (valoreAssicurato ?? null)
+            : null,
         fatt_valuta: (valuta as any) ?? null,
 
         giorno_ritiro: ritiroData ? dateToYMD(ritiroData) : null,
@@ -216,10 +252,15 @@ export default function NuovaAltroPageInner() {
           ? { ...mapParty(destinatario), abilitato_import: true }
           : mapParty(destinatario),
 
-        fatturazione: sameAsDest ? mapParty(destinatario) : mapParty(fatturazione),
+        fatturazione: sameAsDest
+          ? mapParty(destinatario)
+          : mapParty(fatturazione),
 
         colli: (colli || [])
-          .filter((c) => c && (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm))
+          .filter(
+            (c) =>
+              c && (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm)
+          )
           .map((c) => ({
             contenuto: toNull(contenuto),
             peso_reale_kg: toNumOrNull(c.peso_kg),
@@ -231,9 +272,12 @@ export default function NuovaAltroPageInner() {
         extras: {
           sorgente: "altro",
           destAbilitato: !!destAbilitato,
-          assicurazioneAttiva: formato === "Pallet" ? !!assicurazionePallet : false,
+          assicurazioneAttiva:
+            formato === "Pallet" ? !!assicurazionePallet : false,
           valoreAssicurato:
-            formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+            formato === "Pallet" && assicurazionePallet
+              ? (valoreAssicurato ?? null)
+              : null,
           noteFatt: toNull(noteFatt),
           fattSameAsDest: !!sameAsDest,
           fattDelega: !!delega,
@@ -263,10 +307,15 @@ export default function NuovaAltroPageInner() {
     }
   };
 
+  // ------------------------------------------------------------
+  // SUCCESS UI
+  // ------------------------------------------------------------
   if (success) {
-    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
+    const INFO_URL =
+      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
+      "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.humanId}`
@@ -290,15 +339,19 @@ export default function NuovaAltroPageInner() {
               <span className="text-slate-500">Incoterm:</span> {success.incoterm}
             </div>
             <div>
-              <span className="text-slate-500">Data ritiro:</span> {success.dataRitiro ?? "—"}
+              <span className="text-slate-500">Data ritiro:</span>{" "}
+              {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} (
+              {success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
               {success.destinatario.ragioneSociale || "—"}
-              {success.destinatario.citta ? ` — ${success.destinatario.citta}` : ""}
+              {success.destinatario.citta
+                ? ` — ${success.destinatario.citta}`
+                : ""}
             </div>
           </div>
 
@@ -339,6 +392,9 @@ export default function NuovaAltroPageInner() {
     );
   }
 
+  // ------------------------------------------------------------
+  // FORM UI
+  // ------------------------------------------------------------
   return (
     <div className="space-y-4" ref={topRef}>
       <h2 className="text-lg font-semibold">Nuova spedizione — altro</h2>
@@ -369,7 +425,12 @@ export default function NuovaAltroPageInner() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border bg-white p-4">
-          <PartyCard title="Mittente" value={mittente} onChange={setMittente} gmapsTag="mittente" />
+          <PartyCard
+            title="Mittente"
+            value={mittente}
+            onChange={setMittente}
+            gmapsTag="mittente"
+          />
         </div>
 
         <div className="rounded-2xl border bg-white p-4">
@@ -400,7 +461,12 @@ export default function NuovaAltroPageInner() {
         setValoreAssicurato={setValoreAssicurato}
       />
 
-      <RitiroCard date={ritiroData} setDate={setRitiroData} note={ritiroNote} setNote={setRitiroNote} />
+      <RitiroCard
+        date={ritiroData}
+        setDate={setRitiroData}
+        note={ritiroNote}
+        setNote={setRitiroNote}
+      />
 
       <FatturaCard
         incoterm={incoterm}
