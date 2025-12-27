@@ -423,6 +423,7 @@ export async function POST(req: Request) {
       note_ritiro: (input as any).note_ritiro ?? null,
       formato_sped: (input as any).formato_sped ?? null,
       contenuto_generale: (input as any).contenuto_generale ?? null,
+      status: "CREATA",
 
       mittente_rs:
         (input as any).mittente_rs ?? (input as any).mittente?.rs ?? null,
