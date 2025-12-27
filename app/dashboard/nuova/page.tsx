@@ -25,7 +25,7 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
 }
 
 const BADGE_DOT_GREEN = '#22c55e';
-const R = 28; // radius px
+const R = 28;
 
 type CardConfig = {
   href: string;
@@ -61,7 +61,6 @@ export default function NuovaSpedizioneSelettore() {
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="py-8 sm:py-10">
         <div className="mx-auto max-w-3xl text-center">
-          {/* 🔶 TITOLO ARANCIONE */}
           <h1 className="text-xl font-semibold tracking-tight text-spst-orange sm:text-2xl">
             Nuova spedizione
           </h1>
@@ -82,7 +81,7 @@ export default function NuovaSpedizioneSelettore() {
                 className="
                   group relative isolate bg-[#0b0f17]
                   shadow-[0_18px_55px_rgba(0,0,0,0.35)]
-                  transition-all
+                  transition-all duration-300
                   hover:-translate-y-1
                   hover:shadow-[0_26px_80px_rgba(0,0,0,0.27)]
                   focus:outline-none focus:ring-2 focus:ring-white/20
@@ -92,22 +91,44 @@ export default function NuovaSpedizioneSelettore() {
                   clipPath: `inset(0 round ${R}px)`,
                 }}
               >
-                {/* Border */}
-                <div className="pointer-events-none absolute inset-0 rounded-[28px] border border-slate-800/60 transition-colors group-hover:border-white/15" />
+                {/* bordo */}
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] border border-slate-800/60 transition-colors duration-300 group-hover:border-white/15" />
+
+                {/* ✅ glow hover (fa percepire “selezione”) */}
+                <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                  <div className="absolute -inset-8 bg-[radial-gradient(ellipse_at_top,rgba(247,145,30,0.25),transparent_60%)]" />
+                </div>
 
                 {/* Background */}
                 <div className="absolute inset-0">
+                  {/* ✅ IMMAGINE: più luminosa in hover */}
                   <Image
                     src={c.bgImage}
                     alt=""
                     fill
                     sizes="(max-width: 1024px) 100vw, 50vw"
-                    className="object-cover opacity-[0.35] transition-transform duration-500 transform-gpu group-hover:scale-[1.02]"
+                    className="
+                      object-cover opacity-[0.35]
+                      transition-all duration-500 transform-gpu
+                      group-hover:opacity-[0.52]
+                      group-hover:scale-[1.03]
+                    "
                     style={{ objectPosition: 'center 25%' }}
                   />
-                  <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-black/65 to-black/55" />
-                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(28,62,94,0.35),transparent_55%)]" />
-                  <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_-120px_160px_rgba(0,0,0,0.55)]" />
+
+                  {/* ✅ overlay scuro: ridotto in hover */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-black/80 via-black/65 to-black/55 transition-opacity duration-300 group-hover:opacity-70" />
+
+                  {/* ✅ radial: leggermente più presente in hover */}
+                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(28,62,94,0.35),transparent_55%)] transition-opacity duration-300 group-hover:opacity-110" />
+
+                  {/* ✅ inset shadow: un filo meno pesante in hover */}
+                  <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_-120px_160px_rgba(0,0,0,0.55)] transition-opacity duration-300 group-hover:opacity-80" />
+
+                  {/* ✅ highlight extra (come “luce sopra”) */}
+                  <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
+                  </div>
                 </div>
 
                 {/* Content */}
@@ -148,7 +169,8 @@ export default function NuovaSpedizioneSelettore() {
                     </div>
 
                     <div className="pt-2 text-[12px] text-white/55">
-                      Hai dubbi? Usa il pulsante “Supporto WhatsApp” in alto a destra.
+                      Hai dubbi? Usa il pulsante “Supporto WhatsApp” in alto a
+                      destra.
                     </div>
                   </div>
                 </div>
