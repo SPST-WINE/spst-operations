@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
@@ -35,11 +34,7 @@ export default function NuovaAltroPageInner() {
   const router = useRouter();
   const topRef = useRef<HTMLDivElement>(null);
 
-  // ✅ Supabase client (come vino)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+
 
   // Stato form
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
@@ -62,7 +57,8 @@ export default function NuovaAltroPageInner() {
     }));
   }, []);
 
-  usePrefillMittente({ supabase, onPrefill: applyMittentePrefill });
+  usePrefillMittente({ onPrefill: applyMittentePrefill });
+
 
   // Autocomplete Places (uguale vino)
   usePlacesAutocomplete({
