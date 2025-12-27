@@ -86,7 +86,7 @@ usePrefillMittente({ forcedEmail, setMittente });
   const [delega, setDelega] = useState(false);
   const [fatturazione, setFatturazione] = useState<Party>(blankParty);
   const [sameAsDest, setSameAsDest] = useState(false);
-  const [fatturaFile, setFatturaFile] = useState<File | undefined>(undefined);
+ 
 
   const [pl, setPl] = useState<RigaPL[]>([
     {
@@ -157,7 +157,6 @@ usePrefillMittente({ forcedEmail, setMittente });
         valuta,
         noteFatt,
         delega,
-        fatturaFile,
         colli,
         pl,
         assicurazionePallet,
@@ -305,8 +304,6 @@ usePrefillMittente({ forcedEmail, setMittente });
         destinatario={destinatario}
         sameAsDest={sameAsDest}
         setSameAsDest={setSameAsDest}
-        fatturaFile={fatturaFile}
-        setFatturaFile={setFatturaFile}
       />
 
       <div className="flex justify-end">
