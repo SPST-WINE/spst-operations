@@ -1,7 +1,9 @@
+// FILE: app/dashboard/nuova/altro/NuovaAltroPageInner.tsx
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 
 import PartyCard, { Party } from "@/components/nuova/PartyCard";
 import ColliCard, { Collo } from "@/components/nuova/ColliCard";
@@ -9,19 +11,16 @@ import RitiroCard from "@/components/nuova/RitiroCard";
 import FatturaCard from "@/components/nuova/FatturaCard";
 import { Select } from "@/components/nuova/Field";
 
-import { blankParty, INFO_URL_DEFAULT, WHATSAPP_URL_DEFAULT } from "../vino/_logic/constants";
-import { dateToYMD, mapFormato, mapParty, mapTipoSped, toNull, toNumOrNull } from "../vino/_logic/helpers";
+import { createShipmentWithAuth } from "./_services/shipments.client";
+import { usePrefillMittente } from "./_hooks/usePrefillMittente";
+import { usePlacesAutocomplete } from "./_hooks/usePlacesAutocomplete";
 
-import { createShipmentWithAuth } from "../vino/_services/shipments.client";
-import { uploadShipmentDocument } from "../vino/_services/upload.client";
-import type { DocType } from "../vino/_logic/types";
-
-import { usePrefillMittente } from "../vino/_hooks/usePrefillMittente";
-import { usePlacesAutocomplete } from "../vino/_places/usePlacesAutocomplete";
-
+// ------------------------------------------------------------
+// Tipi / costanti UI
+// ------------------------------------------------------------
 type SuccessInfo = {
-  recId: string;     // UUID DB
-  humanId: string;   // SP-xx-xx-xxxx-xxxxx
+  recId: string;
+  humanId: string;
   tipoSped: "B2B" | "B2C" | "Sample";
   incoterm: "DAP" | "DDP" | "EXW";
   dataRitiro?: string;
@@ -30,11 +29,69 @@ type SuccessInfo = {
   destinatario: Party;
 };
 
+const blankParty: Party = {
+  ragioneSociale: "",
+  referente: "",
+  paese: "",
+  citta: "",
+  cap: "",
+  indirizzo: "",
+  telefono: "",
+  piva: "",
+};
+
+// ------------------------------------------------------------
+// Helpers mapping → ShipmentInputZ (contract)
+// ------------------------------------------------------------
+function toNull(v?: string | null) {
+  const s = (v ?? "").trim();
+  return s ? s : null;
+}
+
+function toNumOrNull(v: any) {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function dateToYMD(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function mapTipoSped(v: "B2B" | "B2C" | "Sample") {
+  return v === "Sample" ? "CAMPIONATURA" : v;
+}
+
+function mapFormato(v: "Pacco" | "Pallet") {
+  return v === "Pallet" ? "PALLET" : "PACCO";
+}
+
+function mapParty(p: Party) {
+  return {
+    rs: toNull(p.ragioneSociale),
+    referente: toNull(p.referente),
+    telefono: toNull(p.telefono),
+    piva: toNull(p.piva),
+    paese: toNull(p.paese),
+    citta: toNull((p as any).citta),
+    cap: toNull(p.cap),
+    indirizzo: toNull(p.indirizzo),
+  };
+}
+
 export default function NuovaAltroPageInner() {
   const router = useRouter();
-  const topRef = useRef<HTMLDivElement>(null);
 
-
+  // Supabase client (come vino: serve solo per token/session in createShipmentWithAuth)
+  const supabase = useRef(
+    createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+  ).current;
 
   // Stato form
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
@@ -43,28 +100,18 @@ export default function NuovaAltroPageInner() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // Prefill mittente (uguale vino)
-  const applyMittentePrefill = useCallback((m: any) => {
-    setMittente((prev) => ({
-      ...prev,
-      ragioneSociale: m.mittente || prev.ragioneSociale,
-      indirizzo: m.indirizzo || prev.indirizzo,
-      cap: m.cap || prev.cap,
-      citta: m.citta || prev.citta,
-      paese: m.paese || prev.paese,
-      telefono: m.telefono || prev.telefono,
-      piva: m.piva || prev.piva,
-    }));
-  }, []);
+  // ✅ Prefill mittente (uguale vino) — NOTA: NON passa supabase!
+  usePrefillMittente({ setMittente });
 
-  usePrefillMittente({ onPrefill: applyMittentePrefill });
-
-
-  // Autocomplete Places (uguale vino)
+  // ✅ Places autocomplete (uguale pattern vino)
   usePlacesAutocomplete({
-    onPick: (who, addr) => {
-      if (who === "mittente") setMittente((p) => ({ ...p, ...addr }));
-      else setDestinatario((p) => ({ ...p, ...addr }));
+    selectors: {
+      mittente: 'input[data-gmaps="indirizzo-mittente"]',
+      destinatario: 'input[data-gmaps="indirizzo-destinatario"]',
+    },
+    onApply: {
+      mittente: (addr) => setMittente((prev) => ({ ...prev, ...addr })),
+      destinatario: (addr) => setDestinatario((prev) => ({ ...prev, ...addr })),
     },
   });
 
@@ -72,7 +119,6 @@ export default function NuovaAltroPageInner() {
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
   ]);
-
   const [formato, setFormato] = useState<"Pacco" | "Pallet">("Pacco");
   const [contenuto, setContenuto] = useState("");
 
@@ -105,12 +151,17 @@ export default function NuovaAltroPageInner() {
   const [errors, setErrors] = useState<string[]>([]);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
 
+  const topRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (errors.length && topRef.current) {
       topRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [errors.length]);
 
+  // ------------------------------------------------------------
+  // Validazione (stessa logica della tua versione)
+  // ------------------------------------------------------------
   function validate(): string[] {
     const errs: string[] = [];
 
@@ -140,18 +191,18 @@ export default function NuovaAltroPageInner() {
     }
 
     const fatt = sameAsDest ? destinatario : fatturazione;
-
-    // se carichi file, non obbligo campi fatturazione
     if (!fatturaFile) {
       if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
-      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
+      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim())
         errs.push("PIVA obbligatoria per B2B/Sample.");
-      }
     }
 
     return errs;
   }
 
+  // ------------------------------------------------------------
+  // SALVATAGGIO → POST /api/spedizioni
+  // ------------------------------------------------------------
   const salva = async () => {
     if (saving) return;
 
@@ -211,18 +262,13 @@ export default function NuovaAltroPageInner() {
         },
       };
 
-      // ✅ come vino
       const created = await createShipmentWithAuth(supabase, payload);
-
-      // Upload fattura (se presente) via API /upload (come vino)
-      if (fatturaFile) {
-        const docType: DocType = "fattura_commerciale";
-        await uploadShipmentDocument(created.recId, fatturaFile, docType);
-      }
+      const recId = created.recId;
+      const humanId = created.humanId;
 
       setSuccess({
-        recId: created.recId,
-        humanId: created.humanId,
+        recId,
+        humanId,
         tipoSped,
         incoterm,
         dataRitiro: ritiroData?.toLocaleDateString(),
@@ -240,11 +286,15 @@ export default function NuovaAltroPageInner() {
     }
   };
 
-  // SUCCESS UI (uguale come stile vino)
+  // ------------------------------------------------------------
+  // SUCCESS UI
+  // ------------------------------------------------------------
   if (success) {
-    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || INFO_URL_DEFAULT;
+    const INFO_URL =
+      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL || WHATSAPP_URL_DEFAULT;
+      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
+      "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.humanId}`
@@ -307,7 +357,7 @@ export default function NuovaAltroPageInner() {
               Supporto WhatsApp
             </a>
 
-            <span className="text-sm text-green-700">Email di conferma inviata ✅</span>
+            <span className="text-sm text-green-700">Creato ✅</span>
           </div>
 
           <div className="mt-6 text-xs text-slate-500">
@@ -318,7 +368,9 @@ export default function NuovaAltroPageInner() {
     );
   }
 
+  // ------------------------------------------------------------
   // FORM UI
+  // ------------------------------------------------------------
   return (
     <div className="space-y-4" ref={topRef}>
       <h2 className="text-lg font-semibold">Nuova spedizione — altro</h2>
