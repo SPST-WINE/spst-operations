@@ -236,7 +236,25 @@ export async function GET(
         `[api/spedizioni/[id]] GET staff ok request_id=${request_id} shipment_id=${shipmentId} packages=${pkgsRes.data?.length ?? 0} packages_error=${pkgsRes.error?.message ?? null}`
       );
 
-      const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgsRes.data ?? []);
+      const mappedPkgs = (pkgsRes.data ?? []).map((p: any) => ({
+  id: p.id,
+  created_at: p.created_at,
+  contenuto: p.contenuto ?? null,
+
+  // ✅ DTO names (contract)
+  lato1_cm: p.length_cm ?? null,
+  lato2_cm: p.width_cm ?? null,
+  lato3_cm: p.height_cm ?? null,
+  peso_reale_kg: p.weight_kg ?? null,
+
+  // opzionali (se ti servono in futuro)
+  peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
+  peso_tariffa_kg: p.weight_tariff_kg ?? null,
+  volumetric_divisor: p.volumetric_divisor ?? null,
+  volume_cm3: p.volume_cm3 ?? null,
+}));
+
+const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
 
       const res = NextResponse.json(
         { ok: true, shipment: dto, scope: "staff", request_id },
@@ -288,7 +306,25 @@ export async function GET(
       `[api/spedizioni/[id]] GET client ok request_id=${request_id} shipment_id=${shipmentId} packages=${pkgsRes.data?.length ?? 0} packages_error=${pkgsRes.error?.message ?? null}`
     );
 
-    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgsRes.data ?? []);
+    const mappedPkgs = (pkgsRes.data ?? []).map((p: any) => ({
+  id: p.id,
+  created_at: p.created_at,
+  contenuto: p.contenuto ?? null,
+
+  // ✅ DTO names (contract)
+  lato1_cm: p.length_cm ?? null,
+  lato2_cm: p.width_cm ?? null,
+  lato3_cm: p.height_cm ?? null,
+  peso_reale_kg: p.weight_kg ?? null,
+
+  // opzionali (se ti servono in futuro)
+  peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
+  peso_tariffa_kg: p.weight_tariff_kg ?? null,
+  volumetric_divisor: p.volumetric_divisor ?? null,
+  volume_cm3: p.volume_cm3 ?? null,
+}));
+
+const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
 
     const res = NextResponse.json(
       { ok: true, shipment: dto, scope: "client", request_id },
