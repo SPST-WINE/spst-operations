@@ -13,7 +13,10 @@ import { Select } from "@/components/nuova/Field";
 
 import { createShipmentWithAuth } from "./_services/shipments.client";
 import { usePrefillMittente } from "./_hooks/usePrefillMittente";
-import { usePlacesAutocomplete } from "./_hooks/usePlacesAutocomplete";
+
+// ✅ hook identico a vino (onFill)
+import { usePlacesAutocomplete } from "./_places/usePlacesAutocomplete";
+import type { AddressParts } from "./_logic/types";
 
 // ------------------------------------------------------------
 // Tipi / costanti UI
@@ -85,7 +88,7 @@ function mapParty(p: Party) {
 export default function NuovaAltroPageInner() {
   const router = useRouter();
 
-  // Supabase client (come vino: serve solo per token/session in createShipmentWithAuth)
+  // Supabase client (come vino: serve per token/session in createShipmentWithAuth)
   const supabase = useRef(
     createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -100,18 +103,21 @@ export default function NuovaAltroPageInner() {
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
-  // ✅ Prefill mittente (uguale vino) — NOTA: NON passa supabase!
+  // ✅ Prefill mittente (uguale vino) — NON passa supabase
   usePrefillMittente({ setMittente });
 
-  // ✅ Places autocomplete (uguale pattern vino)
+  // ✅ Places autocomplete (identico vino)
   usePlacesAutocomplete({
     selectors: {
       mittente: 'input[data-gmaps="indirizzo-mittente"]',
       destinatario: 'input[data-gmaps="indirizzo-destinatario"]',
     },
-    onApply: {
-      mittente: (addr) => setMittente((prev) => ({ ...prev, ...addr })),
-      destinatario: (addr) => setDestinatario((prev) => ({ ...prev, ...addr })),
+    onFill: (who, parts: AddressParts) => {
+      if (who === "mittente") {
+        setMittente((prev) => ({ ...prev, ...parts }));
+      } else {
+        setDestinatario((prev) => ({ ...prev, ...parts }));
+      }
     },
   });
 
@@ -160,7 +166,7 @@ export default function NuovaAltroPageInner() {
   }, [errors.length]);
 
   // ------------------------------------------------------------
-  // Validazione (stessa logica della tua versione)
+  // Validazione
   // ------------------------------------------------------------
   function validate(): string[] {
     const errs: string[] = [];
@@ -193,8 +199,9 @@ export default function NuovaAltroPageInner() {
     const fatt = sameAsDest ? destinatario : fatturazione;
     if (!fatturaFile) {
       if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
-      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim())
+      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
         errs.push("PIVA obbligatoria per B2B/Sample.");
+      }
     }
 
     return errs;
@@ -211,6 +218,7 @@ export default function NuovaAltroPageInner() {
       setErrors(v);
       return;
     }
+
     setErrors([]);
     setSaving(true);
 
@@ -219,7 +227,9 @@ export default function NuovaAltroPageInner() {
         tipo_spedizione: mapTipoSped(tipoSped),
         incoterm: toNull(incoterm),
         declared_value:
-          formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+          formato === "Pallet" && assicurazionePallet
+            ? (valoreAssicurato ?? null)
+            : null,
         fatt_valuta: (valuta as any) ?? null,
 
         giorno_ritiro: ritiroData ? dateToYMD(ritiroData) : null,
@@ -251,24 +261,24 @@ export default function NuovaAltroPageInner() {
 
         extras: {
           sorgente: "altro",
-          destAbilitato: destAbilitato ? true : false,
-          assicurazioneAttiva: formato === "Pallet" ? assicurazionePallet : false,
+          destAbilitato: !!destAbilitato,
+          assicurazioneAttiva: formato === "Pallet" ? !!assicurazionePallet : false,
           valoreAssicurato:
-            formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
+            formato === "Pallet" && assicurazionePallet
+              ? (valoreAssicurato ?? null)
+              : null,
           noteFatt: toNull(noteFatt),
-          fattSameAsDest: sameAsDest,
-          fattDelega: delega ? true : false,
+          fattSameAsDest: !!sameAsDest,
+          fattDelega: !!delega,
           fatturaFileName: fatturaFile?.name || null,
         },
       };
 
       const created = await createShipmentWithAuth(supabase, payload);
-      const recId = created.recId;
-      const humanId = created.humanId;
 
       setSuccess({
-        recId,
-        humanId,
+        recId: created.recId,
+        humanId: created.humanId,
         tipoSped,
         incoterm,
         dataRitiro: ritiroData?.toLocaleDateString(),
@@ -280,7 +290,7 @@ export default function NuovaAltroPageInner() {
       topRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch (e: any) {
       setErrors([e?.message || "Errore salvataggio."]);
-      console.error("Errore salvataggio spedizione (altro)", e);
+      console.error("[nuova/altro] errore salvataggio", e);
     } finally {
       setSaving(false);
     }
@@ -290,11 +300,9 @@ export default function NuovaAltroPageInner() {
   // SUCCESS UI
   // ------------------------------------------------------------
   if (success) {
-    const INFO_URL =
-      process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
+    const INFO_URL = process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
-      "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.humanId}`
@@ -310,7 +318,7 @@ export default function NuovaAltroPageInner() {
             <div className="font-mono">{success.humanId}</div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 text-sm">
+          <div className="grid gap-3 text-sm md:grid-cols-2">
             <div>
               <span className="text-slate-500">Tipo:</span> {success.tipoSped}
             </div>
@@ -351,6 +359,7 @@ export default function NuovaAltroPageInner() {
             <a
               href={whatsappHref}
               target="_blank"
+              rel="noreferrer"
               className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50"
               style={{ borderColor: "#f7911e" }}
             >
