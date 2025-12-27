@@ -8,30 +8,24 @@ type Incoterm = 'DAP' | 'DDP' | 'EXW';
 type Valuta = 'EUR' | 'USD' | 'GBP';
 
 type Props = {
-  // commerciali
   incoterm: Incoterm;
   setIncoterm: (v: Incoterm) => void;
+
   valuta: Valuta;
   setValuta: (v: Valuta) => void;
+
   note: string;
   setNote: (v: string) => void;
 
-  // delega creazione documento
   delega: boolean;
   setDelega: (v: boolean) => void;
 
-  // dati fatturazione (editable/snapshot)
   fatturazione: Party;
   setFatturazione: (p: Party) => void;
 
-  // sorgente per "uguale al destinatario"
   destinatario: Party;
   sameAsDest: boolean;
   setSameAsDest: (v: boolean) => void;
-
-  // allegato fattura
-  fatturaFile?: File;
-  setFatturaFile?: (f?: File) => void;
 };
 
 const ORANGE = '#f7911e';
@@ -52,19 +46,10 @@ export default function FatturaCard({
   destinatario,
   sameAsDest,
   setSameAsDest,
-  fatturaFile,
-  setFatturaFile,
 }: Props) {
-  // sincronizza quando "uguale al destinatario" è attivo
   React.useEffect(() => {
     if (sameAsDest) setFatturazione(destinatario);
   }, [sameAsDest, destinatario, setFatturazione]);
-
-  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!setFatturaFile) return;
-    const f = e.target.files?.[0];
-    setFatturaFile(f);
-  };
 
   const set = <K extends keyof Party,>(k: K, v: Party[K]) =>
     setFatturazione({ ...fatturazione, [k]: v });
@@ -76,16 +61,13 @@ export default function FatturaCard({
           Dati fattura (o dati del Broker Doganale di riferimento)
         </h3>
 
-        <div className="flex items-center gap-3">
-          <Switch
-            checked={sameAsDest}
-            onChange={setSameAsDest}
-            label="Dati fatturazione uguali ai dati del destinatario"
-          />
-        </div>
+        <Switch
+          checked={sameAsDest}
+          onChange={setSameAsDest}
+          label="Dati fatturazione uguali ai dati del destinatario"
+        />
       </div>
 
-      {/* dati anagrafici fatturazione */}
       <div className="mb-4 grid gap-3 md:grid-cols-2">
         <input
           className={inputCls}
@@ -140,19 +122,20 @@ export default function FatturaCard({
           className={'md:col-span-2 ' + inputCls}
           placeholder="Partita IVA / Codice Fiscale"
           value={fatturazione.piva}
-          onChange={(e) => set('piva', e.target.value)}
+          onChange={(e) => set('piva', e.target value)}
           disabled={sameAsDest}
         />
       </div>
 
-      {/* incoterm / valuta su una riga */}
       <div className="mb-3 grid gap-3 md:grid-cols-[1fr_180px]">
         <select
           className={inputCls}
           value={incoterm}
           onChange={(e) => setIncoterm(e.target.value as Incoterm)}
         >
-          <option value="DAP">DAP - Spedizione a carico del mittente - dazi, oneri e accise a carico del destinatario</option>
+          <option value="DAP">
+            DAP - Spedizione a carico del mittente - dazi, oneri e accise a carico del destinatario
+          </option>
           <option value="DDP">DDP - Tutto a carico del mittente</option>
           <option value="EXW">EXW - Tutto a carico del destinatario</option>
         </select>
@@ -175,8 +158,7 @@ export default function FatturaCard({
         onChange={(e) => setNote(e.target.value)}
       />
 
-      {/* flusso domanda: delega oppure allega */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="rounded-xl border bg-slate-50 p-3">
         <label className="inline-flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -188,28 +170,10 @@ export default function FatturaCard({
             <span className="font-medium">Non ho la fattura</span>, delego a SPST la creazione del documento
           </span>
         </label>
-
-        <div className="flex items-center gap-3">
-          {fatturaFile && !delega && (
-            <span className="max-w-[260px] truncate text-xs text-slate-500">
-              {fatturaFile.name}
-            </span>
-          )}
-          <label
-            className={`inline-flex cursor-pointer items-center rounded-lg border px-3 py-1.5 text-sm ${
-              delega ? 'cursor-not-allowed opacity-50' : 'hover:bg-slate-50'
-            }`}
-          >
-            Allega fattura (PDF)
-            <input
-              type="file"
-              className="hidden"
-              accept="application/pdf"
-              onChange={onPick}
-              disabled={delega}
-            />
-          </label>
-        </div>
+        <p className="mt-2 text-xs text-slate-600">
+          Per policy SPST, la gestione dei documenti viene centralizzata dal nostro team per garantire conformità e coerenza
+          tra spedizione, dichiarazioni e allegati.
+        </p>
       </div>
     </div>
   );
