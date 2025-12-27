@@ -1,8 +1,36 @@
 // FILE: app/dashboard/nuova/altro/_places/parseAddress.ts
 import type { AddressParts } from "../_logic/types";
 
+function pickRoot(d: any) {
+  // supporta diverse shape possibili (dipende da come ritorna /api/places/details)
+  return d?.place || d?.result || d?.data || d || {};
+}
+
+function pickComps(root: any): any[] {
+  return (
+    root?.addressComponents ||
+    root?.address_components ||
+    root?.address?.addressComponents ||
+    root?.address?.address_components ||
+    []
+  );
+}
+
+function getText(c: any) {
+  return (
+    c?.longText ||
+    c?.long_name ||
+    c?.name ||
+    c?.shortText ||
+    c?.short_name ||
+    ""
+  );
+}
+
 export function parseAddressFromDetails(d: any): AddressParts {
-  const comps: any[] = d?.addressComponents || [];
+  const root = pickRoot(d);
+  const comps: any[] = pickComps(root);
+
   const get = (type: string) =>
     comps.find((c) => Array.isArray(c.types) && c.types.includes(type)) || null;
 
@@ -15,38 +43,17 @@ export function parseAddressFromDetails(d: any): AddressParts {
   const streetNr = get("street_number");
   const premise = get("premise");
 
-  const countryName =
-    country?.longText ||
-    country?.long_name ||
-    country?.name ||
-    country?.shortText ||
-    "";
-
-  const line = [
-    route?.shortText || route?.longText || route?.short_name || route?.long_name,
-    streetNr?.shortText ||
-      streetNr?.longText ||
-      streetNr?.short_name ||
-      streetNr?.long_name,
-    premise?.longText || premise?.long_name,
-  ]
+  const line = [getText(route), getText(streetNr), getText(premise)]
     .filter(Boolean)
-    .join(" ");
+    .join(" ")
+    .trim();
+
+  const formatted = root?.formattedAddress || root?.formatted_address || "";
 
   return {
-    indirizzo: line || d?.formattedAddress || "",
-    citta:
-      locality?.longText ||
-      locality?.long_name ||
-      admin2?.longText ||
-      admin1?.longText ||
-      "",
-    cap:
-      postal?.shortText ||
-      postal?.longText ||
-      postal?.short_name ||
-      postal?.long_name ||
-      "",
-    paese: countryName || "",
+    indirizzo: line || formatted || "",
+    citta: getText(locality) || getText(admin2) || getText(admin1) || "",
+    cap: getText(postal) || "",
+    paese: getText(country) || "",
   };
 }
