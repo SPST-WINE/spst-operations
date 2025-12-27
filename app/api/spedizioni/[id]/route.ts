@@ -5,6 +5,7 @@ import { supabaseServerSpst } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/auth/requireStaff";
 
 import type { ShipmentDTO } from "@/lib/contracts/shipment";
+import { ShipmentStatusZ } from "@/lib/contracts/shipment";
 import { mapShipmentRowToDTO } from "@/lib/mappers/shipment.mapper";
 
 export const runtime = "nodejs";
@@ -12,7 +13,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 // HELPER CRYPTO //
-
 import crypto from "crypto";
 
 function rid() {
@@ -53,7 +53,6 @@ function redactPayload(payload: Record<string, any>) {
   }
   return redacted;
 }
-
 
 /* ───────────── Helpers ───────────── */
 
@@ -237,24 +236,24 @@ export async function GET(
       );
 
       const mappedPkgs = (pkgsRes.data ?? []).map((p: any) => ({
-  id: p.id,
-  created_at: p.created_at,
-  contenuto: p.contenuto ?? null,
+        id: p.id,
+        created_at: p.created_at,
+        contenuto: p.contenuto ?? null,
 
-  // ✅ DTO names (contract)
-  lato1_cm: p.length_cm ?? null,
-  lato2_cm: p.width_cm ?? null,
-  lato3_cm: p.height_cm ?? null,
-  peso_reale_kg: p.weight_kg ?? null,
+        // ✅ DTO names (contract)
+        lato1_cm: p.length_cm ?? null,
+        lato2_cm: p.width_cm ?? null,
+        lato3_cm: p.height_cm ?? null,
+        peso_reale_kg: p.weight_kg ?? null,
 
-  // opzionali (se ti servono in futuro)
-  peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
-  peso_tariffa_kg: p.weight_tariff_kg ?? null,
-  volumetric_divisor: p.volumetric_divisor ?? null,
-  volume_cm3: p.volume_cm3 ?? null,
-}));
+        // opzionali (se ti servono in futuro)
+        peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
+        peso_tariffa_kg: p.weight_tariff_kg ?? null,
+        volumetric_divisor: p.volumetric_divisor ?? null,
+        volume_cm3: p.volume_cm3 ?? null,
+      }));
 
-const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
+      const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
 
       const res = NextResponse.json(
         { ok: true, shipment: dto, scope: "staff", request_id },
@@ -265,7 +264,10 @@ const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
     }
 
     // CLIENT (RLS)
-    const shipQ = (supa as any).schema("spst").from("shipments").select(SHIPMENT_SELECT);
+    const shipQ = (supa as any)
+      .schema("spst")
+      .from("shipments")
+      .select(SHIPMENT_SELECT);
 
     const shipRes = isIdUuid
       ? await shipQ.eq("id", idOrHuman).single()
@@ -307,24 +309,24 @@ const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
     );
 
     const mappedPkgs = (pkgsRes.data ?? []).map((p: any) => ({
-  id: p.id,
-  created_at: p.created_at,
-  contenuto: p.contenuto ?? null,
+      id: p.id,
+      created_at: p.created_at,
+      contenuto: p.contenuto ?? null,
 
-  // ✅ DTO names (contract)
-  lato1_cm: p.length_cm ?? null,
-  lato2_cm: p.width_cm ?? null,
-  lato3_cm: p.height_cm ?? null,
-  peso_reale_kg: p.weight_kg ?? null,
+      // ✅ DTO names (contract)
+      lato1_cm: p.length_cm ?? null,
+      lato2_cm: p.width_cm ?? null,
+      lato3_cm: p.height_cm ?? null,
+      peso_reale_kg: p.weight_kg ?? null,
 
-  // opzionali (se ti servono in futuro)
-  peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
-  peso_tariffa_kg: p.weight_tariff_kg ?? null,
-  volumetric_divisor: p.volumetric_divisor ?? null,
-  volume_cm3: p.volume_cm3 ?? null,
-}));
+      // opzionali (se ti servono in futuro)
+      peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
+      peso_tariffa_kg: p.weight_tariff_kg ?? null,
+      volumetric_divisor: p.volumetric_divisor ?? null,
+      volume_cm3: p.volume_cm3 ?? null,
+    }));
 
-const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
+    const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
 
     const res = NextResponse.json(
       { ok: true, shipment: dto, scope: "client", request_id },
@@ -339,12 +341,16 @@ const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
       )}`
     );
     return NextResponse.json(
-      { ok: false, error: "SERVER_ERROR", request_id, details: String(e?.message || e) },
+      {
+        ok: false,
+        error: "SERVER_ERROR",
+        request_id,
+        details: String(e?.message || e),
+      },
       { status: 500 }
     );
   }
 }
-
 
 /* ───────────── PATCH /api/spedizioni/[id] ─────────────
    Staff-only. Payload whitelisted.
@@ -393,16 +399,37 @@ export async function PATCH(
     return res;
   }
 
-  console.log(`[api/spedizioni/[id]] PATCH start request_id=${request_id} id=${id}`);
+  console.log(
+    `[api/spedizioni/[id]] PATCH start request_id=${request_id} id=${id}`
+  );
 
-  const payload = (await req.json().catch(() => ({} as any))) as Record<string, any>;
+  const payload = (await req.json().catch(() => ({} as any))) as Record<
+    string,
+    any
+  >;
 
+  // ✅ Guardrail status (solo valori ammessi dal contract)
+  if ("status" in payload) {
+    const parsed = ShipmentStatusZ.safeParse(payload.status);
+    if (!parsed.success) {
+      const res = NextResponse.json(
+        {
+          ok: false,
+          error: "INVALID_STATUS",
+          request_id,
+          allowed: ShipmentStatusZ.options,
+        },
+        { status: 400 }
+      );
+      res.headers.set("x-request-id", request_id);
+      return res;
+    }
+  }
 
   console.log(
-    `[api/spedizioni/[id]] PATCH payload request_id=${request_id} keys=${Object.keys(payload || {}).join(",")} body=${safeJson(
-      redactPayload(payload),
-      4000
-    )}`
+    `[api/spedizioni/[id]] PATCH payload request_id=${request_id} keys=${Object.keys(
+      payload || {}
+    ).join(",")} body=${safeJson(redactPayload(payload), 4000)}`
   );
 
   const update: Record<string, any> = {};
@@ -410,15 +437,13 @@ export async function PATCH(
     if (PATCH_ALLOWED_KEYS.has(k)) update[k] = v;
   }
 
-    console.log(
-    `[api/spedizioni/[id]] PATCH update request_id=${request_id} updateKeys=${Object.keys(update).join(",")} update=${safeJson(
-      redactPayload(update),
-      3000
-    )}`
+  console.log(
+    `[api/spedizioni/[id]] PATCH update request_id=${request_id} updateKeys=${Object.keys(
+      update
+    ).join(",")} update=${safeJson(redactPayload(update), 3000)}`
   );
 
-
-    if (Object.keys(update).length === 0) {
+  if (Object.keys(update).length === 0) {
     const res = NextResponse.json(
       { ok: false, error: "NO_ALLOWED_FIELDS", request_id },
       { status: 400 }
@@ -427,8 +452,7 @@ export async function PATCH(
     return res;
   }
 
-
-    try {
+  try {
     const supaAdmin = admin();
 
     const { data: row, error } = await (supaAdmin as any)
@@ -441,16 +465,23 @@ export async function PATCH(
 
     if (error || !row) {
       console.log(
-        `[api/spedizioni/[id]] PATCH update_failed request_id=${request_id} id=${id} supabase_error=${safeJson({
-          message: error?.message,
-          code: (error as any)?.code,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-        })}`
+        `[api/spedizioni/[id]] PATCH update_failed request_id=${request_id} id=${id} supabase_error=${safeJson(
+          {
+            message: error?.message,
+            code: (error as any)?.code,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+          }
+        )}`
       );
 
       const res = NextResponse.json(
-        { ok: false, error: "UPDATE_FAILED", request_id, details: error?.message ?? null },
+        {
+          ok: false,
+          error: "UPDATE_FAILED",
+          request_id,
+          details: error?.message ?? null,
+        },
         { status: 500 }
       );
       res.headers.set("x-request-id", request_id);
@@ -470,26 +501,49 @@ export async function PATCH(
       );
     } else {
       console.log(
-        `[api/spedizioni/[id]] PATCH ok request_id=${request_id} id=${id} packages=${pkgs?.length ?? 0}`
+        `[api/spedizioni/[id]] PATCH ok request_id=${request_id} id=${id} packages=${
+          pkgs?.length ?? 0
+        }`
       );
     }
 
-    const dto: ShipmentDTO = mapShipmentRowToDTO(row, pkgs ?? []);
+    // ⚠️ allineo i packages al DTO (stesso mapping del GET)
+    const mappedPkgs = (pkgs ?? []).map((p: any) => ({
+      id: p.id,
+      created_at: p.created_at,
+      contenuto: p.contenuto ?? null,
+
+      lato1_cm: p.length_cm ?? null,
+      lato2_cm: p.width_cm ?? null,
+      lato3_cm: p.height_cm ?? null,
+      peso_reale_kg: p.weight_kg ?? null,
+
+      peso_volumetrico_kg: p.weight_volumetric_kg ?? null,
+      peso_tariffa_kg: p.weight_tariff_kg ?? null,
+      volumetric_divisor: p.volumetric_divisor ?? null,
+      volume_cm3: p.volume_cm3 ?? null,
+    }));
+
+    const dto: ShipmentDTO = mapShipmentRowToDTO(row, mappedPkgs);
     const res = NextResponse.json({ ok: true, shipment: dto, request_id });
     res.headers.set("x-request-id", request_id);
     return res;
-  
-      } catch (e: any) {
+  } catch (e: any) {
     console.log(
       `[api/spedizioni/[id]] PATCH server_error request_id=${request_id} id=${id} err=${String(
         e?.message || e
       )}`
     );
     const res = NextResponse.json(
-      { ok: false, error: "SERVER_ERROR", request_id, details: String(e?.message || e) },
+      {
+        ok: false,
+        error: "SERVER_ERROR",
+        request_id,
+        details: String(e?.message || e),
+      },
       { status: 500 }
     );
     res.headers.set("x-request-id", request_id);
     return res;
   }
-} 
+}
