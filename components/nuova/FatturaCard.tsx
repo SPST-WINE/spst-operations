@@ -122,7 +122,7 @@ export default function FatturaCard({
           className={'md:col-span-2 ' + inputCls}
           placeholder="Partita IVA / Codice Fiscale"
           value={fatturazione.piva}
-          onChange={(e) => set('piva', e.target value)}
+          onChange={(e) => set('piva', e.target.value)}
           disabled={sameAsDest}
         />
       </div>
