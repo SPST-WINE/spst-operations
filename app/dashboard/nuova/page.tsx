@@ -25,7 +25,7 @@ function WineGlassIcon(props: React.SVGProps<SVGSVGElement>) {
 }
 
 const BADGE_DOT_GREEN = '#22c55e';
-const R = 28; // radius in px
+const R = 28; // radius px
 
 type CardConfig = {
   href: string;
@@ -61,7 +61,8 @@ export default function NuovaSpedizioneSelettore() {
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="py-8 sm:py-10">
         <div className="mx-auto max-w-3xl text-center">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+          {/* 🔶 TITOLO ARANCIONE */}
+          <h1 className="text-xl font-semibold tracking-tight text-spst-orange sm:text-2xl">
             Nuova spedizione
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -78,14 +79,20 @@ export default function NuovaSpedizioneSelettore() {
                 key={c.href}
                 href={c.href}
                 aria-label={`Vai a ${c.title}`}
-                className="group relative isolate bg-[#0b0f17] shadow-[0_18px_55px_rgba(0,0,0,0.35)] transition-all hover:-translate-y-1 hover:shadow-[0_26px_80px_rgba(0,0,0,0.45)] focus:outline-none focus:ring-2 focus:ring-white/20"
-                // ✅ FIX BULLETPROOF: clip-path evita qualunque glitch sugli angoli in hover
+                className="
+                  group relative isolate bg-[#0b0f17]
+                  shadow-[0_18px_55px_rgba(0,0,0,0.35)]
+                  transition-all
+                  hover:-translate-y-1
+                  hover:shadow-[0_26px_80px_rgba(0,0,0,0.27)]
+                  focus:outline-none focus:ring-2 focus:ring-white/20
+                "
                 style={{
                   borderRadius: R,
                   clipPath: `inset(0 round ${R}px)`,
                 }}
               >
-                {/* bordo + glow senza layer esterni che sbordano */}
+                {/* Border */}
                 <div className="pointer-events-none absolute inset-0 rounded-[28px] border border-slate-800/60 transition-colors group-hover:border-white/15" />
 
                 {/* Background */}
