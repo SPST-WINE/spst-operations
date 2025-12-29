@@ -12,6 +12,7 @@ import {
   Truck,
   PlusCircle,
   Link2,
+  RefreshCw,
 } from "lucide-react";
 
 type NavItem = {
@@ -38,7 +39,7 @@ const navItems: NavItem[] = [
   {
     href: "/back-office/status",
     label: "Update status",
-    icon: Truck,
+    icon: RefreshCw,
   },
 
   {
