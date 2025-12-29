@@ -142,13 +142,13 @@ export function ActionsSection({
           {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
           <button
-            type="button"
-            disabled
-            className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white opacity-70"
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Evasione completata
-          </button>
+  type="button"
+  onClick={handleMarkInRitiro}
+  className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800"
+>
+  <CheckCircle2 className="h-3.5 w-3.5" />
+  Evasione completata
+</button>
         </div>
       </div>
     </section>
