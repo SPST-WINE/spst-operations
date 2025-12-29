@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { ShipmentDetailFlat } from "@/lib/backoffice/normalizeShipmentDetail";
@@ -38,14 +38,13 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     return mergeShipmentDetail(data as ShipmentDetail);
   }, [data]);
 
-  // inizializza carrier/tracking quando arriva data (solo se vuoti)
-  useMemo(() => {
+  // ✅ init carrier/tracking quando arriva data (solo se vuoti) — side effect -> useEffect
+  useEffect(() => {
     if (!merged) return;
     // evita di sovrascrivere modifiche dell’utente mentre edita
     setCarrierEdit((prev) => (prev ? prev : merged.carrier || ""));
     setTrackingEdit((prev) => (prev ? prev : merged.tracking_code || ""));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [merged?.id]);
+  }, [merged?.id]); // cambia solo quando cambia spedizione
 
   const pkgSummary = useMemo(() => {
     const pkgs = merged?.packages || [];
@@ -113,6 +112,22 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     }
   }
 
+  // ✅ NEW: “Evasione completata” -> set status IN RITIRO lato server e reload
+  async function handleMarkInRitiro() {
+    if (!merged) return;
+
+    try {
+      const res = await fetch(`/api/spedizioni/${id}/evasa`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
+
+      // ✅ ricarico dal backend per avere stato coerente
+      reload();
+    } catch (e) {
+      console.error("[BackofficeShipmentDetail] mark IN RITIRO error:", e);
+    }
+  }
+
   if (loading && !merged && !error) {
     return (
       <div className="flex min-h-[200px] items-center justify-center">
@@ -168,6 +183,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         sendingEmail={sendingEmail}
         emailMsg={emailMsg}
         onSendEmail={handleSendEmail}
+        onMarkInRitiro={handleMarkInRitiro} // ✅ NEW
       />
     </div>
   );
