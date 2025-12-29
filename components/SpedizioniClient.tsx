@@ -85,8 +85,31 @@ function StatusBadge({ value }: { value?: string }) {
 function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
   const isPallet = /pallet/i.test(r.formato_sped || "");
   const ref = r.human_id || r.id;
+
   const destRS = r.dest_rs || "—";
   const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(" ");
+
+  // ✅ shortcut docs
+  const ldvUrl: string | null =
+    r?.attachments?.ldv?.url || r?.ldv?.url || r?.ldv_url || null;
+
+  // ✅ tracking shortcut
+  const carrier = (r.carrier || "").toString().trim();
+  const tracking = (r.tracking_code || "").toString().trim();
+  const trackingUrl =
+    tracking && carrier
+      ? carrier.toLowerCase().includes("dhl")
+        ? `https://www.dhl.com/it-it/home/tracking/tracking-express.html?submit=1&tracking-id=${encodeURIComponent(
+            tracking
+          )}`
+        : carrier.toLowerCase().includes("ups")
+        ? `https://www.ups.com/track?tracknum=${encodeURIComponent(tracking)}`
+        : carrier.toLowerCase().includes("fedex")
+        ? `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(
+            tracking
+          )}`
+        : null
+      : null;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow min-h-[112px] flex items-start gap-4">
@@ -98,27 +121,47 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="font-semibold text-slate-900 truncate">{ref}</div>
-            <div className="text-sm text-slate-700 truncate">
-              Destinatario: {destRS}
-            </div>
-            <div className="text-sm text-slate-500 truncate">
-              Destinazione: {dest || "—"}
-            </div>
+            <div className="text-sm text-slate-700 truncate">Destinatario: {destRS}</div>
+            <div className="text-sm text-slate-500 truncate">Destinazione: {dest || "—"}</div>
           </div>
+
           <StatusBadge value={r.status} />
         </div>
 
-        <div className="mt-3">
-          <button
-            onClick={onDetails}
-            className="text-xs text-[#1c3e5e] underline"
-          >
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {/* ✅ Shortcut LDV */}
+          {ldvUrl && (
+            <a
+              href={ldvUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              Scarica LDV
+            </a>
+          )}
+
+          {/* ✅ Shortcut tracking (se riconosce carrier) */}
+          {trackingUrl && (
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              Tracking
+            </a>
+          )}
+
+          <button onClick={onDetails} className="text-xs text-[#1c3e5e] underline">
             Mostra dettagli
           </button>
         </div>
       </div>
     </div>
   );
+}
+
 }
 
 export default function SpedizioniClient() {
