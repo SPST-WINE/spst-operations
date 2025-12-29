@@ -162,7 +162,6 @@ function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
   );
 }
 
-}
 
 export default function SpedizioniClient() {
   const [rows, setRows] = useState<Row[]>([]);
