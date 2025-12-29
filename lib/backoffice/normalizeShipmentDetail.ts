@@ -182,7 +182,7 @@ function isEmptyStr(x: any) {
   return x == null || (typeof x === "string" && x.trim() === "");
 }
 
-function shouldCopyBillingFromDest(s: any) {
+function shouldCopyBillingFromDest(s: ShipmentDetailFlat) {
   const billingEmpty =
     isEmptyStr(s.fatt_rs) &&
     isEmptyStr(s.fatt_paese) &&
@@ -202,18 +202,18 @@ function shouldCopyBillingFromDest(s: any) {
   return billingEmpty && destHasSomething;
 }
 
-function fillBillingFromDest<T extends any>(s: T): T {
+function fillBillingFromDest(s: ShipmentDetailFlat): ShipmentDetailFlat {
   if (!shouldCopyBillingFromDest(s)) return s;
 
   return {
     ...s,
-    fatt_rs: (s as any).dest_rs ?? null,
-    fatt_paese: (s as any).dest_paese ?? null,
-    fatt_citta: (s as any).dest_citta ?? null,
-    fatt_cap: (s as any).dest_cap ?? null,
-    fatt_indirizzo: (s as any).dest_indirizzo ?? null,
-    fatt_telefono: (s as any).dest_telefono ?? null,
-    fatt_piva: (s as any).dest_piva ?? null,
+    fatt_rs: s.dest_rs ?? null,
+    fatt_paese: s.dest_paese ?? null,
+    fatt_citta: s.dest_citta ?? null,
+    fatt_cap: s.dest_cap ?? null,
+    fatt_indirizzo: s.dest_indirizzo ?? null,
+    fatt_telefono: s.dest_telefono ?? null,
+    fatt_piva: s.dest_piva ?? null,
     // fatt_valuta: NON tocchiamo (rimane com'è)
   };
 }
