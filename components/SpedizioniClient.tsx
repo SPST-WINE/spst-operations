@@ -20,16 +20,57 @@ function norm(s?: string) {
 }
 
 function StatusBadge({ value }: { value?: string }) {
-  const v = (value || "").toLowerCase();
-  let cls = "bg-amber-50 text-amber-700 ring-amber-200";
-  let text = value || "—";
-  if (v.includes("in transito")) cls = "bg-sky-50 text-sky-700 ring-sky-200";
-  else if (v.includes("in consegna"))
-    cls = "bg-amber-50 text-amber-700 ring-amber-200";
-  else if (v.includes("consegn"))
-    cls = "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  else if (v.includes("eccez") || v.includes("failed"))
-    cls = "bg-rose-50 text-rose-700 ring-rose-200";
+  const raw = (value || "").trim();
+
+  // normalizzo: maiuscolo, spazi “puliti”
+  const v = raw
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const map: Record<string, { cls: string; label: string }> = {
+    CREATA: {
+      cls: "bg-slate-50 text-slate-700 ring-slate-200",
+      label: "CREATA",
+    },
+    "IN RITIRO": {
+      cls: "bg-amber-50 text-amber-800 ring-amber-200",
+      label: "IN RITIRO",
+    },
+    "IN TRANSITO": {
+      cls: "bg-sky-50 text-sky-800 ring-sky-200",
+      label: "IN TRANSITO",
+    },
+    CONSEGNATA: {
+      cls: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+      label: "CONSEGNATA",
+    },
+    ECCEZIONE: {
+      cls: "bg-rose-50 text-rose-800 ring-rose-200",
+      label: "ECCEZIONE",
+    },
+    ANNULLATA: {
+      cls: "bg-zinc-50 text-zinc-700 ring-zinc-200",
+      label: "ANNULLATA",
+    },
+  };
+
+  // fallback: se arriva roba legacy (tipo "in consegna", "failed", ecc.)
+  let cls = "bg-slate-50 text-slate-700 ring-slate-200";
+  let text = raw || "—";
+
+  if (map[v]) {
+    cls = map[v].cls;
+    text = map[v].label;
+  } else {
+    const low = raw.toLowerCase();
+    if (low.includes("transit")) cls = "bg-sky-50 text-sky-800 ring-sky-200";
+    else if (low.includes("consegn")) cls = "bg-emerald-50 text-emerald-800 ring-emerald-200";
+    else if (low.includes("ritiro")) cls = "bg-amber-50 text-amber-800 ring-amber-200";
+    else if (low.includes("eccez") || low.includes("failed"))
+      cls = "bg-rose-50 text-rose-800 ring-rose-200";
+    else if (low.includes("annull")) cls = "bg-zinc-50 text-zinc-700 ring-zinc-200";
+  }
 
   return (
     <span
@@ -39,6 +80,7 @@ function StatusBadge({ value }: { value?: string }) {
     </span>
   );
 }
+
 
 function Card({ r, onDetails }: { r: Row; onDetails: () => void }) {
   const isPallet = /pallet/i.test(r.formato_sped || "");
