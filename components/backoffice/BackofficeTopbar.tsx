@@ -1,4 +1,3 @@
-// components/backoffice/BackofficeTopbar.tsx
 "use client";
 
 import Link from "next/link";
@@ -8,6 +7,10 @@ import { LogOut, LayoutDashboard } from "lucide-react";
 function getPageTitle(pathname: string): string {
   if (pathname === "/back-office") return "Riepilogo operativo";
   if (pathname.startsWith("/back-office/spedizioni")) return "Spedizioni clienti";
+
+  // ✅ NEW: status
+  if (pathname.startsWith("/back-office/status")) return "Update status spedizioni";
+
   if (pathname.startsWith("/back-office/nuova-spedizione"))
     return "Crea spedizione";
   if (pathname.startsWith("/back-office/quotazioni"))
@@ -30,9 +33,7 @@ export default function BackofficeTopbar() {
         <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
           SPST • Back office
         </span>
-        <span className="text-sm font-semibold text-slate-800">
-          {title}
-        </span>
+        <span className="text-sm font-semibold text-slate-800">{title}</span>
       </div>
 
       <div className="flex items-center gap-2 text-xs">
@@ -44,7 +45,6 @@ export default function BackofficeTopbar() {
           Area clienti
         </Link>
 
-        {/* 👇 logout: link “normale”, niente Next Link */}
         <a
           href="/logout"
           className="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white hover:opacity-90"
