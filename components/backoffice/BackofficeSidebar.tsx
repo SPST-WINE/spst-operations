@@ -1,4 +1,3 @@
-// components/backoffice/BackofficeSidebar.tsx
 "use client";
 
 import Image from "next/image";
@@ -34,6 +33,14 @@ const navItems: NavItem[] = [
     label: "Spedizioni clienti",
     icon: Package,
   },
+
+  // ✅ NEW: Update status
+  {
+    href: "/back-office/status",
+    label: "Update status",
+    icon: Truck,
+  },
+
   {
     href: "/back-office/nuova-spedizione",
     label: "Crea spedizione",
@@ -71,9 +78,7 @@ function cn(...a: Array<string | false | null | undefined>) {
 }
 
 function isActive(pathname: string, item: NavItem) {
-  if (item.exact) {
-    return pathname === item.href;
-  }
+  if (item.exact) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(item.href + "/");
 }
 
