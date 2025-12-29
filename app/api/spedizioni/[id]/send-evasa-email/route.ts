@@ -15,13 +15,13 @@ function isUuid(x: string) {
 }
 
 function makeSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) return null;
+
   return createClient(url, key, { auth: { persistSession: false } }) as any;
 }
 
@@ -215,12 +215,11 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
 
   try {
     const { data: ship, error } = await supabase
-      .from("shipments")
-      .select(
-        "id,human_id,email_cliente,email_norm,carrier,tracking_code,status,giorno_ritiro"
-      )
-      .eq("id", id)
-      .single();
+  .schema("spst")
+  .from("shipments")
+  .select("id,human_id,email_cliente,email_norm,carrier,tracking_code,status,giorno_ritiro")
+  .eq("id", id)
+  .single();
 
     if (error) return jsonError(500, "DB_READ_ERROR", { message: error.message });
     if (!ship) return jsonError(404, "NOT_FOUND");
