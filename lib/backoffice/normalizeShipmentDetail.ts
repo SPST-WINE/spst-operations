@@ -115,7 +115,7 @@ export function normalizeShipmentDTOToFlat(dto: ShipmentDTO): ShipmentDetailFlat
       }))
     : [];
 
-  return {
+  const flat: ShipmentDetailFlat = {
     id: dto.id,
     created_at: dto.created_at,
     human_id: dto.human_id ?? null,
@@ -169,5 +169,51 @@ export function normalizeShipmentDTOToFlat(dto: ShipmentDTO): ShipmentDetailFlat
 
     // DTO exposes legacy json as extras
     fields: (dto as any).extras ?? null,
+  };
+
+  return fillBillingFromDest(flat);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Helper: se fatturazione è tutta vuota (NULL/""), copia dal destinatario
+   ───────────────────────────────────────────────────────────── */
+
+function isEmptyStr(x: any) {
+  return x == null || (typeof x === "string" && x.trim() === "");
+}
+
+function shouldCopyBillingFromDest(s: any) {
+  const billingEmpty =
+    isEmptyStr(s.fatt_rs) &&
+    isEmptyStr(s.fatt_paese) &&
+    isEmptyStr(s.fatt_citta) &&
+    isEmptyStr(s.fatt_cap) &&
+    isEmptyStr(s.fatt_indirizzo) &&
+    isEmptyStr(s.fatt_telefono) &&
+    isEmptyStr(s.fatt_piva);
+
+  const destHasSomething =
+    !isEmptyStr(s.dest_rs) ||
+    !isEmptyStr(s.dest_indirizzo) ||
+    !isEmptyStr(s.dest_paese) ||
+    !isEmptyStr(s.dest_citta) ||
+    !isEmptyStr(s.dest_cap);
+
+  return billingEmpty && destHasSomething;
+}
+
+function fillBillingFromDest<T extends any>(s: T): T {
+  if (!shouldCopyBillingFromDest(s)) return s;
+
+  return {
+    ...s,
+    fatt_rs: (s as any).dest_rs ?? null,
+    fatt_paese: (s as any).dest_paese ?? null,
+    fatt_citta: (s as any).dest_citta ?? null,
+    fatt_cap: (s as any).dest_cap ?? null,
+    fatt_indirizzo: (s as any).dest_indirizzo ?? null,
+    fatt_telefono: (s as any).dest_telefono ?? null,
+    fatt_piva: (s as any).dest_piva ?? null,
+    // fatt_valuta: NON tocchiamo (rimane com'è)
   };
 }
