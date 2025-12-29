@@ -1,7 +1,7 @@
 // app/api/backoffice/shipments/[id]/status/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { supabaseServerSpst } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
 import { ShipmentStatusZ } from "@/lib/contracts/shipment";
 
@@ -9,9 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const BodyZ = z.object({
-  status: ShipmentStatusZ,
-});
+const BodyZ = z.object({ status: ShipmentStatusZ });
 
 function withCorsHeaders(init?: HeadersInit) {
   return {
@@ -38,30 +36,37 @@ function isUuid(x: string) {
   );
 }
 
+function admin() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
+
 export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
-    // ✅ Auth staff
     await requireStaff();
 
     const id = String(ctx?.params?.id || "").trim();
     if (!id || !isUuid(id)) {
       return NextResponse.json(
-        { ok: false, error: "INVALID_ID", details: "Invalid shipment id" },
+        { ok: false, error: "INVALID_ID" },
         { status: 400, headers: withCorsHeaders() }
       );
     }
 
-    // ✅ body
     const raw = await req.json().catch(() => ({}));
     const { status } = BodyZ.parse(raw);
 
-    const supa = supabaseServerSpst();
+    const supa = admin();
 
-    // ✅ UPDATE SOLO status (niente updated_at: la colonna non esiste)
     const { data, error } = await supa
       .schema("spst")
       .from("shipments")
-      .update({ status })
+      .update({ status }) // ✅ no updated_at
       .eq("id", id)
       .select("id,human_id,status,created_at,carrier,tracking_code,email_cliente,email_norm")
       .single();
@@ -78,7 +83,6 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
       { headers: withCorsHeaders() }
     );
   } catch (e: any) {
-    // zod validation
     if (e?.name === "ZodError") {
       return NextResponse.json(
         { ok: false, error: "VALIDATION_ERROR", details: e?.errors || e?.message },
@@ -86,7 +90,7 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
       );
     }
 
-    console.error("❌ [backoffice/shipments/:id/status] PATCH unexpected:", e);
+    console.error("❌ [backoffice status PATCH] unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
