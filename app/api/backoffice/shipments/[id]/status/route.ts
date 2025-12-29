@@ -16,17 +16,14 @@ function withCorsHeaders(init?: HeadersInit) {
 }
 
 function admin() {
-  const url =
-    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE ||
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) throw new Error("Missing SUPABASE env");
 
-  return createClient(url, key, {
-    auth: { persistSession: false },
-  }) as any;
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
 }
 
 export async function PATCH(
@@ -34,7 +31,6 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    // 🔐 SOLO STAFF
     await requireStaff();
 
     const shipmentId = params.id;
@@ -46,38 +42,33 @@ export async function PATCH(
     }
 
     const body = await req.json().catch(() => ({}));
-    const rawStatus = String(body?.status || "").trim().replace(/\s+/g, " ");
-    const note =
-      body?.note != null ? String(body.note).slice(0, 2000) : null;
+    const rawStatus = String(body?.status || "")
+      .trim()
+      .replace(/\s+/g, " ");
+    const note = body?.note != null ? String(body.note).slice(0, 2000) : null;
 
-    // ✅ VALIDAZIONE CONTRATTO (Zod)
+    // ✅ stato SOLO da contratto
     let status;
     try {
       status = ShipmentStatusZ.parse(rawStatus);
     } catch {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "INVALID_STATUS",
-          allowed: ShipmentStatusZ.options,
-        },
+        { ok: false, error: "INVALID_STATUS", allowed: ShipmentStatusZ.options },
         { status: 400, headers: withCorsHeaders() }
       );
     }
 
-    // 👤 chi ha fatto l'update
+    // actor (se disponibile)
     let actorEmail: string | null = null;
     try {
       const supa = supabaseServerSpst();
       const { data } = await supa.auth.getUser();
-      actorEmail = data?.user?.email
-        ? String(data.user.email)
-        : null;
+      actorEmail = data?.user?.email ? String(data.user.email) : null;
     } catch {}
 
     const sb = admin();
 
-    // 1️⃣ UPDATE shipments.status
+    // update
     const upd = await sb
       .schema("spst")
       .from("shipments")
@@ -88,46 +79,28 @@ export async function PATCH(
 
     if (upd.error) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "UPDATE_FAILED",
-          details: upd.error.message,
-        },
+        { ok: false, error: "UPDATE_FAILED", details: upd.error.message },
         { status: 500, headers: withCorsHeaders() }
       );
     }
 
-    // 2️⃣ LOG EVENTO STATUS (best-effort)
+    // best-effort log
     try {
-      await sb
-        .schema("spst")
-        .from("shipment_status_events")
-        .insert({
-          shipment_id: shipmentId,
-          status,
-          note,
-          actor_email: actorEmail,
-        });
+      await sb.schema("spst").from("shipment_status_events").insert({
+        shipment_id: shipmentId,
+        status,
+        note,
+        actor_email: actorEmail,
+      });
     } catch (e) {
-      console.error(
-        "[status] shipment_status_events insert failed (non-blocking)",
-        e
-      );
+      console.error("[status] shipment_status_events insert failed (non-blocking)", e);
     }
 
-    return NextResponse.json(
-      { ok: true, shipment: upd.data },
-      { headers: withCorsHeaders() }
-    );
+    return NextResponse.json({ ok: true, shipment: upd.data }, { headers: withCorsHeaders() });
   } catch (e: any) {
-    console.error("❌ PATCH status error:", e?.message || e);
-
+    console.error("❌ [backoffice/shipments/:id/status] PATCH error:", e?.message || e);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED_ERROR",
-        details: String(e?.message || e),
-      },
+      { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
     );
   }
