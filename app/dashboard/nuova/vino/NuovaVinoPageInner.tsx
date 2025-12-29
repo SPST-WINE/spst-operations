@@ -1,4 +1,3 @@
-// FILE: app/dashboard/nuova/vino/NuovaVinoPageInner.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,7 +17,6 @@ import type { SuccessInfo } from "./_logic/types";
 import { mapVinoFormToShipmentPayload } from "./_logic/mapVinoFormToShipmentPayload";
 import { validateVinoShipment } from "./_logic/validateVinoShipment";
 import { createShipmentWithAuth } from "./_services/shipments.client";
-import { uploadShipmentDocument } from "./_services/upload.client";
 import { usePrefillMittente } from "./_hooks/usePrefillMittente";
 import { useAutoscrollErrors } from "./_hooks/useAutoscrollErrors";
 import { usePlacesAutocomplete } from "./_places/usePlacesAutocomplete";
@@ -53,13 +51,11 @@ export default function NuovaVinoPageInner() {
     []
   );
 
-usePrefillMittente({ forcedEmail, setMittente });
-
+  usePrefillMittente({ forcedEmail, setMittente });
 
   usePlacesAutocomplete({
     onFill: handlePlacesFill,
   });
-
 
   const [colli, setColli] = useState<Collo[]>([
     { lunghezza_cm: null, larghezza_cm: null, altezza_cm: null, peso_kg: null },
@@ -86,7 +82,6 @@ usePrefillMittente({ forcedEmail, setMittente });
   const [delega, setDelega] = useState(false);
   const [fatturazione, setFatturazione] = useState<Party>(blankParty);
   const [sameAsDest, setSameAsDest] = useState(false);
- 
 
   const [pl, setPl] = useState<RigaPL[]>([
     {
@@ -126,13 +121,13 @@ usePrefillMittente({ forcedEmail, setMittente });
       colli,
       ritiroData,
       pl,
-      fatturaFile,
+      delega,
       fatturazione,
       sameAsDest,
       formato,
       assicurazionePallet,
       valoreAssicurato,
-    });
+    } as any);
 
     if (v.length) {
       setErrors(v);
@@ -161,7 +156,7 @@ usePrefillMittente({ forcedEmail, setMittente });
         pl,
         assicurazionePallet,
         valoreAssicurato,
-      });
+      } as any);
 
       const created = await createShipmentWithAuth(
         supabase,
@@ -169,16 +164,7 @@ usePrefillMittente({ forcedEmail, setMittente });
         forcedEmail || undefined
       );
 
-      try {
-        if (fatturaFile) {
-          await uploadShipmentDocument(created.recId, fatturaFile, "fattura_proforma");
-        }
-      } catch (e) {
-        console.error("Errore upload documenti:", e);
-        setErrors([
-          "Spedizione creata, ma si è verificato un errore durante il caricamento della fattura.",
-        ]);
-      }
+      // 🔒 BACKEND CONTRACT (FREEZE): niente upload lato client.
 
       setSuccess({
         recId: created.recId,
