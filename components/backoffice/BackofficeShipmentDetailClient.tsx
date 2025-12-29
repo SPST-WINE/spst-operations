@@ -84,6 +84,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     }
   }
 
+  // ✅ INVIO EMAIL "SPEDIZIONE EVASA" -> endpoint dedicato (Resend)
   async function handleSendEmail() {
     if (!merged) return;
     const emailTo = emailConfirm.trim();
@@ -92,7 +93,8 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     setSendingEmail(true);
     setEmailMsg(null);
     try {
-      const res = await fetch(`/api/spedizioni/${id}/evasa`, {
+      // 🔥 cambiato: non più /evasa (che aggiorna solo lo status)
+      const res = await fetch(`/api/spedizioni/${id}/send-evasa-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: emailTo }),
