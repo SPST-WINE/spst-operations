@@ -1,6 +1,6 @@
 // app/api/spedizioni/[id]/evasa/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServerSpst } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
@@ -13,31 +13,44 @@ function isUuid(x: string) {
   );
 }
 
+// ✅ Service Role client (bypassa RLS) — SOLO server-side
+function admin() {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) throw new Error("Missing SUPABASE_URL/SERVICE_ROLE");
+
+  return createClient(url, key, { auth: { persistSession: false } }) as any;
+}
+
 export async function POST(
   _req: NextRequest,
   ctx: { params: { id: string } }
 ) {
   const id = ctx.params.id;
 
+  // ✅ auth staff (gestita correttamente)
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
+  if (!id || !isUuid(id)) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid shipment id" },
+      { status: 400 }
+    );
+  }
+
   try {
-    // ✅ auth staff
-    await requireStaff();
+    const sb = admin();
 
-    if (!id || !isUuid(id)) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid shipment id" },
-        { status: 400 }
-      );
-    }
-
-    const sb = supabaseServerSpst();
-
-    // ✅ update status — IMPORTANT: niente updated_at in select
+    // ✅ status deve combaciare con il tuo enum: "IN RITIRO"
     const { data, error } = await sb
       .from("shipments")
-      .update({ status: "IN_RITIRO" })
+      .update({ status: "IN RITIRO" })
       .eq("id", id)
-      .select("id, status") // <-- NON mettere updated_at qui
+      .select("id,status")
       .single();
 
     if (error) {
