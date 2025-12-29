@@ -121,10 +121,28 @@ function getTrackingUrl(carrier?: string | null, tracking?: string | null) {
   if (c.includes("dhl")) {
     return `https://www.dhl.com/global-en/home/tracking.html?tracking-id=${encodeURIComponent(trk)}`;
   }
-  if (c.includes("tnt")) {
-    // TNT oggi è integrata con FedEx in molti paesi: metto tracking TNT “classico”
-    return `https://www.tnt.com/express/en_it/site/shipping-tools/tracking.html?searchType=con&cons=${encodeURIComponent(trk)}`;
+    if (c.includes("tnt")) {
+    const trkUp = trk.toUpperCase();
+
+    // ✅ TNT nazionale (Italia): es. "MY14392366"
+    if (trkUp.startsWith("MY")) {
+      return `https://www.tnt.it/tracking/Tracking.do?cons=${encodeURIComponent(trk)}`;
+    }
+
+    // ✅ TNT internazionale: solo numeri
+    const onlyDigits = /^\d+$/.test(trk);
+    if (onlyDigits) {
+      return `https://www.tnt.com/express/it_it/site/shipping-tools/tracking.html?searchType=con&cons=${encodeURIComponent(
+        trk
+      )}`;
+    }
+
+    // fallback: usa comunque tracking internazionale
+    return `https://www.tnt.com/express/it_it/site/shipping-tools/tracking.html?searchType=con&cons=${encodeURIComponent(
+      trk
+    )}`;
   }
+
 
   // fallback: ricerca google carrier + tracking
   const q = `${(carrier || "tracking").toString()} ${trk}`;
