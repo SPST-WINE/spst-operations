@@ -19,6 +19,8 @@ export function ActionsSection({
   sendingEmail,
   emailMsg,
   onSendEmail,
+
+  onMarkInRitiro, // ✅ NEW
 }: {
   shipment: ShipmentDetailFlat;
 
@@ -35,10 +37,13 @@ export function ActionsSection({
   sendingEmail: boolean;
   emailMsg: string | null;
   onSendEmail: () => Promise<void>;
+
+  onMarkInRitiro: () => Promise<void>; // ✅ NEW
 }) {
   const emailCliente = shipment.email_cliente || shipment.email_norm || "—";
   const emailMatch =
-    emailCliente !== "—" && emailConfirm.trim().toLowerCase() === emailCliente.toLowerCase();
+    emailCliente !== "—" &&
+    emailConfirm.trim().toLowerCase() === emailCliente.toLowerCase();
   const disableSendButton = !emailMatch || sendingEmail;
 
   return (
@@ -51,7 +56,9 @@ export function ActionsSection({
 
           <div className="space-y-2 text-xs">
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-slate-600">Corriere</label>
+              <label className="text-[11px] font-medium text-slate-600">
+                Corriere
+              </label>
               <select
                 className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-slate-400 focus:outline-none"
                 value={carrierEdit}
@@ -68,7 +75,9 @@ export function ActionsSection({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-medium text-slate-600">Numero di tracking</label>
+              <label className="text-[11px] font-medium text-slate-600">
+                Numero di tracking
+              </label>
               <input
                 type="text"
                 className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus:border-slate-400 focus:outline-none"
@@ -85,24 +94,34 @@ export function ActionsSection({
                 disabled={savingTracking}
                 className="inline-flex items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
               >
-                {savingTracking && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {savingTracking && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
                 Salva
               </button>
-              {trackingMsg && <span className="text-[11px] text-slate-500">{trackingMsg}</span>}
+              {trackingMsg && (
+                <span className="text-[11px] text-slate-500">
+                  {trackingMsg}
+                </span>
+              )}
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Questi dati vengono salvati sulla spedizione e saranno usati successivamente per il
-              tracking automatico.
+              Questi dati vengono salvati sulla spedizione e saranno usati
+              successivamente per il tracking automatico.
             </p>
           </div>
         </div>
 
         <div className="space-y-3 text-xs">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Azioni</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Azioni
+          </div>
 
           <div className="space-y-1">
-            <div className="text-[11px] text-slate-500">Email cliente salvata</div>
+            <div className="text-[11px] text-slate-500">
+              Email cliente salvata
+            </div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-700">
               {emailCliente}
             </div>
@@ -120,8 +139,8 @@ export function ActionsSection({
               placeholder="Digita di nuovo l'email per conferma"
             />
             <p className="text-[11px] text-slate-500">
-              Per ragioni di sicurezza, l&apos;invio email è attivo solo se l&apos;indirizzo
-              inserito coincide con quello salvato.
+              Per ragioni di sicurezza, l&apos;invio email è attivo solo se
+              l&apos;indirizzo inserito coincide con quello salvato.
             </p>
           </div>
 
@@ -141,14 +160,15 @@ export function ActionsSection({
           </button>
           {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
+          {/* ✅ NEW: passa handler via props */}
           <button
-  type="button"
-  onClick={handleMarkInRitiro}
-  className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800"
->
-  <CheckCircle2 className="h-3.5 w-3.5" />
-  Evasione completata
-</button>
+            type="button"
+            onClick={onMarkInRitiro}
+            className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Evasione completata
+          </button>
         </div>
       </div>
     </section>
