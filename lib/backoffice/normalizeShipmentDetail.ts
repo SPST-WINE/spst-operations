@@ -182,38 +182,34 @@ function isEmptyStr(x: any) {
   return x == null || (typeof x === "string" && x.trim() === "");
 }
 
-function shouldCopyBillingFromDest(s: ShipmentDetailFlat) {
-  const billingEmpty =
-    isEmptyStr(s.fatt_rs) &&
-    isEmptyStr(s.fatt_paese) &&
-    isEmptyStr(s.fatt_citta) &&
-    isEmptyStr(s.fatt_cap) &&
-    isEmptyStr(s.fatt_indirizzo) &&
-    isEmptyStr(s.fatt_telefono) &&
-    isEmptyStr(s.fatt_piva);
+function pickFallback(primary: any, fallback: any) {
+  return !isEmptyStr(primary) ? primary : !isEmptyStr(fallback) ? fallback : null;
+}
 
-  const destHasSomething =
+function fillBillingFromDest(s: ShipmentDetailFlat): ShipmentDetailFlat {
+  // se non ho proprio destinatario, non faccio nulla
+  const hasDest =
     !isEmptyStr(s.dest_rs) ||
     !isEmptyStr(s.dest_indirizzo) ||
     !isEmptyStr(s.dest_paese) ||
     !isEmptyStr(s.dest_citta) ||
-    !isEmptyStr(s.dest_cap);
+    !isEmptyStr(s.dest_cap) ||
+    !isEmptyStr(s.dest_telefono) ||
+    !isEmptyStr(s.dest_piva);
 
-  return billingEmpty && destHasSomething;
-}
-
-function fillBillingFromDest(s: ShipmentDetailFlat): ShipmentDetailFlat {
-  if (!shouldCopyBillingFromDest(s)) return s;
+  if (!hasDest) return s;
 
   return {
     ...s,
-    fatt_rs: s.dest_rs ?? null,
-    fatt_paese: s.dest_paese ?? null,
-    fatt_citta: s.dest_citta ?? null,
-    fatt_cap: s.dest_cap ?? null,
-    fatt_indirizzo: s.dest_indirizzo ?? null,
-    fatt_telefono: s.dest_telefono ?? null,
-    fatt_piva: s.dest_piva ?? null,
-    // fatt_valuta: NON tocchiamo (rimane com'è)
+    // ✅ fallback per singolo campo (non sovrascrive se già compilato)
+    fatt_rs: pickFallback(s.fatt_rs, s.dest_rs),
+    fatt_paese: pickFallback(s.fatt_paese, s.dest_paese),
+    fatt_citta: pickFallback(s.fatt_citta, s.dest_citta),
+    fatt_cap: pickFallback(s.fatt_cap, s.dest_cap),
+    fatt_indirizzo: pickFallback(s.fatt_indirizzo, s.dest_indirizzo),
+    fatt_telefono: pickFallback(s.fatt_telefono, s.dest_telefono),
+    fatt_piva: pickFallback(s.fatt_piva, s.dest_piva),
+
+
   };
 }
