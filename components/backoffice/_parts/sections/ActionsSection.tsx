@@ -160,7 +160,7 @@ export function ActionsSection({
           </button>
           {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
-          {/* ✅ NEW: passa handler via props */}
+          {/* ✅ NEW: azione separata dal send email */}
           <button
             type="button"
             onClick={onMarkInRitiro}
