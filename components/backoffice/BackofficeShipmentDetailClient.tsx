@@ -11,7 +11,7 @@ import type {
 } from "@/lib/backoffice/normalizeShipmentDetail";
 import { normalizeShipmentDTOToFlat } from "@/lib/backoffice/normalizeShipmentDetail";
 
-
+type ShipmentDetail = ShipmentDetailFlat;
 
 type Props = { id: string };
 
