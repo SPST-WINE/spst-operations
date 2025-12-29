@@ -115,50 +115,31 @@ export async function GET(req: Request) {
       100,
       Math.max(1, Number(url.searchParams.get("limit") || 20))
     );
-    const emailParam = url.searchParams.get("email");
 
-    const SUPABASE_URL =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // ✅ CLIENT SCOPE (RLS): la lista "Le mie spedizioni" deve SEMPRE passare sotto RLS.
+    // - prende l'utente dalla sessione cookie-based Supabase
+    // - se non autenticato → 401
+    // - nessun service role, nessun email in querystring per filtrare (anti-leak)
+    const supa = supabaseServerSpst();
+    const { data: userData, error: userErr } = await supa.auth.getUser();
+    const userEmail = userData?.user?.email ? String(userData.user.email) : null;
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    if (userErr || !userEmail) {
       return NextResponse.json(
-        { ok: false, error: "Missing Supabase env" },
-        { status: 500, headers: withCorsHeaders() }
+        { ok: false, error: "UNAUTHENTICATED" },
+        { status: 401, headers: withCorsHeaders() }
       );
     }
 
-    const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    }) as any;
-
-    let emailNorm: string | null = normalizeEmail(emailParam);
-
+    const emailNorm = normalizeEmail(userEmail);
     if (!emailNorm) {
-      const token = getAccessTokenFromRequest();
-      if (token) {
-        const { data } = await auth.auth.getUser(token);
-        emailNorm = normalizeEmail(data?.user?.email ?? null);
-      }
-      if (!emailNorm) {
-        const hdrs = nextHeaders();
-        emailNorm = normalizeEmail(
-          hdrs.get("x-user-email") ||
-            hdrs.get("x-client-email") ||
-            hdrs.get("x-auth-email")
-        );
-      }
+      return NextResponse.json(
+        { ok: false, error: "UNAUTHENTICATED" },
+        { status: 401, headers: withCorsHeaders() }
+      );
     }
 
-    const srvKey =
-      process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    const supa = createClient(SUPABASE_URL, srvKey || SUPABASE_ANON_KEY, {
-      auth: { persistSession: false },
-    }) as any;
-
     let query = supa
-      .schema("spst")
       .from("shipments")
       .select(
         `
@@ -189,7 +170,8 @@ export async function GET(req: Request) {
         { count: "exact" }
       );
 
-    if (emailNorm) query = query.eq("email_norm", emailNorm);
+    // ✅ ridondanza (RLS già filtra) + performance
+    query = query.eq("email_norm", emailNorm);
 
     if (q) {
       query = query.or(
@@ -287,6 +269,7 @@ export async function GET(req: Request) {
     );
   }
 }
+
 
 /* ───────────── POST /api/spedizioni ───────────── */
 export async function POST(req: Request) {
