@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import type { ShipmentDetailFlat } from "@/lib/backoffice/normalizeShipmentDetail";
@@ -21,30 +21,30 @@ type ShipmentDetail = ShipmentDetailFlat;
 export default function BackofficeShipmentDetailClient({ id }: Props) {
   const { data, loading, error, reload } = useBackofficeShipmentDetail(id);
 
-  // stato per corriere + tracking
   const [carrierEdit, setCarrierEdit] = useState("");
   const [trackingEdit, setTrackingEdit] = useState("");
   const [savingTracking, setSavingTracking] = useState(false);
   const [trackingMsg, setTrackingMsg] = useState<string | null>(null);
 
-  // stato per verifica email azioni
   const [emailConfirm, setEmailConfirm] = useState("");
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailMsg, setEmailMsg] = useState<string | null>(null);
 
-  // Merge “solido” (data + fields)
+  // ✅ stato per “IN RITIRO”
+  const [markingInRitiro, setMarkingInRitiro] = useState(false);
+  const [markMsg, setMarkMsg] = useState<string | null>(null);
+
   const merged = useMemo(() => {
     if (!data) return null;
     return mergeShipmentDetail(data as ShipmentDetail);
   }, [data]);
 
-  // ✅ init carrier/tracking quando arriva data (solo se vuoti) — side effect -> useEffect
-  useEffect(() => {
+  useMemo(() => {
     if (!merged) return;
-    // evita di sovrascrivere modifiche dell’utente mentre edita
     setCarrierEdit((prev) => (prev ? prev : merged.carrier || ""));
     setTrackingEdit((prev) => (prev ? prev : merged.tracking_code || ""));
-  }, [merged?.id]); // cambia solo quando cambia spedizione
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [merged?.id]);
 
   const pkgSummary = useMemo(() => {
     const pkgs = merged?.packages || [];
@@ -73,9 +73,7 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-
       setTrackingMsg("Dati corriere salvati.");
-      // ricarico per avere stato coerente dal backend
       reload();
     } catch (e) {
       console.error("[BackofficeShipmentDetail] save tracking error:", e);
@@ -101,7 +99,6 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-
       setEmailMsg("Email inviata correttamente.");
     } catch (e) {
       console.error("[BackofficeShipmentDetail] send email error:", e);
@@ -112,19 +109,28 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
     }
   }
 
-  // ✅ NEW: “Evasione completata” -> set status IN RITIRO lato server e reload
+  // ✅ “Evasione completata” -> set status = IN RITIRO (email non c’entra)
   async function handleMarkInRitiro() {
     if (!merged) return;
-
+    setMarkingInRitiro(true);
+    setMarkMsg(null);
     try {
-      const res = await fetch(`/api/spedizioni/${id}/evasa`, { method: "POST" });
+      const res = await fetch(`/api/spedizioni/${id}/evasa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "MARK_IN_RITIRO" }), // payload ignorabile lato server
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
-      // ✅ ricarico dal backend per avere stato coerente
+      setMarkMsg(`Status aggiornato: ${json.status || "IN RITIRO"}`);
       reload();
-    } catch (e) {
+    } catch (e: any) {
       console.error("[BackofficeShipmentDetail] mark IN RITIRO error:", e);
+      setMarkMsg("Errore: impossibile aggiornare lo status.");
+    } finally {
+      setMarkingInRitiro(false);
+      setTimeout(() => setMarkMsg(null), 4000);
     }
   }
 
@@ -183,7 +189,9 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         sendingEmail={sendingEmail}
         emailMsg={emailMsg}
         onSendEmail={handleSendEmail}
-        onMarkInRitiro={handleMarkInRitiro} // ✅ NEW
+        markingInRitiro={markingInRitiro}
+        markMsg={markMsg}
+        onMarkInRitiro={handleMarkInRitiro}
       />
     </div>
   );
