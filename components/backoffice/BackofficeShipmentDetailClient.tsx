@@ -4,90 +4,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Loader2, Mail, CheckCircle2, FileText, Package } from "lucide-react";
+import type {
+  AttachmentInfo,
+  PackageRow,
+  ShipmentDetailFlat,
+} from "@/lib/backoffice/normalizeShipmentDetail";
+import { normalizeShipmentDTOToFlat } from "@/lib/backoffice/normalizeShipmentDetail";
 
-type AttachmentInfo =
-  | {
-      url: string;
-      file_name?: string | null;
-      mime_type?: string | null;
-      size?: number | null;
-    }
-  | null;
 
-type PackageRow = {
-  id?: string;
-  l1?: number | null;
-  l2?: number | null;
-  l3?: number | null;
-  weight_kg?: number | null;
-};
-
-type ShipmentDetail = {
-  id: string;
-  created_at?: string;
-  human_id?: string | null;
-  email_cliente?: string | null;
-  email_norm?: string | null;
-
-  status?: string | null;
-  carrier?: string | null;
-  tracking_code?: string | null;
-
-  tipo_spedizione?: string | null;
-  incoterm?: string | null;
-  giorno_ritiro?: string | null;
-  note_ritiro?: string | null;
-
-  mittente_rs?: string | null;
-  mittente_paese?: string | null;
-  mittente_citta?: string | null;
-  mittente_cap?: string | null;
-  mittente_indirizzo?: string | null;
-  mittente_telefono?: string | null;
-  mittente_piva?: string | null;
-
-  dest_rs?: string | null;
-  dest_paese?: string | null;
-  dest_citta?: string | null;
-  dest_cap?: string | null;
-  dest_indirizzo?: string | null;
-  dest_telefono?: string | null;
-  dest_piva?: string | null;
-
-  fatt_rs?: string | null;
-  fatt_paese?: string | null;
-  fatt_citta?: string | null;
-  fatt_cap?: string | null;
-  fatt_indirizzo?: string | null;
-  fatt_telefono?: string | null;
-  fatt_piva?: string | null;
-  fatt_valuta?: string | null;
-
-  colli_n?: number | null;
-  peso_reale_kg?: number | null;
-  formato_sped?: string | null;
-  contenuto_generale?: string | null;
-  dest_abilitato_import?: boolean | null;
-
-  // valore assicurato (EUR) lato DB (se presente)
-  declared_value?: number | null;
-
-  attachments?: {
-    ldv?: AttachmentInfo;
-    fattura_proforma?: AttachmentInfo;
-    fattura_commerciale?: AttachmentInfo;
-    dle?: AttachmentInfo;
-    allegato1?: AttachmentInfo;
-    allegato2?: AttachmentInfo;
-    allegato3?: AttachmentInfo;
-    allegato4?: AttachmentInfo;
-  };
-
-  packages?: PackageRow[];
-
-  // jsonb completo lato DB (per packing list e debug)
-  fields?: any;
-};
 
 type Props = { id: string };
 
@@ -301,14 +225,16 @@ export default function BackofficeShipmentDetailClient({ id }: Props) {
         const json = await res.json();
         if (!active) return;
 
-        if (json?.ok && json.shipment) {
-          const s = json.shipment as ShipmentDetail;
-          setData(s);
-          setCarrierEdit(s.carrier || "");
-          setTrackingEdit(s.tracking_code || "");
-        } else {
-          throw new Error("Risposta API non valida");
-        }
+       if (json?.ok && json.shipment) {
+  // ✅ API returns the canonical ShipmentDTO (nested). The backoffice page
+  // expects a flat, render-friendly shape -> normalize here.
+  const s = normalizeShipmentDTOToFlat(json.shipment);
+  setData(s as ShipmentDetail);
+  setCarrierEdit(s.carrier || "");
+  setTrackingEdit(s.tracking_code || "");
+} else {
+  throw new Error("Risposta API non valida");
+}
       } catch (e: any) {
         console.error("[BackofficeShipmentDetail] load error:", e);
         if (active) {
