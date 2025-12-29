@@ -1,4 +1,3 @@
-// FILE: app/dashboard/nuova/altro/NuovaAltroPageInner.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -155,7 +154,6 @@ export default function NuovaAltroPageInner() {
   const [delega, setDelega] = useState(false);
   const [fatturazione, setFatturazione] = useState<Party>(blankParty);
   const [sameAsDest, setSameAsDest] = useState(false);
-  const [fatturaFile, setFatturaFile] = useState<File | undefined>();
 
   // UI
   const [saving, setSaving] = useState(false);
@@ -197,19 +195,17 @@ export default function NuovaAltroPageInner() {
 
     if (formato === "Pallet" && assicurazionePallet) {
       if (valoreAssicurato == null || valoreAssicurato <= 0) {
-        errs.push(
-          "Valore assicurato mancante/non valido (assicurazione attiva)."
-        );
+        errs.push("Valore assicurato mancante/non valido (assicurazione attiva).");
       }
     }
 
+    // ✅ Niente upload: i dati fattura sono sempre richiesti
     const fatt = sameAsDest ? destinatario : fatturazione;
-    if (!fatturaFile) {
-      if (!fatt.ragioneSociale?.trim())
-        errs.push("Ragione sociale fattura mancante.");
-      if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
-        errs.push("PIVA obbligatoria per B2B/Sample.");
-      }
+
+    if (!fatt.ragioneSociale?.trim()) errs.push("Ragione sociale fattura mancante.");
+
+    if ((tipoSped === "B2B" || tipoSped === "Sample") && !fatt.piva?.trim()) {
+      errs.push("PIVA obbligatoria per B2B/Sample.");
     }
 
     return errs;
@@ -235,9 +231,7 @@ export default function NuovaAltroPageInner() {
         tipo_spedizione: mapTipoSped(tipoSped),
         incoterm: toNull(incoterm),
         declared_value:
-          formato === "Pallet" && assicurazionePallet
-            ? (valoreAssicurato ?? null)
-            : null,
+          formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
         fatt_valuta: (valuta as any) ?? null,
 
         giorno_ritiro: ritiroData ? dateToYMD(ritiroData) : null,
@@ -252,14 +246,13 @@ export default function NuovaAltroPageInner() {
           ? { ...mapParty(destinatario), abilitato_import: true }
           : mapParty(destinatario),
 
-        fatturazione: sameAsDest
-          ? mapParty(destinatario)
-          : mapParty(fatturazione),
+        fatturazione: sameAsDest ? mapParty(destinatario) : mapParty(fatturazione),
 
         colli: (colli || [])
           .filter(
             (c) =>
-              c && (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm)
+              c &&
+              (c.peso_kg || c.lunghezza_cm || c.larghezza_cm || c.altezza_cm)
           )
           .map((c) => ({
             contenuto: toNull(contenuto),
@@ -272,16 +265,14 @@ export default function NuovaAltroPageInner() {
         extras: {
           sorgente: "altro",
           destAbilitato: !!destAbilitato,
-          assicurazioneAttiva:
-            formato === "Pallet" ? !!assicurazionePallet : false,
+          assicurazioneAttiva: formato === "Pallet" ? !!assicurazionePallet : false,
           valoreAssicurato:
-            formato === "Pallet" && assicurazionePallet
-              ? (valoreAssicurato ?? null)
-              : null,
+            formato === "Pallet" && assicurazionePallet ? (valoreAssicurato ?? null) : null,
           noteFatt: toNull(noteFatt),
           fattSameAsDest: !!sameAsDest,
           fattDelega: !!delega,
-          fatturaFileName: fatturaFile?.name || null,
+          fatturaFileName: null,
+          pending_uploads: !delega ? ["fattura_proforma"] : [],
         },
       };
 
@@ -314,8 +305,7 @@ export default function NuovaAltroPageInner() {
     const INFO_URL =
       process.env.NEXT_PUBLIC_INFO_URL || "/dashboard/informazioni-utili";
     const WHATSAPP_URL_BASE =
-      process.env.NEXT_PUBLIC_WHATSAPP_URL ||
-      "https://wa.me/message/CP62RMFFDNZPO1";
+      process.env.NEXT_PUBLIC_WHATSAPP_URL || "https://wa.me/message/CP62RMFFDNZPO1";
 
     const whatsappHref = `${WHATSAPP_URL_BASE}?text=${encodeURIComponent(
       `Ciao SPST, ho bisogno di supporto sulla spedizione ${success.humanId}`
@@ -343,15 +333,12 @@ export default function NuovaAltroPageInner() {
               {success.dataRitiro ?? "—"}
             </div>
             <div>
-              <span className="text-slate-500">Colli:</span> {success.colli} (
-              {success.formato})
+              <span className="text-slate-500">Colli:</span> {success.colli} ({success.formato})
             </div>
             <div className="md:col-span-2">
               <span className="text-slate-500">Destinatario:</span>{" "}
               {success.destinatario.ragioneSociale || "—"}
-              {success.destinatario.citta
-                ? ` — ${success.destinatario.citta}`
-                : ""}
+              {success.destinatario.citta ? ` — ${success.destinatario.citta}` : ""}
             </div>
           </div>
 
@@ -482,8 +469,6 @@ export default function NuovaAltroPageInner() {
         destinatario={destinatario}
         sameAsDest={sameAsDest}
         setSameAsDest={setSameAsDest}
-        fatturaFile={fatturaFile}
-        setFatturaFile={setFatturaFile}
       />
 
       <div className="flex justify-end">
