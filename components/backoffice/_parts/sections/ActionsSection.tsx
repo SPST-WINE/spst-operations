@@ -20,7 +20,9 @@ export function ActionsSection({
   emailMsg,
   onSendEmail,
 
-  onMarkInRitiro, // ✅ NEW
+  markingInRitiro,
+  markMsg,
+  onMarkInRitiro,
 }: {
   shipment: ShipmentDetailFlat;
 
@@ -38,7 +40,9 @@ export function ActionsSection({
   emailMsg: string | null;
   onSendEmail: () => Promise<void>;
 
-  onMarkInRitiro: () => Promise<void>; // ✅ NEW
+  markingInRitiro: boolean;
+  markMsg: string | null;
+  onMarkInRitiro: () => Promise<void>;
 }) {
   const emailCliente = shipment.email_cliente || shipment.email_norm || "—";
   const emailMatch =
@@ -99,10 +103,9 @@ export function ActionsSection({
                 )}
                 Salva
               </button>
+
               {trackingMsg && (
-                <span className="text-[11px] text-slate-500">
-                  {trackingMsg}
-                </span>
+                <span className="text-[11px] text-slate-500">{trackingMsg}</span>
               )}
             </div>
 
@@ -119,9 +122,7 @@ export function ActionsSection({
           </div>
 
           <div className="space-y-1">
-            <div className="text-[11px] text-slate-500">
-              Email cliente salvata
-            </div>
+            <div className="text-[11px] text-slate-500">Email cliente salvata</div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-[11px] text-slate-700">
               {emailCliente}
             </div>
@@ -160,15 +161,20 @@ export function ActionsSection({
           </button>
           {emailMsg && <p className="text-[11px] text-slate-500">{emailMsg}</p>}
 
-          {/* ✅ NEW: azione separata dal send email */}
+          {/* ✅ SEMPRE DISPONIBILE -> setta status a IN RITIRO */}
           <button
             type="button"
             onClick={onMarkInRitiro}
-            className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800"
+            disabled={markingInRitiro}
+            className="inline-flex w-full items-center justify-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white hover:bg-slate-800 disabled:opacity-60"
           >
+            {markingInRitiro && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            )}
             <CheckCircle2 className="h-3.5 w-3.5" />
             Evasione completata
           </button>
+          {markMsg && <p className="text-[11px] text-slate-500">{markMsg}</p>}
         </div>
       </div>
     </section>
