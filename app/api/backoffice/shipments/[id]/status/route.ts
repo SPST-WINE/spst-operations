@@ -1,5 +1,6 @@
+// app/api/backoffice/shipments/[id]/status/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 import { requireStaff } from "@/lib/auth/requireStaff";
 import { ShipmentStatusZ } from "@/lib/contracts/shipment";
@@ -8,6 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const BodyZ = z.object({
+  status: ShipmentStatusZ,
+});
+
 function withCorsHeaders(init?: HeadersInit) {
   return {
     ...(init || {}),
@@ -15,90 +20,73 @@ function withCorsHeaders(init?: HeadersInit) {
   } as Record<string, string>;
 }
 
-function admin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) throw new Error("Missing SUPABASE env");
-
-  return createClient(url, key, { auth: { persistSession: false } }) as any;
+export function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "PATCH,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type,Authorization",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+function isUuid(x: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    x
+  );
+}
+
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
+    // ✅ Auth staff
     await requireStaff();
 
-    const shipmentId = params.id;
-    if (!shipmentId) {
+    const id = String(ctx?.params?.id || "").trim();
+    if (!id || !isUuid(id)) {
       return NextResponse.json(
-        { ok: false, error: "MISSING_SHIPMENT_ID" },
+        { ok: false, error: "INVALID_ID", details: "Invalid shipment id" },
         { status: 400, headers: withCorsHeaders() }
       );
     }
 
-    const body = await req.json().catch(() => ({}));
-    const rawStatus = String(body?.status || "")
-      .trim()
-      .replace(/\s+/g, " ");
-    const note = body?.note != null ? String(body.note).slice(0, 2000) : null;
+    // ✅ body
+    const raw = await req.json().catch(() => ({}));
+    const { status } = BodyZ.parse(raw);
 
-    // ✅ stato SOLO da contratto
-    let status;
-    try {
-      status = ShipmentStatusZ.parse(rawStatus);
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: "INVALID_STATUS", allowed: ShipmentStatusZ.options },
-        { status: 400, headers: withCorsHeaders() }
-      );
-    }
+    const supa = supabaseServerSpst();
 
-    // actor (se disponibile)
-    let actorEmail: string | null = null;
-    try {
-      const supa = supabaseServerSpst();
-      const { data } = await supa.auth.getUser();
-      actorEmail = data?.user?.email ? String(data.user.email) : null;
-    } catch {}
-
-    const sb = admin();
-
-    // update
-    const upd = await sb
+    // ✅ UPDATE SOLO status (niente updated_at: la colonna non esiste)
+    const { data, error } = await supa
       .schema("spst")
       .from("shipments")
       .update({ status })
-      .eq("id", shipmentId)
-      .select("id,human_id,status,updated_at")
+      .eq("id", id)
+      .select("id,human_id,status,created_at,carrier,tracking_code,email_cliente,email_norm")
       .single();
 
-    if (upd.error) {
+    if (error) {
       return NextResponse.json(
-        { ok: false, error: "UPDATE_FAILED", details: upd.error.message },
+        { ok: false, error: "DB_ERROR", details: error.message },
         { status: 500, headers: withCorsHeaders() }
       );
     }
 
-    // best-effort log
-    try {
-      await sb.schema("spst").from("shipment_status_events").insert({
-        shipment_id: shipmentId,
-        status,
-        note,
-        actor_email: actorEmail,
-      });
-    } catch (e) {
-      console.error("[status] shipment_status_events insert failed (non-blocking)", e);
+    return NextResponse.json(
+      { ok: true, shipment: data },
+      { headers: withCorsHeaders() }
+    );
+  } catch (e: any) {
+    // zod validation
+    if (e?.name === "ZodError") {
+      return NextResponse.json(
+        { ok: false, error: "VALIDATION_ERROR", details: e?.errors || e?.message },
+        { status: 400, headers: withCorsHeaders() }
+      );
     }
 
-    return NextResponse.json({ ok: true, shipment: upd.data }, { headers: withCorsHeaders() });
-  } catch (e: any) {
-    console.error("❌ [backoffice/shipments/:id/status] PATCH error:", e?.message || e);
+    console.error("❌ [backoffice/shipments/:id/status] PATCH unexpected:", e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
