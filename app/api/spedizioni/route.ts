@@ -4,6 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { ShipmentInputZ } from "@/lib/contracts/shipment";
 import { supabaseServerSpst } from "@/lib/supabase/server";
+import { Resend } from "resend";
+import { buildSpedizionePrenotataHtml } from "@/lib/email/templates/spedizionePrenotata";
+
 
 import crypto from "crypto";
 
@@ -465,6 +468,7 @@ export async function POST(req: Request) {
     console.log("[SPEDIZIONI] baseRow email_norm:", email_norm);
     console.log("[SPEDIZIONI] baseRow keys:", Object.keys(baseRow));
 
+
     // human_id retry
     let shipment: any = null;
     const MAX_RETRY = 6;
@@ -480,10 +484,12 @@ export async function POST(req: Request) {
         .schema("spst")
         .from("shipments")
         .insert(insertRow)
-        .select("id,human_id,email_cliente,email_norm,created_at")
+        .select("id,human_id,email_cliente,email_norm,created_at,giorno_ritiro,carrier,tracking_code")
         .single();
 
       const { data, error } = ins;
+
+      
 
       console.log(
         `[SPEDIZIONI] insert attempt=${attempt} human_id=${human_id} error=${error?.message ?? null} data=${safeJson(
@@ -519,6 +525,37 @@ export async function POST(req: Request) {
       res.headers.set("x-request-id", request_id);
       return res;
     }
+
+// ✅ Best-effort email: non deve mai rompere la creazione spedizione
+try {
+  const resendKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_NOREPLY_FROM;
+
+  if (resendKey && from) {
+    const resend = new Resend(resendKey);
+
+    const to = (shipment.email_cliente || shipment.email_norm || "")
+      .toString()
+      .trim()
+      .toLowerCase();
+
+    if (to) {
+      const humanId = shipment.human_id || shipment.id;
+
+      const { subject, html } = buildSpedizionePrenotataHtml({
+        humanId,
+        pickupDate: shipment.giorno_ritiro ?? null,
+        carrier: shipment.carrier ?? null,
+        tracking: shipment.tracking_code ?? null,
+      });
+
+      await resend.emails.send({ from, to, subject, html });
+    }
+  }
+} catch (e) {
+  console.error("[api/spedizioni] booking email failed (non-blocking)", e);
+}
+    
 
     // packages insert
     if (colli.length > 0) {
