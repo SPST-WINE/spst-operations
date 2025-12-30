@@ -93,7 +93,7 @@ export default function BackofficeNuovaSpedizioneClient() {
       setMittente(null);
 
       const res = await fetch(
-        `/api/impostazioni?email=${encodeURIComponent(email)}`,
+        `/api/backoffice/impostazioni?email=${encodeURIComponent(email)}`,
         {
           cache: "no-store",
           headers: {
