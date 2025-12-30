@@ -17,9 +17,9 @@ export async function generateMetadata({
     // Chiamiamo la tua API interna
     const base = process.env.NEXT_PUBLIC_BASE_URL;
 
-    const res = await fetch(`${base}/api/spedizioni/${id}`, {
-      cache: "no-store",
-    });
+    const res = await fetch(`${base}/api/backoffice/shipments/${id}`, {
+    cache: "no-store",
+  });
 
     if (!res.ok) {
       return {
