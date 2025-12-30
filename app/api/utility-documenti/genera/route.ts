@@ -88,19 +88,19 @@ function buildDocDataFromShipment(
     phone: shipment.dest_telefono || destinatarioJson.telefono || null,
   };
 
-  // Fatturazione
+  // Fatturazione (con fallback a destinatario se dati mancanti)
   const fatturazioneJson = shipment.fatturazione || {};
   const billTo: DocData["parties"]["billTo"] = {
-    name: shipment.fatt_rs || fatturazioneJson.rs || null,
-    contact: shipment.fatt_referente || fatturazioneJson.referente || null,
+    name: shipment.fatt_rs || fatturazioneJson.rs || consignee.name || null,
+    contact: shipment.fatt_referente || fatturazioneJson.referente || consignee.contact || null,
     address: {
-      line1: shipment.fatt_indirizzo || fatturazioneJson.indirizzo || null,
-      city: shipment.fatt_citta || fatturazioneJson.citta || null,
-      postalCode: shipment.fatt_cap || fatturazioneJson.cap || null,
-      country: shipment.fatt_paese || fatturazioneJson.paese || null,
+      line1: shipment.fatt_indirizzo || fatturazioneJson.indirizzo || consignee.address.line1 || null,
+      city: shipment.fatt_citta || fatturazioneJson.citta || consignee.address.city || null,
+      postalCode: shipment.fatt_cap || fatturazioneJson.cap || consignee.address.postalCode || null,
+      country: shipment.fatt_paese || fatturazioneJson.paese || consignee.address.country || null,
     },
-    vatNumber: shipment.fatt_piva || fatturazioneJson.piva || null,
-    phone: shipment.fatt_telefono || fatturazioneJson.telefono || null,
+    vatNumber: shipment.fatt_piva || fatturazioneJson.piva || consignee.vatNumber || null,
+    phone: shipment.fatt_telefono || fatturazioneJson.telefono || consignee.phone || null,
   };
 
   // Items da packing list o packages

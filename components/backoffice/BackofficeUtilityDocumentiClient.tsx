@@ -145,12 +145,17 @@ export default function BackofficeUtilityDocumentiClient() {
       // Colli da tabella (se ci sono)
       setPackages((json.packages || []) as PackageRow[]);
 
-      // PACKING LIST da shipment.fields.packingList
+      // PACKING LIST da shipment.fields (seguendo logica PackingListSection.tsx)
       let plFinal: PlLineRow[] = [];
 
-      const maybePacking = (sh as any)?.fields?.packingList;
-      if (Array.isArray(maybePacking) && maybePacking.length > 0) {
-        plFinal = maybePacking.map((row: any, idx: number): PlLineRow => {
+      const fieldsAny: any = (sh as any)?.fields || {};
+      const rawPL = fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
+      
+      // Può essere un oggetto con proprietà rows oppure un array diretto
+      const plRows: any[] = Array.isArray(rawPL?.rows) ? rawPL.rows : Array.isArray(rawPL) ? rawPL : [];
+      
+      if (plRows.length > 0) {
+        plFinal = plRows.map((row: any, idx: number): PlLineRow => {
           const bottles: number | null =
             row.bottiglie ?? row.qty ?? row.quantita ?? null;
 
@@ -165,11 +170,11 @@ export default function BackofficeUtilityDocumentiClient() {
           return {
             id: `${sh.id}-json-${idx}`,
             label:
-              row.etichetta || row.label || row.nome || "Voce packing list",
-            item_type: row.tipologia || row.item_type || null,
+              row.etichetta || row.label || row.nome || row.description || "Voce packing list",
+            item_type: row.tipologia || row.item_type || row.itemType || null,
             bottles,
             volume_l: totalVolume,
-            unit_price: row.prezzo ?? row.unit_price ?? null,
+            unit_price: row.prezzo ?? row.unit_price ?? row.unitPrice ?? null,
             currency: row.valuta || row.currency || null,
           };
         });
@@ -1253,6 +1258,26 @@ export default function BackofficeUtilityDocumentiClient() {
                               updateItemField(
                                 idx,
                                 "lineTotal",
+                                Number(e.target.value)
+                              )
+                            }
+                          />
+                        </div>
+
+                        {/* Gradazione alcolica */}
+                        <div>
+                          <label className="block text-[11px] text-slate-500">
+                            Gradazione alc. (% vol)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                            value={it.alcoholPercent ?? ""}
+                            onChange={(e) =>
+                              updateItemField(
+                                idx,
+                                "alcoholPercent",
                                 Number(e.target.value)
                               )
                             }
