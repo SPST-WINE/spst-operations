@@ -1,6 +1,7 @@
 // app/api/utility-documenti/shipment/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,9 @@ function admin() {
 
 // GET /api/utility-documenti/shipment?human_id=SP-...
 export async function GET(req: Request) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
   const url = new URL(req.url);
   const humanId = (url.searchParams.get("human_id") || "").trim();
 

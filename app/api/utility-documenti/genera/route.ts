@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
+import { renderDocumentHtml } from "@/lib/docs/render";
+import type { DocData } from "@/lib/docs/render/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,9 +24,10 @@ function jsonError(status: number, code: string, extra?: any) {
   );
 }
 
-function toNum(v: any): number {
+function toNum(v: any): number | null {
+  if (v === null || v === undefined) return null;
   const n = typeof v === "string" ? Number(v.replace(",", ".")) : Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }
 
 function round2(n: number) {
@@ -46,61 +49,247 @@ function buildCsv(rows: Record<string, any>[]): string {
   ].join("\n");
 }
 
+// Helper per mappare dati spedizione a DocData
+function buildDocDataFromShipment(
+  shipment: any,
+  packages: any[],
+  packingList: any[],
+  docType: string,
+  courier: string,
+  trackingCode: string | null
+): DocData {
+  // Mittente (da colonne separate o JSON)
+  const mittenteJson = shipment.mittente || {};
+  const shipper: DocData["parties"]["shipper"] = {
+    name: shipment.mittente_rs || mittenteJson.rs || null,
+    contact: shipment.mittente_referente || mittenteJson.referente || null,
+    address: {
+      line1: shipment.mittente_indirizzo || mittenteJson.indirizzo || null,
+      city: shipment.mittente_citta || mittenteJson.citta || null,
+      postalCode: shipment.mittente_cap || mittenteJson.cap || null,
+      country: shipment.mittente_paese || mittenteJson.paese || null,
+    },
+    vatNumber: shipment.mittente_piva || mittenteJson.piva || null,
+    phone: shipment.mittente_telefono || mittenteJson.telefono || null,
+  };
+
+  // Destinatario
+  const destinatarioJson = shipment.destinatario || {};
+  const consignee: DocData["parties"]["consignee"] = {
+    name: shipment.dest_rs || destinatarioJson.rs || null,
+    contact: shipment.dest_referente || destinatarioJson.referente || null,
+    address: {
+      line1: shipment.dest_indirizzo || destinatarioJson.indirizzo || null,
+      city: shipment.dest_citta || destinatarioJson.citta || null,
+      postalCode: shipment.dest_cap || destinatarioJson.cap || null,
+      country: shipment.dest_paese || destinatarioJson.paese || null,
+    },
+    vatNumber: shipment.dest_piva || destinatarioJson.piva || null,
+    phone: shipment.dest_telefono || destinatarioJson.telefono || null,
+  };
+
+  // Fatturazione
+  const fatturazioneJson = shipment.fatturazione || {};
+  const billTo: DocData["parties"]["billTo"] = {
+    name: shipment.fatt_rs || fatturazioneJson.rs || null,
+    contact: shipment.fatt_referente || fatturazioneJson.referente || null,
+    address: {
+      line1: shipment.fatt_indirizzo || fatturazioneJson.indirizzo || null,
+      city: shipment.fatt_citta || fatturazioneJson.citta || null,
+      postalCode: shipment.fatt_cap || fatturazioneJson.cap || null,
+      country: shipment.fatt_paese || fatturazioneJson.paese || null,
+    },
+    vatNumber: shipment.fatt_piva || fatturazioneJson.piva || null,
+    phone: shipment.fatt_telefono || fatturazioneJson.telefono || null,
+  };
+
+  // Items da packing list o packages
+  const items: DocData["items"] = [];
+  
+  // Prima prova packing list da fields.packingList
+  const fieldsPackingList = shipment.fields?.packingList || [];
+  if (Array.isArray(fieldsPackingList) && fieldsPackingList.length > 0) {
+    for (const pl of fieldsPackingList) {
+      const bottles = toNum(pl.bottiglie ?? pl.qty ?? pl.quantita) ?? 0;
+      const formatLiters = toNum(pl.formato_litri ?? pl.volume_litri) ?? null;
+      const totalVolume = bottles && formatLiters ? bottles * formatLiters : null;
+      
+      items.push({
+        description: pl.etichetta || pl.label || pl.nome || "Voce packing list",
+        bottles,
+        volumePerBottleL: formatLiters,
+        totalVolumeL: totalVolume,
+        unitPrice: toNum(pl.prezzo ?? pl.unit_price),
+        currency: pl.valuta || pl.currency || shipment.fatt_valuta || "EUR",
+        lineTotal: toNum(pl.prezzo ?? pl.unit_price) && bottles
+          ? round2((toNum(pl.prezzo ?? pl.unit_price) ?? 0) * bottles)
+          : null,
+        itemType: pl.tipologia || pl.item_type || null,
+        alcoholPercent: toNum(pl.alcol ?? pl.alcohol_percent),
+      });
+    }
+  } else {
+    // Fallback: usa packages
+    for (const pkg of packages) {
+      items.push({
+        description: pkg.contenuto || shipment.contenuto_generale || "Collo",
+        bottles: null,
+        volumePerBottleL: null,
+        totalVolumeL: null,
+        unitPrice: null,
+        currency: shipment.fatt_valuta || "EUR",
+        lineTotal: null,
+        itemType: null,
+        alcoholPercent: null,
+      });
+    }
+  }
+
+  // Totals
+  const totalBottles = items.reduce((sum, it) => sum + (it.bottles || 0), 0);
+  const totalVolumeL = items.reduce((sum, it) => {
+    const vol = it.totalVolumeL ?? (it.bottles && it.volumePerBottleL ? it.bottles * it.volumePerBottleL : null);
+    return sum + (vol ?? 0);
+  }, 0);
+  const totalValue = items.reduce((sum, it) => sum + (it.lineTotal ?? 0), 0);
+
+  // Data documento (oggi se non specificata)
+  const today = new Date().toISOString().split("T")[0];
+  const docDate = shipment.giorno_ritiro 
+    ? new Date(shipment.giorno_ritiro).toISOString().split("T")[0]
+    : today;
+
+  // Numero documento (usa human_id come base)
+  const docNumber = shipment.human_id || `DOC-${Date.now()}`;
+
+  return {
+    meta: {
+      docType,
+      docNumber,
+      docDate,
+      humanId: shipment.human_id || null,
+      courier: courier || "",
+      trackingCode: trackingCode || null,
+      incoterm: shipment.incoterm || null,
+      valuta: shipment.fatt_valuta || "EUR",
+    },
+    parties: {
+      shipper,
+      consignee,
+      billTo,
+    },
+    shipment: {
+      totalPackages: shipment.colli_n ?? packages.length,
+      totalGrossWeightKg: toNum(shipment.peso_reale_kg),
+      contentSummary: shipment.contenuto_generale || null,
+      pickupDate: shipment.giorno_ritiro 
+        ? new Date(shipment.giorno_ritiro).toISOString().split("T")[0]
+        : null,
+    },
+    items,
+    totals: {
+      totalBottles,
+      totalVolumeL: totalVolumeL > 0 ? round2(totalVolumeL) : null,
+      totalValue: totalValue > 0 ? round2(totalValue) : null,
+      currency: shipment.fatt_valuta || "EUR",
+    },
+  };
+}
+
 export async function POST(req: Request) {
   const staff = await requireStaff();
   if ("response" in staff) return staff.response;
 
   try {
     const body = await req.json().catch(() => ({}));
-    const shipmentId = body?.shipment_id || body?.shipmentId || body?.id;
-    const format =
-      (body?.format || body?.type || "JSON").toString().toUpperCase();
+    
+    // Se viene passato doc_data, usalo direttamente per il rendering
+    if (body.doc_data) {
+      const docData = body.doc_data as DocData;
+      const html = renderDocumentHtml(docData);
+      return NextResponse.json({
+        ok: true,
+        doc: docData,
+        html,
+      });
+    }
 
-    if (!shipmentId || typeof shipmentId !== "string") {
+    // Altrimenti, costruisci DocData dalla spedizione
+    const humanId = body?.human_id;
+    const shipmentId = body?.shipment_id || body?.shipmentId || body?.id;
+    const docType = body?.doc_type || body?.docType || "fattura_proforma";
+    const courier = body?.courier || "";
+    const trackingCode = body?.tracking_code || body?.trackingCode || null;
+    const format = (body?.format || body?.type || "JSON").toString().toUpperCase();
+
+    if (!shipmentId && !humanId) {
       return jsonError(400, "VALIDATION_ERROR", {
-        details: "shipment_id required",
+        details: "shipment_id or human_id required",
       });
     }
 
     const supabase = admin();
 
-    // ✅ Canonico: shipments (NO fields)
-    const { data: shipment, error: shipErr } = await supabase
-      .schema("spst")
-      .from("shipments")
-      .select(
-        [
-          "id",
-          "human_id",
-          "created_at",
-          "email_cliente",
-          "tipo_spedizione",
-          "incoterm",
-          "declared_value",
-          "fatt_valuta",
-          "giorno_ritiro",
-          "pickup_at",
-          "note_ritiro",
-          "formato_sped",
-          "contenuto_generale",
-          "mittente",
-          "destinatario",
-          "fatturazione",
-          "colli_n",
-          "peso_reale_kg",
-          // attachments (colonne dedicate)
-          "ldv",
-          "fattura_proforma",
-          "fattura_commerciale",
-          "dle",
-          "allegato1",
-          "allegato2",
-          "allegato3",
-          "allegato4",
-        ].join(",")
-      )
-      .eq("id", shipmentId)
-      .single();
+    // Cerca spedizione per ID o human_id
+    let query = supabase.schema("spst").from("shipments").select(
+      [
+        "id",
+        "human_id",
+        "created_at",
+        "email_cliente",
+        "tipo_spedizione",
+        "incoterm",
+        "declared_value",
+        "fatt_valuta",
+        "giorno_ritiro",
+        "pickup_at",
+        "note_ritiro",
+        "formato_sped",
+        "contenuto_generale",
+        "colli_n",
+        "peso_reale_kg",
+        // Mittente (colonne separate + JSON)
+        "mittente_rs",
+        "mittente_paese",
+        "mittente_citta",
+        "mittente_cap",
+        "mittente_indirizzo",
+        "mittente_telefono",
+        "mittente_piva",
+        "mittente_referente",
+        "mittente",
+        // Destinatario
+        "dest_rs",
+        "dest_paese",
+        "dest_citta",
+        "dest_cap",
+        "dest_indirizzo",
+        "dest_telefono",
+        "dest_piva",
+        "dest_referente",
+        "destinatario",
+        // Fatturazione
+        "fatt_rs",
+        "fatt_paese",
+        "fatt_citta",
+        "fatt_cap",
+        "fatt_indirizzo",
+        "fatt_telefono",
+        "fatt_piva",
+        "fatt_referente",
+        "fatturazione",
+        // Fields (per packing list)
+        "fields",
+      ].join(",")
+    );
+
+    if (humanId) {
+      query = query.eq("human_id", humanId);
+    } else {
+      query = query.eq("id", shipmentId);
+    }
+
+    const { data: shipment, error: shipErr } = await query.single();
 
     if (shipErr) {
       if ((shipErr as any).code === "PGRST116") return jsonError(404, "NOT_FOUND");
@@ -109,112 +298,81 @@ export async function POST(req: Request) {
     }
     if (!shipment) return jsonError(404, "NOT_FOUND");
 
-    // ✅ Canonico: packages come source of truth per righe documento
+    const actualShipmentId = shipment.id as string;
+
+    // Leggi packages
     const { data: packages, error: pkgErr } = await supabase
       .schema("spst")
       .from("packages")
-      .select("id,shipment_id,contenuto,peso_reale_kg,lato1_cm,lato2_cm,lato3_cm,created_at")
-      .eq("shipment_id", shipmentId)
+      .select("id,shipment_id,contenuto,weight_kg,length_cm,width_cm,height_cm,created_at")
+      .eq("shipment_id", actualShipmentId)
       .order("created_at", { ascending: true });
 
     if (pkgErr) {
       console.error("[utility-documenti/genera] packages DB_ERROR", pkgErr);
-      return jsonError(500, "DB_ERROR", { details: pkgErr.message });
+      // Non bloccante, continua senza packages
     }
 
     const pkgs = Array.isArray(packages) ? packages : [];
 
-    // Packing list “freeze-compliant”:
-    // - 1 riga per collo (packages)
-    // - qta = 1 (non abbiamo linee prodotto canoniche nel DB)
-    // - niente valori inventati
-    const rows = pkgs.map((p: any, idx: number) => {
-      const peso = toNum(p.peso_reale_kg);
-      const l1 = toNum(p.lato1_cm);
-      const l2 = toNum(p.lato2_cm);
-      const l3 = toNum(p.lato3_cm);
+    // Packing list da shipment_pl_lines o fields.packingList
+    let packingList: any[] = [];
+    
+    // Prova da shipment_pl_lines
+    const { data: plLines } = await supabase
+      .schema("spst")
+      .from("shipment_pl_lines")
+      .select("*")
+      .eq("shipment_id", actualShipmentId);
 
-      return {
+    if (Array.isArray(plLines) && plLines.length > 0) {
+      packingList = plLines;
+    } else if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
+      packingList = shipment.fields.packingList;
+    }
+
+    // Costruisci DocData
+    const docData = buildDocDataFromShipment(
+      shipment,
+      pkgs,
+      packingList,
+      docType,
+      courier,
+      trackingCode
+    );
+
+    // Genera HTML
+    const html = renderDocumentHtml(docData);
+
+    // Se richiesto CSV, restituisci packing list come CSV
+    if (format === "CSV") {
+      const rows = pkgs.map((p: any, idx: number) => ({
         n: idx + 1,
         package_id: p.id,
         descrizione: p.contenuto || shipment.contenuto_generale || "Collo",
         qta: 1,
-        peso_reale_kg: peso || 0,
-        lato1_cm: l1 || 0,
-        lato2_cm: l2 || 0,
-        lato3_cm: l3 || 0,
-      };
-    });
-
-    const totalPackages = rows.length;
-    const totalWeightFromRows = round2(
-      rows.reduce((a, r) => a + toNum(r.peso_reale_kg), 0)
-    );
-
-    // Preferiamo il totale “canonico” su shipments (trigger DB), ma senza fallback legacy.
-    const shipmentPeso = toNum((shipment as any).peso_reale_kg);
-    const totalWeightKg = shipmentPeso > 0 ? shipmentPeso : totalWeightFromRows;
-
-    const currency = (shipment as any).fatt_valuta || "EUR";
-
-    const payload = {
-      ok: true,
-      scope: "staff",
-      shipment_id: (shipment as any).id,
-      human_id: (shipment as any).human_id,
-      created_at: (shipment as any).created_at,
-      email_cliente: (shipment as any).email_cliente,
-      tipo_spedizione: (shipment as any).tipo_spedizione,
-      incoterm: (shipment as any).incoterm,
-      declared_value: (shipment as any).declared_value,
-      fatt_valuta: (shipment as any).fatt_valuta,
-      giorno_ritiro: (shipment as any).giorno_ritiro,
-      pickup_at: (shipment as any).pickup_at,
-      note_ritiro: (shipment as any).note_ritiro,
-      formato_sped: (shipment as any).formato_sped,
-      contenuto_generale: (shipment as any).contenuto_generale,
-      mittente: (shipment as any).mittente ?? null,
-      destinatario: (shipment as any).destinatario ?? null,
-      fatturazione: (shipment as any).fatturazione ?? null,
-      colli_n: (shipment as any).colli_n ?? totalPackages,
-      peso_reale_kg: (shipment as any).peso_reale_kg ?? totalWeightKg,
-
-      // shape standard attachments (coerente con freeze)
-      attachments: {
-        id: (shipment as any).id,
-        ldv: (shipment as any).ldv ?? null,
-        fattura_proforma: (shipment as any).fattura_proforma ?? null,
-        fattura_commerciale: (shipment as any).fattura_commerciale ?? null,
-        dle: (shipment as any).dle ?? null,
-        allegato1: (shipment as any).allegato1 ?? null,
-        allegato2: (shipment as any).allegato2 ?? null,
-        allegato3: (shipment as any).allegato3 ?? null,
-        allegato4: (shipment as any).allegato4 ?? null,
-      },
-
-      packing_list: rows,
-      totals: {
-        total_packages: totalPackages,
-        total_weight_kg: totalWeightKg,
-        currency,
-      },
-    };
-
-    if (format === "CSV") {
+        peso_reale_kg: toNum(p.weight_kg) || 0,
+        lato1_cm: toNum(p.length_cm) || 0,
+        lato2_cm: toNum(p.width_cm) || 0,
+        lato3_cm: toNum(p.height_cm) || 0,
+      }));
       const csv = buildCsv(rows);
       return new NextResponse(csv, {
         status: 200,
         headers: {
           "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="packing-list-${(shipment as any).human_id || shipmentId}.csv"`,
+          "content-disposition": `attachment; filename="packing-list-${shipment.human_id || actualShipmentId}.csv"`,
         },
       });
     }
 
-    return NextResponse.json(payload, { status: 200 });
+    return NextResponse.json({
+      ok: true,
+      doc: docData,
+      html,
+    });
   } catch (e: any) {
     console.error("[utility-documenti/genera] UNEXPECTED", e);
     return jsonError(500, "UNEXPECTED", { details: String(e?.message || e) });
   }
 }
-
