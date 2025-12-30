@@ -87,8 +87,7 @@ async function nextHumanIdForToday(sb: any): Promise<string> {
 /* ───────────── GET /api/backoffice/shipments ───────────── */
 export async function GET(req: Request) {
   try {
-    const staff = await requireStaff();
-    if (!staff.ok) return staff.response;
+    await requireStaff();
 
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") || "").trim();
@@ -177,8 +176,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ ok: true, rows }, { headers: withCorsHeaders() });
   } catch (e: any) {
-    if (e instanceof Response) return e;
-
     console.error("❌ [backoffice/shipments] GET error:", e?.message || e);
     return NextResponse.json(
       { ok: false, error: "UNEXPECTED_ERROR", details: String(e?.message || e) },
@@ -207,11 +204,11 @@ export async function POST(req: Request) {
     }
 
     // ✅ enforce email from as_email, ignore any email_cliente in payload
-    const body: any = {
+    const body = {
       ...bodyRaw,
       email_cliente: as_email,
     };
-    delete body.as_email;
+    delete (body as any).as_email;
 
     // ✅ validate contract
     const input = ShipmentInputZ.parse(body);
@@ -363,8 +360,7 @@ export async function POST(req: Request) {
           c?.weight_kg ?? c?.peso ?? c?.peso_kg ?? c?.peso_reale_kg
         );
 
-        const volumetric_divisor =
-          toNum(c?.volumetric_divisor ?? c?.divisor) ?? 4000;
+        const volumetric_divisor = toNum(c?.volumetric_divisor ?? c?.divisor) ?? 4000;
 
         return {
           shipment_id: shipment.id,
@@ -377,10 +373,7 @@ export async function POST(req: Request) {
         };
       });
 
-      const { error: pkgErr } = await sb
-        .schema("spst")
-        .from("packages")
-        .insert(pkgs);
+      const { error: pkgErr } = await sb.schema("spst").from("packages").insert(pkgs);
 
       if (pkgErr) {
         const res = NextResponse.json(
@@ -399,27 +392,15 @@ export async function POST(req: Request) {
     }
 
     const res = NextResponse.json(
-      {
-        ok: true,
-        request_id,
-        id: shipment.human_id,
-        shipment: { id: shipment.id, human_id: shipment.human_id },
-      },
+      { ok: true, request_id, id: shipment.human_id, shipment: { id: shipment.id, human_id: shipment.human_id } },
       { headers: withCorsHeaders() }
     );
     res.headers.set("x-request-id", request_id);
     return res;
   } catch (e: any) {
-    if (e instanceof Response) return e;
-
     console.error("❌ [backoffice/shipments] POST error:", e?.message || e);
     const res = NextResponse.json(
-      {
-        ok: false,
-        error: "UNEXPECTED_ERROR",
-        request_id,
-        details: String(e?.message || e),
-      },
+      { ok: false, error: "UNEXPECTED_ERROR", request_id, details: String(e?.message || e) },
       { status: 500, headers: withCorsHeaders() }
     );
     res.headers.set("x-request-id", request_id);
