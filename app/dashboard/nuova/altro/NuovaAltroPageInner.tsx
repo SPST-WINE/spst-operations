@@ -102,7 +102,7 @@ export default function NuovaAltroPageInner() {
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
 
   // ✅ Prefill mittente (come vino)
-  usePrefillMittente({ setMittente });
+  usePrefillMittente({ forcedEmail, setMittente });
 
   // ✅ IMPORTANTISSIMO: onFill STABILE (evita detach/reattach loop)
   const handlePlacesFill = useCallback(
@@ -276,7 +276,7 @@ export default function NuovaAltroPageInner() {
         },
       };
 
-      const created = await createShipmentWithAuth(supabase, payload);
+      const created = await createShipmentWithAuth(supabase, payload, forcedEmail || undefined);
 
       setSuccess({
         recId: created.recId,
