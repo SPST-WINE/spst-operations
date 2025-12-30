@@ -29,7 +29,7 @@ const supabase = createClient(
 export default function NuovaVinoPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const forcedEmail = searchParams.get("for");
+  const forcedEmail = searchParams.get("as_email") || searchParams.get("for");
 
   const [tipoSped, setTipoSped] = useState<"B2B" | "B2C" | "Sample">("B2B");
   const [destAbilitato, setDestAbilitato] = useState(false);
