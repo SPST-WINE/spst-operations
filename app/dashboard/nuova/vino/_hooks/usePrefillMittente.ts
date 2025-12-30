@@ -10,13 +10,19 @@ type Args = {
 };
 
 const tag = (msg: string, ...a: any[]) =>
-  console.log(`%c[prefill-mittente] ${msg}`, "color:#E33854;font-weight:600", ...a);
+  console.log(
+    `%c[prefill-mittente] ${msg}`,
+    "color:#E33854;font-weight:600",
+    ...a
+  );
 
 async function fetchImpostazioniByCookieOrForcedEmail(forcedEmail?: string | null) {
   const e = (forcedEmail ?? "").toLowerCase().trim();
 
+  // ✅ staff override → endpoint backoffice con query ?email=
+  // ✅ normale → endpoint session-based senza query
   const url = e
-    ? `/api/impostazioni?email=${encodeURIComponent(e)}`
+    ? `/api/backoffice/impostazioni?email=${encodeURIComponent(e)}`
     : `/api/impostazioni`;
 
   tag("GET", url);
@@ -24,7 +30,6 @@ async function fetchImpostazioniByCookieOrForcedEmail(forcedEmail?: string | nul
   const res = await fetch(url, {
     method: "GET",
     credentials: "include", // ✅ fondamentale: usa cookie session
-    headers: e ? { "x-spst-email": e } : undefined,
     cache: "no-store",
   });
 
