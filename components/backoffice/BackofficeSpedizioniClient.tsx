@@ -1,4 +1,4 @@
-// components/backoffice/BackofficeSpedizioniClient.tsx
+// FILE: components/backoffice/BackofficeSpedizioniClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -65,17 +65,27 @@ export default function BackofficeSpedizioniClient() {
         params.set("sort", "created_desc");
         params.set("limit", "200");
 
-        const res = await fetch(`/api/backoffice/shipments?${params.toString()}`, {
-    cache: "no-store",
-  });
+        // ✅ staff-only endpoint
+        const res = await fetch(
+          `/api/backoffice/shipments?${params.toString()}`,
+          {
+            cache: "no-store",
+          }
+        );
 
+        // ✅ show immediately if not staff / api error
         if (!res.ok) {
-  const err = await res.json().catch(() => null);
-  console.error("[BackofficeSpedizioniClient] API error:", res.status, err);
-  setRows([]);
-  return;
-}
-        
+          const err = await res.json().catch(() => null);
+          console.error(
+            "[BackofficeSpedizioniClient] API error:",
+            res.status,
+            err
+          );
+          if (!active) return;
+          setRows([]);
+          return;
+        }
+
         const data = await res.json().catch(() => ({}));
 
         if (!active) return;
@@ -197,8 +207,12 @@ export default function BackofficeSpedizioniClient() {
                 const isPallet = /pallet/i.test(r.formato_sped || "");
                 const ref = r.human_id || r.id; // ✅ mostriamo solo SP-XXXX se c’è
                 const email = r.email_cliente || r.email_norm || "—";
-                const mittente = [r.mittente_citta, r.mittente_paese].filter(Boolean).join(", ");
-                const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(", ");
+                const mittente = [r.mittente_citta, r.mittente_paese]
+                  .filter(Boolean)
+                  .join(", ");
+                const dest = [r.dest_citta, r.dest_paese]
+                  .filter(Boolean)
+                  .join(", ");
                 const colli = [
                   typeof r.colli_n === "number" ? `${r.colli_n}` : "—",
                   r.formato_sped,
@@ -221,48 +235,70 @@ export default function BackofficeSpedizioniClient() {
                               : "bg-slate-100 text-slate-700",
                           ].join(" ")}
                         >
-                          {isPallet ? <Boxes className="h-4 w-4" /> : <Package className="h-4 w-4" />}
+                          {isPallet ? (
+                            <Boxes className="h-4 w-4" />
+                          ) : (
+                            <Package className="h-4 w-4" />
+                          )}
                         </span>
 
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900">{ref}</span>
+                          <span className="font-semibold text-slate-900">
+                            {ref}
+                          </span>
                           {/* ✅ rimosso ID interno */}
                         </div>
                       </div>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{email}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {email}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{mittente || "—"}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {mittente || "—"}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{dest || "—"}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {dest || "—"}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{colli}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {colli}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{r.tipo_spedizione || "—"}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {r.tipo_spedizione || "—"}
+                      </span>
                     </td>
 
                     {/* ✅ corriere */}
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{carrier}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {carrier}
+                      </span>
                     </td>
 
                     {/* ✅ tracking */}
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{tracking}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {tracking}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
-                      <span className="text-[11px] text-slate-700">{formatDate(r.created_at)}</span>
+                      <span className="text-[11px] text-slate-700">
+                        {formatDate(r.created_at)}
+                      </span>
                     </td>
 
                     <td className="px-3 py-2 align-middle text-right">
