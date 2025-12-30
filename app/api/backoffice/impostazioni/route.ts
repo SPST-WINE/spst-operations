@@ -1,4 +1,4 @@
-// FILE: app/api/backoffice/impostazioni/route.ts
+// app/api/backoffice/impostazioni/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
@@ -14,9 +14,7 @@ function admin() {
     process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
-    throw new Error(
-      "Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE"
-    );
+    throw new Error("Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE");
   }
 
   return createClient(url, key, {
@@ -68,18 +66,18 @@ function mapToMittente(addr: AddressRow | null, cust: CustomerRow | null) {
   return { paese, mittente, citta, cap, indirizzo, telefono, piva };
 }
 
-export async function GET(req: NextRequest): Promise<Response> {
+export async function GET(req: NextRequest) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
+  const emailNorm = getEmailNorm(req);
+  if (!emailNorm) {
+    return jsonError(400, "NO_EMAIL", {
+      message: "Email mancante. Passa ?email= nella query string.",
+    });
+  }
+
   try {
-    const staff = await requireStaff();
-    if (!staff.ok) return staff.response;
-
-    const emailNorm = getEmailNorm(req);
-    if (!emailNorm) {
-      return jsonError(400, "NO_EMAIL", {
-        message: "Email mancante. Passa ?email= nella query string.",
-      });
-    }
-
     const supabase = admin();
 
     const { data: customer, error: custErr } = await supabase
@@ -100,9 +98,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
     const { data: address, error: addrErr } = await supabase
       .from("addresses")
-      .select(
-        "country, company, full_name, phone, street, city, postal_code, tax_id"
-      )
+      .select("country, company, full_name, phone, street, city, postal_code, tax_id")
       .eq("customer_id", customer.id)
       .eq("kind", "shipper")
       .order("created_at", { ascending: false })
@@ -117,41 +113,38 @@ export async function GET(req: NextRequest): Promise<Response> {
       mittente: mapToMittente((address as any) ?? null, customer as any),
     });
   } catch (e: any) {
-    if (e instanceof Response) return e;
-    return jsonError(500, "UNEXPECTED_ERROR", {
-      message: String(e?.message || e),
-    });
+    return jsonError(500, "UNEXPECTED_ERROR", { message: String(e?.message || e) });
   }
 }
 
-export async function POST(req: NextRequest): Promise<Response> {
+export async function POST(req: NextRequest) {
+  const staff = await requireStaff();
+  if ("response" in staff) return staff.response;
+
+  const emailNorm = getEmailNorm(req);
+  if (!emailNorm) {
+    return jsonError(400, "NO_EMAIL", {
+      message: "Email mancante. Passa ?email= nella query string.",
+    });
+  }
+
+  let body: any = {};
   try {
-    const staff = await requireStaff();
-    if (!staff.ok) return staff.response;
+    body = (await req.json()) ?? {};
+  } catch {}
 
-    const emailNorm = getEmailNorm(req);
-    if (!emailNorm) {
-      return jsonError(400, "NO_EMAIL", {
-        message: "Email mancante. Passa ?email= nella query string.",
-      });
-    }
+  const m = body?.mittente ?? body ?? {};
+  const mittentePayload = {
+    paese: (m.paese || "").trim() || null,
+    mittente: (m.mittente || "").trim() || null,
+    citta: (m.citta || "").trim() || null,
+    cap: (m.cap || "").trim() || null,
+    indirizzo: (m.indirizzo || "").trim() || null,
+    telefono: (m.telefono || "").trim() || null,
+    piva: (m.piva || "").trim() || null,
+  };
 
-    let body: any = {};
-    try {
-      body = (await req.json()) ?? {};
-    } catch {}
-
-    const m = body?.mittente ?? body ?? {};
-    const mittentePayload = {
-      paese: (m.paese || "").trim() || null,
-      mittente: (m.mittente || "").trim() || null,
-      citta: (m.citta || "").trim() || null,
-      cap: (m.cap || "").trim() || null,
-      indirizzo: (m.indirizzo || "").trim() || null,
-      telefono: (m.telefono || "").trim() || null,
-      piva: (m.piva || "").trim() || null,
-    };
-
+  try {
     const supabase = admin();
 
     const { data: existingCust, error: custErr } = await supabase
@@ -200,8 +193,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       .eq("kind", "shipper")
       .maybeSingle();
 
-    if (addrSelErr)
-      return jsonError(500, "DB_ERROR", { message: addrSelErr.message });
+    if (addrSelErr) return jsonError(500, "DB_ERROR", { message: addrSelErr.message });
 
     const addrBase = {
       customer_id: customer.id,
@@ -218,15 +210,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     if (!existingAddr?.id) {
       const { error: insAddrErr } = await supabase.from("addresses").insert(addrBase);
-      if (insAddrErr)
-        return jsonError(500, "DB_ERROR", { message: insAddrErr.message });
+      if (insAddrErr) return jsonError(500, "DB_ERROR", { message: insAddrErr.message });
     } else {
       const { error: updAddrErr } = await supabase
         .from("addresses")
         .update(addrBase)
         .eq("id", existingAddr.id);
-      if (updAddrErr)
-        return jsonError(500, "DB_ERROR", { message: updAddrErr.message });
+      if (updAddrErr) return jsonError(500, "DB_ERROR", { message: updAddrErr.message });
     }
 
     return NextResponse.json({
@@ -235,9 +225,6 @@ export async function POST(req: NextRequest): Promise<Response> {
       mittente: mapToMittente(null, customer),
     });
   } catch (e: any) {
-    if (e instanceof Response) return e;
-    return jsonError(500, "UNEXPECTED_ERROR", {
-      message: String(e?.message || e),
-    });
+    return jsonError(500, "UNEXPECTED_ERROR", { message: String(e?.message || e) });
   }
 }
