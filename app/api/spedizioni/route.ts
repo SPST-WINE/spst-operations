@@ -342,17 +342,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // C) headers fallback
-    if (!userEmail) {
-      const hdrs = nextHeaders();
-      userEmail =
-        hdrs.get("x-user-email") ||
-        hdrs.get("x-client-email") ||
-        hdrs.get("x-auth-email") ||
-        null;
-      console.log("[SPEDIZIONI] header email:", userEmail);
-    }
-
     if (!userEmail) {
       const res = NextResponse.json(
         { ok: false, error: "UNAUTHENTICATED", request_id },
@@ -362,17 +351,20 @@ export async function POST(req: Request) {
       return res;
     }
 
-    // 2) inject email into body BEFORE Zod
+        // 2) inject email into body BEFORE Zod (FREEZE: no override)
     const email_cliente = userEmail.toLowerCase().trim();
+
+    // ✅ email_cliente SEMPRE dalla sessione (cookie/bearer), mai da body/header custom
     const body = {
       ...bodyRaw,
-      email_cliente: bodyRaw?.email_cliente ? String(bodyRaw.email_cliente) : email_cliente,
+      email_cliente,
     };
 
-    console.log("[SPEDIZIONI] effective email_cliente:", body.email_cliente);
+    console.log("[SPEDIZIONI] session email_cliente:", email_cliente);
 
-    // 3) CONTRACT (ora passa anche senza email dal frontend)
+    // 3) CONTRACT
     const input = ShipmentInputZ.parse(body);
+
 
     const supabaseSrv = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
