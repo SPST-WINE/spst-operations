@@ -86,6 +86,14 @@ function mapParty(p: Party) {
 export default function NuovaAltroPageInner() {
   const router = useRouter();
 
+    // ✅ parsing query (CLIENT-ONLY SAFE)
+  const forcedEmail =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("as_email") ||
+        new URLSearchParams(window.location.search).get("for")
+      : null;
+
+
   // Supabase client (serve per token/session in createShipmentWithAuth)
   const supabase = useRef(
     createClient(
@@ -100,6 +108,7 @@ export default function NuovaAltroPageInner() {
 
   const [mittente, setMittente] = useState<Party>(blankParty);
   const [destinatario, setDestinatario] = useState<Party>(blankParty);
+
 
   // ✅ Prefill mittente (come vino)
   usePrefillMittente({ forcedEmail, setMittente });
