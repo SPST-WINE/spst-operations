@@ -106,30 +106,46 @@ function buildDocDataFromShipment(
   // Items da packing list o packages
   const items: DocData["items"] = [];
   
-  // Prima prova packing list da fields.packingList
-  const fieldsPackingList = shipment.fields?.packingList || [];
-  if (Array.isArray(fieldsPackingList) && fieldsPackingList.length > 0) {
-    for (const pl of fieldsPackingList) {
-      const bottles = toNum(pl.bottiglie ?? pl.qty ?? pl.quantita) ?? 0;
-      const formatLiters = toNum(pl.formato_litri ?? pl.volume_litri) ?? null;
+  // Priorità: 1) packingList passato come parametro, 2) shipment.fields?.packingList, 3) packages
+  let plToUse: any[] = [];
+  
+  if (Array.isArray(packingList) && packingList.length > 0) {
+    // Usa packingList passato come parametro (da shipment_pl_lines o fields)
+    plToUse = packingList;
+    console.log("[buildDocDataFromShipment] using packingList from parameter:", packingList.length, "items");
+  } else {
+    // Prova da fields.packingList
+    const fieldsPackingList = shipment.fields?.packingList || [];
+    if (Array.isArray(fieldsPackingList) && fieldsPackingList.length > 0) {
+      plToUse = fieldsPackingList;
+      console.log("[buildDocDataFromShipment] using packingList from fields:", fieldsPackingList.length, "items");
+    }
+  }
+  
+  if (plToUse.length > 0) {
+    // Usa packing list
+    for (const pl of plToUse) {
+      const bottles = toNum(pl.bottiglie ?? pl.qty ?? pl.quantita ?? pl.bottles) ?? 0;
+      const formatLiters = toNum(pl.formato_litri ?? pl.volume_litri ?? pl.volumePerBottleL) ?? null;
       const totalVolume = bottles && formatLiters ? bottles * formatLiters : null;
       
       items.push({
-        description: pl.etichetta || pl.label || pl.nome || "Voce packing list",
+        description: pl.etichetta || pl.label || pl.nome || pl.description || "Voce packing list",
         bottles,
         volumePerBottleL: formatLiters,
         totalVolumeL: totalVolume,
-        unitPrice: toNum(pl.prezzo ?? pl.unit_price),
+        unitPrice: toNum(pl.prezzo ?? pl.unit_price ?? pl.unitPrice),
         currency: pl.valuta || pl.currency || shipment.fatt_valuta || "EUR",
-        lineTotal: toNum(pl.prezzo ?? pl.unit_price) && bottles
-          ? round2((toNum(pl.prezzo ?? pl.unit_price) ?? 0) * bottles)
+        lineTotal: toNum(pl.prezzo ?? pl.unit_price ?? pl.unitPrice) && bottles
+          ? round2((toNum(pl.prezzo ?? pl.unit_price ?? pl.unitPrice) ?? 0) * bottles)
           : null,
-        itemType: pl.tipologia || pl.item_type || null,
-        alcoholPercent: toNum(pl.alcol ?? pl.alcohol_percent),
+        itemType: pl.tipologia || pl.item_type || pl.itemType || null,
+        alcoholPercent: toNum(pl.alcol ?? pl.alcohol_percent ?? pl.alcoholPercent),
       });
     }
-  } else {
+  } else if (packages.length > 0) {
     // Fallback: usa packages
+    console.log("[buildDocDataFromShipment] using packages as fallback:", packages.length, "packages");
     for (const pkg of packages) {
       items.push({
         description: pkg.contenuto || shipment.contenuto_generale || "Collo",
@@ -143,6 +159,20 @@ function buildDocDataFromShipment(
         alcoholPercent: null,
       });
     }
+  } else {
+    // Nessun dato disponibile, crea almeno un item vuoto
+    console.warn("[buildDocDataFromShipment] no packing list or packages, creating empty item");
+    items.push({
+      description: shipment.contenuto_generale || "Merce",
+      bottles: null,
+      volumePerBottleL: null,
+      totalVolumeL: null,
+      unitPrice: null,
+      currency: shipment.fatt_valuta || "EUR",
+      lineTotal: null,
+      itemType: null,
+      alcoholPercent: null,
+    });
   }
 
   // Totals
@@ -284,14 +314,27 @@ export async function POST(req: Request) {
 
       if (!plErr && Array.isArray(plLines) && plLines.length > 0) {
         packingList = plLines;
+        console.log("[utility-documenti/genera] found packing list from shipment_pl_lines:", plLines.length, "items");
       } else if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
         packingList = shipment.fields.packingList;
+        console.log("[utility-documenti/genera] found packing list from fields.packingList:", shipment.fields.packingList.length, "items");
+      } else {
+        console.log("[utility-documenti/genera] no packing list found, will use packages or create empty item");
       }
     } catch (e) {
       // Se la tabella non esiste, usa fields.packingList
-      console.warn("[utility-documenti/genera] shipment_pl_lines not available, using fields.packingList");
+      console.warn("[utility-documenti/genera] shipment_pl_lines not available, trying fields.packingList");
       if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
         packingList = shipment.fields.packingList;
+        console.log("[utility-documenti/genera] found packing list from fields.packingList (fallback):", shipment.fields.packingList.length, "items");
+      }
+    }
+    
+    // Debug: log struttura fields se presente
+    if (shipment.fields) {
+      console.log("[utility-documenti/genera] shipment.fields keys:", Object.keys(shipment.fields));
+      if (shipment.fields.packingList) {
+        console.log("[utility-documenti/genera] shipment.fields.packingList type:", typeof shipment.fields.packingList, "isArray:", Array.isArray(shipment.fields.packingList));
       }
     }
 
