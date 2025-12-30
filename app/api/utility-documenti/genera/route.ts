@@ -106,7 +106,7 @@ function buildDocDataFromShipment(
   // Items da packing list o packages
   const items: DocData["items"] = [];
   
-  // Priorità: 1) packingList passato come parametro, 2) shipment.fields?.packingList, 3) packages
+  // Priorità: 1) packingList passato come parametro, 2) shipment.fields (con tutte le varianti), 3) packages
   let plToUse: any[] = [];
   
   if (Array.isArray(packingList) && packingList.length > 0) {
@@ -114,11 +114,19 @@ function buildDocDataFromShipment(
     plToUse = packingList;
     console.log("[buildDocDataFromShipment] using packingList from parameter:", packingList.length, "items");
   } else {
-    // Prova da fields.packingList
-    const fieldsPackingList = shipment.fields?.packingList || [];
-    if (Array.isArray(fieldsPackingList) && fieldsPackingList.length > 0) {
-      plToUse = fieldsPackingList;
-      console.log("[buildDocDataFromShipment] using packingList from fields:", fieldsPackingList.length, "items");
+    // Prova da fields seguendo la logica di PackingListSection.tsx
+    const fieldsAny: any = shipment.fields || {};
+    const rawPL = fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
+    
+    // Può essere un oggetto con proprietà rows oppure un array diretto
+    if (rawPL) {
+      if (Array.isArray(rawPL?.rows)) {
+        plToUse = rawPL.rows;
+        console.log("[buildDocDataFromShipment] using packingList from fields (object with rows):", plToUse.length, "items");
+      } else if (Array.isArray(rawPL)) {
+        plToUse = rawPL;
+        console.log("[buildDocDataFromShipment] using packingList from fields (direct array):", plToUse.length, "items");
+      }
     }
   }
   
@@ -301,7 +309,7 @@ export async function POST(req: Request) {
 
     const pkgs = Array.isArray(packages) ? packages : [];
 
-    // Packing list da shipment_pl_lines o fields.packingList
+    // Packing list da shipment_pl_lines o fields (seguendo logica PackingListSection.tsx)
     let packingList: any[] = [];
     
     // Prova da shipment_pl_lines (tabella potrebbe non esistere, quindi gestiamo l'errore)
@@ -315,26 +323,39 @@ export async function POST(req: Request) {
       if (!plErr && Array.isArray(plLines) && plLines.length > 0) {
         packingList = plLines;
         console.log("[utility-documenti/genera] found packing list from shipment_pl_lines:", plLines.length, "items");
-      } else if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
-        packingList = shipment.fields.packingList;
-        console.log("[utility-documenti/genera] found packing list from fields.packingList:", shipment.fields.packingList.length, "items");
-      } else {
-        console.log("[utility-documenti/genera] no packing list found, will use packages or create empty item");
       }
     } catch (e) {
-      // Se la tabella non esiste, usa fields.packingList
-      console.warn("[utility-documenti/genera] shipment_pl_lines not available, trying fields.packingList");
-      if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
-        packingList = shipment.fields.packingList;
-        console.log("[utility-documenti/genera] found packing list from fields.packingList (fallback):", shipment.fields.packingList.length, "items");
+      console.warn("[utility-documenti/genera] shipment_pl_lines not available");
+    }
+    
+    // Se non trovato in shipment_pl_lines, prova da fields (come PackingListSection.tsx)
+    if (packingList.length === 0 && shipment.fields) {
+      const fieldsAny: any = shipment.fields;
+      const rawPL = fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl || null;
+      
+      if (rawPL) {
+        // Può essere un oggetto con proprietà rows oppure un array diretto
+        if (Array.isArray(rawPL?.rows)) {
+          packingList = rawPL.rows;
+          console.log("[utility-documenti/genera] found packing list from fields (object with rows):", packingList.length, "items");
+        } else if (Array.isArray(rawPL)) {
+          packingList = rawPL;
+          console.log("[utility-documenti/genera] found packing list from fields (direct array):", packingList.length, "items");
+        } else {
+          console.log("[utility-documenti/genera] fields packing list found but not in expected format:", typeof rawPL);
+        }
       }
     }
     
-    // Debug: log struttura fields se presente
-    if (shipment.fields) {
-      console.log("[utility-documenti/genera] shipment.fields keys:", Object.keys(shipment.fields));
-      if (shipment.fields.packingList) {
-        console.log("[utility-documenti/genera] shipment.fields.packingList type:", typeof shipment.fields.packingList, "isArray:", Array.isArray(shipment.fields.packingList));
+    if (packingList.length === 0) {
+      console.log("[utility-documenti/genera] no packing list found, will use packages or create empty item");
+      // Debug: log struttura fields se presente
+      if (shipment.fields) {
+        console.log("[utility-documenti/genera] shipment.fields keys:", Object.keys(shipment.fields));
+        const fieldsAny: any = shipment.fields;
+        if (fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl) {
+          console.log("[utility-documenti/genera] raw packing list structure:", JSON.stringify(fieldsAny.packing_list || fieldsAny.packingList || fieldsAny.pl, null, 2));
+        }
       }
     }
 
