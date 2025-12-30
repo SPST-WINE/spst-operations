@@ -2,16 +2,13 @@
 import { NextResponse } from "next/server";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
-export type StaffRole = "admin" | "staff" | "operator";
+export type StaffAuthResult =
+  | { ok: true; userId: string; email: string; role: "admin" | "staff" | "operator" }
+  | { ok: false; response: NextResponse };
 
-// Break-glass: SOLO qui (meglio tenerlo minimale)
 const ADMIN_EMAIL_ALLOWLIST = new Set<string>(["info@spst.it"]);
 
-export async function requireStaff(): Promise<{
-  userId: string;
-  email: string;
-  role: StaffRole;
-}> {
+export async function requireStaff(): Promise<StaffAuthResult> {
   const supabase = supabaseServerSpst();
 
   const {
@@ -20,17 +17,20 @@ export async function requireStaff(): Promise<{
   } = await supabase.auth.getUser();
 
   if (userErr || !user?.id || !user?.email) {
-    throw NextResponse.json(
-      { ok: false, error: "UNAUTHENTICATED" },
-      { status: 401 }
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "UNAUTHENTICATED" },
+        { status: 401 }
+      ),
+    };
   }
 
   const email = user.email.toLowerCase().trim();
 
   // ✅ admin “break-glass”
   if (ADMIN_EMAIL_ALLOWLIST.has(email)) {
-    return { userId: user.id, email, role: "admin" };
+    return { ok: true, userId: user.id, email, role: "admin" };
   }
 
   const { data: staff, error } = await supabase
@@ -40,34 +40,43 @@ export async function requireStaff(): Promise<{
     .maybeSingle();
 
   if (error || !staff) {
-    throw NextResponse.json(
-      { ok: false, error: "STAFF_REQUIRED" },
-      { status: 403 }
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "STAFF_REQUIRED" },
+        { status: 403 }
+      ),
+    };
   }
 
   const enabled =
     typeof (staff as any).enabled === "boolean" ? (staff as any).enabled : true;
 
   if (!enabled) {
-    throw NextResponse.json(
-      { ok: false, error: "STAFF_DISABLED" },
-      { status: 403 }
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "STAFF_DISABLED" },
+        { status: 403 }
+      ),
+    };
   }
 
   const roleRaw = String((staff as any).role || "").toLowerCase().trim();
   const role =
     roleRaw === "admin" || roleRaw === "staff" || roleRaw === "operator"
-      ? (roleRaw as StaffRole)
+      ? (roleRaw as "admin" | "staff" | "operator")
       : null;
 
   if (!role) {
-    throw NextResponse.json(
-      { ok: false, error: "STAFF_REQUIRED" },
-      { status: 403 }
-    );
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "STAFF_REQUIRED" },
+        { status: 403 }
+      ),
+    };
   }
 
-  return { userId: user.id, email, role };
+  return { ok: true, userId: user.id, email, role };
 }
