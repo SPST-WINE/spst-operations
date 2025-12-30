@@ -231,57 +231,8 @@ export async function POST(req: Request) {
     const supabase = admin();
 
     // Cerca spedizione per ID o human_id
-    let query = supabase.schema("spst").from("shipments").select(
-      [
-        "id",
-        "human_id",
-        "created_at",
-        "email_cliente",
-        "tipo_spedizione",
-        "incoterm",
-        "declared_value",
-        "fatt_valuta",
-        "giorno_ritiro",
-        "pickup_at",
-        "note_ritiro",
-        "formato_sped",
-        "contenuto_generale",
-        "colli_n",
-        "peso_reale_kg",
-        // Mittente (colonne separate + JSON)
-        "mittente_rs",
-        "mittente_paese",
-        "mittente_citta",
-        "mittente_cap",
-        "mittente_indirizzo",
-        "mittente_telefono",
-        "mittente_piva",
-        "mittente_referente",
-        "mittente",
-        // Destinatario
-        "dest_rs",
-        "dest_paese",
-        "dest_citta",
-        "dest_cap",
-        "dest_indirizzo",
-        "dest_telefono",
-        "dest_piva",
-        "dest_referente",
-        "destinatario",
-        // Fatturazione
-        "fatt_rs",
-        "fatt_paese",
-        "fatt_citta",
-        "fatt_cap",
-        "fatt_indirizzo",
-        "fatt_telefono",
-        "fatt_piva",
-        "fatt_referente",
-        "fatturazione",
-        // Fields (per packing list)
-        "fields",
-      ].join(",")
-    );
+    // Usa select("*") per evitare errori su campi che potrebbero non esistere
+    let query = supabase.schema("spst").from("shipments").select("*");
 
     if (humanId) {
       query = query.eq("human_id", humanId);
@@ -294,7 +245,12 @@ export async function POST(req: Request) {
     if (shipErr) {
       if ((shipErr as any).code === "PGRST116") return jsonError(404, "NOT_FOUND");
       console.error("[utility-documenti/genera] shipment DB_ERROR", shipErr);
-      return jsonError(500, "DB_ERROR", { details: shipErr.message });
+      console.error("[utility-documenti/genera] error details:", JSON.stringify(shipErr, null, 2));
+      return jsonError(500, "DB_ERROR", { 
+        details: shipErr.message,
+        code: (shipErr as any).code,
+        hint: (shipErr as any).hint,
+      });
     }
     if (!shipment) return jsonError(404, "NOT_FOUND");
 
@@ -318,17 +274,25 @@ export async function POST(req: Request) {
     // Packing list da shipment_pl_lines o fields.packingList
     let packingList: any[] = [];
     
-    // Prova da shipment_pl_lines
-    const { data: plLines } = await supabase
-      .schema("spst")
-      .from("shipment_pl_lines")
-      .select("*")
-      .eq("shipment_id", actualShipmentId);
+    // Prova da shipment_pl_lines (tabella potrebbe non esistere, quindi gestiamo l'errore)
+    try {
+      const { data: plLines, error: plErr } = await supabase
+        .schema("spst")
+        .from("shipment_pl_lines")
+        .select("*")
+        .eq("shipment_id", actualShipmentId);
 
-    if (Array.isArray(plLines) && plLines.length > 0) {
-      packingList = plLines;
-    } else if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
-      packingList = shipment.fields.packingList;
+      if (!plErr && Array.isArray(plLines) && plLines.length > 0) {
+        packingList = plLines;
+      } else if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
+        packingList = shipment.fields.packingList;
+      }
+    } catch (e) {
+      // Se la tabella non esiste, usa fields.packingList
+      console.warn("[utility-documenti/genera] shipment_pl_lines not available, using fields.packingList");
+      if (shipment.fields?.packingList && Array.isArray(shipment.fields.packingList)) {
+        packingList = shipment.fields.packingList;
+      }
     }
 
     // Costruisci DocData
