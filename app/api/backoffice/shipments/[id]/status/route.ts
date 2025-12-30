@@ -48,7 +48,8 @@ function admin() {
 
 export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
-    await requireStaff();
+    const staff = await requireStaff();
+if (!staff.ok) return staff.response;
 
     const id = String(ctx?.params?.id || "").trim();
     if (!id || !isUuid(id)) {
