@@ -65,9 +65,17 @@ export default function BackofficeSpedizioniClient() {
         params.set("sort", "created_desc");
         params.set("limit", "200");
 
-        const res = await fetch(`/api/spedizioni?${params.toString()}`, {
-          cache: "no-store",
-        });
+        const res = await fetch(`/api/backoffice/shipments?${params.toString()}`, {
+    cache: "no-store",
+  });
+
+        if (!res.ok) {
+  const err = await res.json().catch(() => null);
+  console.error("[BackofficeSpedizioniClient] API error:", res.status, err);
+  setRows([]);
+  return;
+}
+        
         const data = await res.json().catch(() => ({}));
 
         if (!active) return;
