@@ -87,7 +87,9 @@ async function nextHumanIdForToday(sb: any): Promise<string> {
 /* ───────────── GET /api/backoffice/shipments ───────────── */
 export async function GET(req: Request) {
   try {
-    await requireStaff();
+    const staff = await requireStaff();
+if (!staff.ok) return staff.response;
+
 
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") || "").trim();
