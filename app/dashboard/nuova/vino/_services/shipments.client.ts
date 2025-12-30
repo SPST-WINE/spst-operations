@@ -4,7 +4,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const LOG = true;
-const log = (...a: any[]) => LOG && console.log("%c[SHIPMENTS]", "color:#1C3E5D;font-weight:700", ...a);
+const log = (...a: any[]) =>
+  LOG && console.log("%c[SHIPMENTS]", "color:#1C3E5D;font-weight:700", ...a);
 const warn = (...a: any[]) => LOG && console.warn("[SHIPMENTS]", ...a);
 
 function getCookie(name: string) {
@@ -24,14 +25,19 @@ export async function createShipmentWithAuth(
   payload: any,
   emailOverride?: string
 ) {
-  const body: any = {
-    ...payload,
-    ...(emailOverride ? { email_cliente: emailOverride.toLowerCase().trim() } : {}),
-  };
+  const asEmail = emailOverride?.toLowerCase().trim() || null;
+
+  // ✅ endpoint selection
+  // - normale: /api/spedizioni
+  // - backoffice (on behalf): /api/backoffice/shipments con { as_email, ...payload }
+  const url = asEmail ? "/api/backoffice/shipments" : "/api/spedizioni";
+
+  const body: any = asEmail ? { as_email: asEmail, ...payload } : payload;
 
   log("start", {
-    hasEmailOverride: !!emailOverride,
-    emailOverride: emailOverride ? emailOverride.toLowerCase().trim() : null,
+    mode: asEmail ? "backoffice" : "client",
+    url,
+    as_email: asEmail,
     payloadKeys: Object.keys(payload || {}),
   });
 
@@ -43,7 +49,9 @@ export async function createShipmentWithAuth(
     log("supabase.getSession()", {
       hasSession: !!data?.session,
       sessionUserEmail: data?.session?.user?.email ?? null,
-      error: error ? { name: (error as any).name, message: (error as any).message } : null,
+      error: error
+        ? { name: (error as any).name, message: (error as any).message }
+        : null,
       token: maskTok(accessToken),
     });
   } catch (e: any) {
@@ -65,13 +73,14 @@ export async function createShipmentWithAuth(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-  log("POST /api/spedizioni headers", {
+  log(`POST ${url} headers`, {
     hasAuthHeader: !!headers.Authorization,
     authHeader: headers.Authorization ? `Bearer ${maskTok(accessToken)}` : null,
     credentials: "include",
+    bodyHasAsEmail: !!asEmail,
   });
 
-  const res = await fetch("/api/spedizioni", {
+  const res = await fetch(url, {
     method: "POST",
     headers,
     credentials: "include",
@@ -95,13 +104,15 @@ export async function createShipmentWithAuth(
 
   if (!res.ok || !json?.ok) {
     const details = json?.details || json?.error || `${res.status} ${res.statusText}`;
-    throw new Error(typeof details === "string" ? details : "Errore creazione spedizione. Riprova.");
+    throw new Error(
+      typeof details === "string" ? details : "Errore creazione spedizione. Riprova."
+    );
   }
 
   const recId = json?.shipment?.id;
   const humanId = json?.id || json?.shipment?.human_id;
 
-  if (!recId || !humanId) throw new Error("Missing id from /api/spedizioni response");
+  if (!recId || !humanId) throw new Error(`Missing id from ${url} response`);
 
   return { recId, humanId };
 }
