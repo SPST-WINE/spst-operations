@@ -1,4 +1,4 @@
-// app/api/backoffice/shipments/[id]/status/route.ts
+// FILE: app/api/backoffice/shipments/[id]/status/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
@@ -48,8 +48,7 @@ function admin() {
 
 export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
-    const staff = await requireStaff();
-if (!staff.ok) return staff.response;
+    await requireStaff();
 
     const id = String(ctx?.params?.id || "").trim();
     if (!id || !isUuid(id)) {
@@ -69,7 +68,9 @@ if (!staff.ok) return staff.response;
       .from("shipments")
       .update({ status }) // ✅ no updated_at
       .eq("id", id)
-      .select("id,human_id,status,created_at,carrier,tracking_code,email_cliente,email_norm")
+      .select(
+        "id,human_id,status,created_at,carrier,tracking_code,email_cliente,email_norm"
+      )
       .single();
 
     if (error) {
@@ -84,9 +85,15 @@ if (!staff.ok) return staff.response;
       { headers: withCorsHeaders() }
     );
   } catch (e: any) {
+    if (e instanceof Response) return e;
+
     if (e?.name === "ZodError") {
       return NextResponse.json(
-        { ok: false, error: "VALIDATION_ERROR", details: e?.errors || e?.message },
+        {
+          ok: false,
+          error: "VALIDATION_ERROR",
+          details: e?.errors || e?.message,
+        },
         { status: 400, headers: withCorsHeaders() }
       );
     }
