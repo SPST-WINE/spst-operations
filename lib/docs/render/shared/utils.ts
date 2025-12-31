@@ -35,3 +35,14 @@ export function formatNumber(
   if (value === null || value === undefined) return "";
   return Number(value).toFixed(decimals);
 }
+
+/**
+ * Genera il tag HTML per il logo SPST
+ * Usa un URL assoluto che funziona sia in locale che in produzione
+ */
+export function renderSpstLogo(): string {
+  // Usa il logo da public/spst-logo.png
+  // In produzione, questo sarà risolto correttamente dal server
+  const logoUrl = "/spst-logo.png";
+  return `<img src="${logoUrl}" alt="SPST" style="height:32px; width:auto; display:block;" />`;
+}

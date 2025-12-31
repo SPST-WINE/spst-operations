@@ -1,6 +1,6 @@
 import type { DocData } from "./types";
 import { renderBaseHtml } from "./shared/layout";
-import { esc, renderAddressBlock, formatNumber } from "./shared/utils";
+import { esc, renderAddressBlock, formatNumber, renderSpstLogo } from "./shared/utils";
 
 export function renderDdtHtml(doc: DocData): string {
   const { meta, parties, shipment, items, totals } = doc;
@@ -81,8 +81,8 @@ export function renderDdtHtml(doc: DocData): string {
     <table style="width:100%; margin-bottom:16px;">
       <tr>
         <td>
-          <div style="font-size:18px;font-weight:700;letter-spacing:0.08em;">SPST</div>
-          <div style="font-size:11px;color:#6b7280;margin-top:2px;">Specialized Wine Logistics</div>
+          ${renderSpstLogo()}
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;">Specialized Wine Logistics</div>
         </td>
         <td style="text-align:right;">
           <div style="font-size:16px;font-weight:700;">DOCUMENTO DI TRASPORTO (DDT)</div>

@@ -148,7 +148,7 @@ function buildDocDataFromShipment(
           ? round2((toNum(pl.prezzo ?? pl.unit_price ?? pl.unitPrice) ?? 0) * bottles)
           : null,
         itemType: pl.tipologia || pl.item_type || pl.itemType || null,
-        alcoholPercent: toNum(pl.alcol ?? pl.alcohol_percent ?? pl.alcoholPercent),
+        alcoholPercent: toNum(pl.gradazione ?? pl.alcol ?? pl.alcohol_percent ?? pl.alcoholPercent),
       });
     }
   } else if (packages.length > 0) {
