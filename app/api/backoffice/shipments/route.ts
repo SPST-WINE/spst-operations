@@ -106,13 +106,14 @@ export async function GET(req: Request) {
         `
         id,created_at,human_id,
         email_cliente,email_norm,
-        tipo_spedizione,
+        tipo_spedizione,incoterm,
         mittente_paese,mittente_citta,
         dest_paese,dest_citta,
         colli_n,formato_sped,
         carrier,tracking_code,
         status,
         giorno_ritiro,
+        fields,
         ldv,fattura_proforma,fattura_commerciale,dle,
         allegato1,allegato2,allegato3,allegato4
         `
@@ -152,6 +153,7 @@ export async function GET(req: Request) {
       email_cliente: r.email_cliente,
       email_norm: r.email_norm,
       tipo_spedizione: r.tipo_spedizione,
+      incoterm: r.incoterm ?? null,
       mittente_paese: r.mittente_paese,
       mittente_citta: r.mittente_citta,
       dest_paese: r.dest_paese,
@@ -162,6 +164,7 @@ export async function GET(req: Request) {
       tracking_code: r.tracking_code ?? null,
       status: r.status ?? null,
       giorno_ritiro: r.giorno_ritiro ?? null,
+      fields: r.fields ?? null,
       attachments: {
         ldv: normAtt(r.ldv),
         fattura_proforma: normAtt(r.fattura_proforma),

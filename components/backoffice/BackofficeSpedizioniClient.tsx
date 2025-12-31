@@ -27,9 +27,10 @@ type ShipmentRow = {
   tracking_code?: string | null;
   carrier?: string | null;
 
-  // (restano nel type se l’API li manda, ma non li mostriamo più)
+  // (restano nel type se l'API li manda, ma non li mostriamo più)
   incoterm?: string | null;
   status?: string | null;
+  fields?: any | null;
 };
 
 function norm(s?: string | null) {
@@ -155,12 +156,13 @@ export default function BackofficeSpedizioniClient() {
         <table className="min-w-full border-collapse text-xs">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2 text-left">Rif.</th>
+              <th className="px-3 py-2 text-left">ID Spedizione</th>
+              <th className="px-3 py-2 text-left">Source</th>
               <th className="px-3 py-2 text-left">Email cliente</th>
               <th className="px-3 py-2 text-left">Mittente</th>
               <th className="px-3 py-2 text-left">Destinatario</th>
               <th className="px-3 py-2 text-left">Colli</th>
-              <th className="px-3 py-2 text-left">Tipo sped.</th>
+              <th className="px-3 py-2 text-left">Tipo</th>
 
               {/* ✅ nuove colonne */}
               <th className="px-3 py-2 text-left">Corriere</th>
@@ -174,20 +176,20 @@ export default function BackofficeSpedizioniClient() {
           <tbody className="divide-y divide-slate-100">
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-6 text-center text-slate-400">
+                <td colSpan={11} className="px-3 py-6 text-center text-slate-400">
                   Caricamento spedizioni…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-6 text-center text-slate-400">
+                <td colSpan={11} className="px-3 py-6 text-center text-slate-400">
                   Nessuna spedizione trovata.
                 </td>
               </tr>
             ) : (
               filtered.map((r) => {
                 const isPallet = /pallet/i.test(r.formato_sped || "");
-                const ref = r.human_id || r.id; // ✅ mostriamo solo SP-XXXX se c’è
+                const ref = r.human_id || r.id; // ✅ mostriamo solo SP-XXXX se c'è
                 const email = r.email_cliente || r.email_norm || "—";
                 const mittente = [r.mittente_citta, r.mittente_paese].filter(Boolean).join(", ");
                 const dest = [r.dest_citta, r.dest_paese].filter(Boolean).join(", ");
@@ -200,6 +202,9 @@ export default function BackofficeSpedizioniClient() {
 
                 const carrier = (r.carrier || "").trim() || "—";
                 const tracking = (r.tracking_code || "").trim() || "—";
+                
+                // Determina source: vino o altro
+                const source = r.fields?.sorgente === "vino" ? "Vino" : "Altro";
 
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/70">
@@ -221,6 +226,10 @@ export default function BackofficeSpedizioniClient() {
                           {/* ✅ rimosso ID interno */}
                         </div>
                       </div>
+                    </td>
+
+                    <td className="px-3 py-2 align-middle">
+                      <span className="text-[11px] font-medium text-slate-700">{source}</span>
                     </td>
 
                     <td className="px-3 py-2 align-middle">
