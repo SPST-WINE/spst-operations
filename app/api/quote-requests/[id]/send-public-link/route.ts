@@ -264,10 +264,7 @@ export async function POST(req: NextRequest, ctx: { params: { id: string } }) {
           quote_link_sent_to: emailTo,
           quote_public_url: publicUrl,
         },
-        status:
-          (quote.status || "").toLowerCase().includes("inviat")
-            ? quote.status
-            : "Inviata al cliente",
+        status: "DISPONIBILE",
       })
       .eq("id", quoteId);
 

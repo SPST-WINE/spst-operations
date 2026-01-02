@@ -234,6 +234,26 @@ export async function POST(
       return jsonError(500, "DB_ERROR", { message: error.message });
     }
 
+    // ✅ Se la quote ha opzioni visibili al cliente, imposta lo stato a DISPONIBILE
+    if (insertObj.visible_to_client !== false) {
+      const { data: quoteData } = await supabase
+        .from("quotes")
+        .select("status, public_token")
+        .eq("id", id)
+        .single();
+
+      if (quoteData) {
+        const currentStatus = (quoteData.status || "").trim().toUpperCase();
+        // Solo se non è già ACCETTATA o DISPONIBILE
+        if (currentStatus !== "ACCETTATA" && currentStatus !== "DISPONIBILE") {
+          await supabase
+            .from("quotes")
+            .update({ status: "DISPONIBILE" })
+            .eq("id", id);
+        }
+      }
+    }
+
     return NextResponse.json(
       {
         ok: true,

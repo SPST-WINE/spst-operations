@@ -1,6 +1,7 @@
 // app/api/quotazioni/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,30 @@ function firstNonEmpty<T = any>(...vals: T[]) {
     if (v !== undefined && v !== null) return v;
   }
   return undefined;
+}
+
+function normalizeEmail(x?: string | null) {
+  const v = (x ?? "").trim();
+  return v ? v.toLowerCase() : null;
+}
+
+// Normalizza gli stati delle quotazioni ai valori standard
+function normalizeQuoteStatus(status?: string | null): string {
+  const s = (status || "").trim().toUpperCase();
+  
+  // Mappa vecchi valori ai nuovi
+  if (s === "IN LAVORAZIONE" || s === "IN_LAVORAZIONE" || s === "IN LAVORAZIONE" || s.includes("LAVORAZIONE")) {
+    return "IN LAVORAZIONE";
+  }
+  if (s === "DISPONIBILE" || s === "DISPONIBILE" || s.includes("DISPONIBILE")) {
+    return "DISPONIBILE";
+  }
+  if (s === "ACCETTATA" || s === "ACCETTATA" || s === "ACCEPTED" || s.includes("ACCETTATA")) {
+    return "ACCETTATA";
+  }
+  
+  // Default per quotazioni esistenti senza stato chiaro
+  return "IN LAVORAZIONE";
 }
 
 // ---------- Types ---------------------------------------------------
@@ -186,7 +211,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase
       .from("quotes")
       .insert({
-        status: "In lavorazione",
+        status: "IN LAVORAZIONE",
         incoterm: body.incoterm ?? bodyFields.incoterm ?? null,
 
         // ✅ valore assicurato normalizzato
@@ -229,6 +254,19 @@ export async function POST(req: NextRequest) {
 // ---------- GET: lista preventivi -----------------------------------
 
 export async function GET(req: NextRequest) {
+  // ✅ CLIENT SCOPE: filtra per email_cliente dalla sessione
+  const supa = supabaseServerSpst();
+  const { data: userData, error: userErr } = await supa.auth.getUser();
+  const userEmail = userData?.user?.email ? String(userData.user.email) : null;
+
+  if (userErr || !userEmail) {
+    return jsonError(401, "UNAUTHENTICATED", {
+      message: "Autenticazione richiesta",
+    });
+  }
+
+  const emailNorm = userEmail.toLowerCase().trim();
+
   const supabase = makeSupabase();
   if (!supabase) {
     return jsonError(500, "MISSING_SUPABASE_ENV", {
@@ -238,18 +276,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { searchParams } = new URL(req.url);
-    const email = searchParams.get("email") || undefined;
-
+    // ✅ Filtra per email_cliente (solo le quotazioni del cliente autenticato)
     let query = supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm, declared_value")
+      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, formato_sped, colli_n")
+      .eq("email_cliente", emailNorm)
       .order("created_at", { ascending: false })
       .limit(100);
-
-    if (email) {
-      query = query.contains("fields", { createdByEmail: email });
-    }
 
     const { data, error } = await query;
 
@@ -272,11 +305,14 @@ export async function GET(req: NextRequest) {
 
         const assicurazioneAttiva = Boolean(valoreAssicurato && valoreAssicurato > 0);
 
+        // Normalizza stato: mappa vecchi valori ai nuovi
+        const normalizedStatus = normalizeQuoteStatus(row.status);
+
         const aliasedFields = {
           ...f,
 
           // alias esistenti
-          Stato: row.status || "In lavorazione",
+          Stato: normalizedStatus,
           Destinatario_Nome: dest.ragioneSociale,
           Destinatario_Citta: dest.citta,
           Destinatario_Paese: dest.paese,
@@ -293,7 +329,15 @@ export async function GET(req: NextRequest) {
           Valore_Assicurato: valoreAssicurato,
         };
 
-        return { id: row.id, fields: aliasedFields };
+        return { 
+          id: row.id, 
+          status: normalizedStatus,
+          fields: aliasedFields,
+          // ✅ campi aggiuntivi per UI
+          destinatario: row.destinatario || dest,
+          formato_sped: row.formato_sped || f.formato || null,
+          colli_n: row.colli_n || (Array.isArray(f.colli) ? f.colli.length : null),
+        };
       }) ?? [];
 
     return NextResponse.json({ ok: true, rows }, { status: 200 });

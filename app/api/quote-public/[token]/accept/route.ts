@@ -91,7 +91,7 @@ export async function POST(
     }
 
     // se già accettata, non rifaccio i cambi
-    if (quote.accepted_option_id && quote.status === "accettata") {
+    if (quote.accepted_option_id && (quote.status === "ACCETTATA" || quote.status === "accettata")) {
       return NextResponse.json(
         {
           ok: true,
@@ -122,7 +122,7 @@ export async function POST(
     const { error: upQuoteErr } = await supabase
       .from("quotes")
       .update({
-        status: "accettata",
+        status: "ACCETTATA",
         accepted_option_id: optionId,
         updated_at: now,
       })

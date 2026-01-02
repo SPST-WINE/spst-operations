@@ -3,29 +3,24 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { getPreventivi } from '@/lib/api'; // <-- usa il client generico, niente Firebase
+import { Package, Boxes } from 'lucide-react';
 
-type MittenteDestinatario = {
+type QuoteParty = {
   ragioneSociale?: string | null;
   paese?: string | null;
   citta?: string | null;
 };
 
-type RawRecord = {
+type Quote = {
   id: string;
-  fields?: any;
-};
-
-type Preventivo = {
-  id: string;
-  displayId?: string | null;
   status?: string | null;
-  mittente?: MittenteDestinatario | null;
-  destinatario?: MittenteDestinatario | null;
+  destinatario?: QuoteParty | null;
+  formato_sped?: string | null;
+  colli_n?: number | null;
   createdAt?: string | null;
 };
 
-function formatCityCountry(p?: MittenteDestinatario | null): string {
+function formatCityCountry(p?: QuoteParty | null): string {
   if (!p) return '—';
   const city = (p.citta || '').trim();
   const country = (p.paese || '').trim();
@@ -43,8 +38,43 @@ function formatDate(iso?: string | null): string {
   return d.toLocaleDateString('it-IT');
 }
 
+function StatusBadge({ value }: { value?: string | null }) {
+  const raw = (value || '').trim().toUpperCase();
+
+  const map: Record<string, { cls: string; label: string }> = {
+    'IN LAVORAZIONE': {
+      cls: 'bg-slate-50 text-slate-700 ring-slate-200',
+      label: 'IN LAVORAZIONE',
+    },
+    DISPONIBILE: {
+      cls: 'bg-blue-50 text-blue-800 ring-blue-200',
+      label: 'DISPONIBILE',
+    },
+    ACCETTATA: {
+      cls: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+      label: 'ACCETTATA',
+    },
+  };
+
+  let cls = 'bg-slate-50 text-slate-700 ring-slate-200';
+  let text = raw || '—';
+
+  if (map[raw]) {
+    cls = map[raw].cls;
+    text = map[raw].label;
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 export default function QuotazioniPage() {
-  const [items, setItems] = useState<Preventivo[]>([]);
+  const [items, setItems] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -53,37 +83,27 @@ export default function QuotazioniPage() {
 
     (async () => {
       try {
-        // Chiede alla API /api/quotazioni e si aspetta { ok, rows }
-        const rows = (await getPreventivi()) as RawRecord[];
-
-        console.log('SPST[quotazioni] getPreventivi raw response:', rows);
+        const res = await fetch('/api/quotazioni', {
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => ({}));
 
         if (cancelled) return;
 
-        const normalized: Preventivo[] = rows.map((r) => {
-          const f = r.fields || {};
-          const mittente: MittenteDestinatario | null =
-            f.mittente ?? f.mittente_json ?? null;
-          const destinatario: MittenteDestinatario | null =
-            f.destinatario ?? f.destinatario_json ?? null;
+        if (!res.ok || !data?.ok) {
+          console.error('[quotazioni] API error:', data);
+          setItems([]);
+          return;
+        }
 
-          return {
-            id: r.id,
-            displayId:
-              f.Slug_Pubblico ??
-              f.display_id ??
-              f.displayId ??
-              r.id,
-            status: f.Stato ?? f.status ?? 'In lavorazione',
-            mittente,
-            destinatario,
-            createdAt:
-              f['Creato il'] ??
-              f.created_at ??
-              f.createdAt ??
-              null,
-          };
-        });
+        const normalized: Quote[] = (data.rows || []).map((r: any) => ({
+          id: r.id,
+          status: r.status || 'IN LAVORAZIONE',
+          destinatario: r.destinatario || null,
+          formato_sped: r.formato_sped || null,
+          colli_n: r.colli_n || null,
+          createdAt: r.fields?.['Creato il'] || r.fields?.created_at || null,
+        }));
 
         setItems(normalized);
       } catch (e) {
@@ -104,17 +124,13 @@ export default function QuotazioniPage() {
     if (!q) return items;
 
     return items.filter((p) => {
-      const m = p.mittente || {};
       const d = p.destinatario || {};
       const haystack = [
-        p.displayId,
         p.id,
-        m.ragioneSociale,
-        m.citta,
-        m.paese,
         d.ragioneSociale,
         d.citta,
         d.paese,
+        p.status,
       ]
         .filter(Boolean)
         .join(' ')
@@ -152,16 +168,21 @@ export default function QuotazioniPage() {
 
       {!loading && filtered.length === 0 && (
         <div className="text-sm text-slate-500">
-          Nessuna quotazione trovata. Crea la prima dalla voce “Nuova
-          quotazione”.
+          Nessuna quotazione trovata. Crea la prima dalla voce "Nuova
+          quotazione".
         </div>
       )}
 
       <div className="space-y-3">
         {filtered.map((p) => {
-          const title = formatCityCountry(p.destinatario || p.mittente || null);
-          const mittenteNome = p.mittente?.ragioneSociale || '—';
+          const destinatario = formatCityCountry(p.destinatario);
+          const destinatarioNome = p.destinatario?.ragioneSociale || '—';
           const created = formatDate(p.createdAt);
+          const isPallet = /pallet/i.test(p.formato_sped || '');
+          const formato = p.formato_sped || '—';
+          const colli = p.colli_n ? `${p.colli_n} collo${p.colli_n > 1 ? 'i' : ''}` : '—';
+          const isDisponibile = p.status === 'DISPONIBILE';
+          const buttonText = isDisponibile ? 'Vedi quotazione ricevuta' : 'Dettagli';
 
           return (
             <div
@@ -169,33 +190,54 @@ export default function QuotazioniPage() {
               className="flex flex-col justify-between rounded-2xl border bg-white p-4 text-sm md:flex-row md:items-center"
             >
               <div className="space-y-1">
-                <div className="font-semibold text-slate-800">
-                  {title}
-                </div>
-                <div className="text-xs text-slate-500">
-                  Mittente:{' '}
-                  <span className="font-medium text-slate-700">
-                    {mittenteNome}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${
+                      isPallet
+                        ? 'bg-orange-50 text-spst-orange border border-orange-200'
+                        : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {isPallet ? (
+                      <Boxes className="h-4 w-4" />
+                    ) : (
+                      <Package className="h-4 w-4" />
+                    )}
                   </span>
+                  <div>
+                    <div className="font-semibold text-slate-800">
+                      {destinatarioNome}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Destinazione: {destinatario}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-slate-500">
-                  Creata il:{' '}
-                  <span className="font-medium text-slate-700">
-                    {created}
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                  <span>
+                    Formato: <span className="font-medium text-slate-700">{formato}</span>
+                  </span>
+                  <span>
+                    Colli: <span className="font-medium text-slate-700">{colli}</span>
+                  </span>
+                  <span>
+                    Creata il:{' '}
+                    <span className="font-medium text-slate-700">{created}</span>
                   </span>
                 </div>
               </div>
 
               <div className="mt-3 flex flex-col items-end gap-2 md:mt-0">
+                <StatusBadge value={p.status} />
                 <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                  ID: {p.displayId || p.id}
+                  ID: {p.id.slice(0, 8)}...
                 </div>
 
                 <Link
                   href={`/dashboard/quotazioni/${p.id}`}
                   className="rounded-lg border bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Dettagli
+                  {buttonText}
                 </Link>
               </div>
             </div>

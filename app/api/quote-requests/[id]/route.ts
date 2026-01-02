@@ -209,6 +209,8 @@ export async function PATCH(
     }
 
     updates.public_token = newToken;
+    // ✅ Quando viene generato il public_token, imposta lo stato a DISPONIBILE
+    updates.status = "DISPONIBILE";
   } else if (
     typeof body.public_token === "string" ||
     body.public_token === null

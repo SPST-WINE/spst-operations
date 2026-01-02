@@ -2,8 +2,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getPreventivo } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 
 // alias tolleranti per leggere i campi dei colli
 const QTY_KEYS = ['Quantita', 'Quantità', 'Qty', 'Q.ta', 'quantita'];
@@ -20,6 +21,22 @@ type QuoteParty = {
   telefono?: string;
   taxId?: string;
   referente?: string;
+};
+
+type QuoteOption = {
+  id: string;
+  label?: string | null;
+  carrier?: string | null;
+  service_name?: string | null;
+  transit_time?: string | null;
+  freight_price?: number | null;
+  customs_price?: number | null;
+  total_price?: number | null;
+  currency?: string | null;
+  public_notes?: string | null;
+  status?: string | null;
+  show_vat?: boolean | null;
+  vat_rate?: number | null;
 };
 
 function pickNumber(f: any, keys: string[]) {
@@ -46,9 +63,56 @@ function fmtDate(d?: string) {
   }
 }
 
+function formatCurrency(amount?: number | null, currency?: string | null) {
+  if (amount == null || !Number.isFinite(amount)) return '—';
+  const curr = (currency || 'EUR').toUpperCase();
+  return new Intl.NumberFormat('it-IT', {
+    style: 'currency',
+    currency: curr,
+  }).format(amount);
+}
+
+function StatusBadge({ value }: { value?: string | null }) {
+  const raw = (value || '').trim().toUpperCase();
+
+  const map: Record<string, { cls: string; label: string }> = {
+    'IN LAVORAZIONE': {
+      cls: 'bg-slate-50 text-slate-700 ring-slate-200',
+      label: 'IN LAVORAZIONE',
+    },
+    DISPONIBILE: {
+      cls: 'bg-blue-50 text-blue-800 ring-blue-200',
+      label: 'DISPONIBILE',
+    },
+    ACCETTATA: {
+      cls: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+      label: 'ACCETTATA',
+    },
+  };
+
+  let cls = 'bg-slate-50 text-slate-700 ring-slate-200';
+  let text = raw || '—';
+
+  if (map[raw]) {
+    cls = map[raw].cls;
+    text = map[raw].label;
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs ring-1 ${cls}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 export default function QuoteDetailPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [row, setRow] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const id = decodeURIComponent(params.id);
 
   useEffect(() => {
@@ -56,8 +120,26 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     (async () => {
       setLoading(true);
       try {
-        const r = await getPreventivo(id);
-        if (!abort) setRow(r);
+        const res = await fetch(`/api/quotazioni/${id}`, {
+          cache: 'no-store',
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok || !data?.ok) {
+          if (!abort) {
+            setError('Quotazione non trovata o non autorizzata');
+            setRow(null);
+          }
+          return;
+        }
+
+        if (!abort) setRow(data.row);
+      } catch (e) {
+        console.error('[quotazioni/:id] errore', e);
+        if (!abort) {
+          setError('Errore nel caricamento della quotazione');
+          setRow(null);
+        }
       } finally {
         if (!abort) setLoading(false);
       }
@@ -70,7 +152,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
   const f = row?.fields || {};
 
   // ---- meta / header ------------------------------------------------
-  const stato = f['Stato'] || f['Status'] || '—';
+  const stato = row?.status || f['Stato'] || 'IN LAVORAZIONE';
   const incoterm =
     f['Incoterm'] || f['Incoterms'] || f['Incoterm_Selezionato'] || '—';
   const tipoSped =
@@ -124,8 +206,8 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     '';
 
   // ---- mittente / destinatario -------------------------------------
-  const mittParty: QuoteParty = (f.mittente || {}) as QuoteParty;
-  const destParty: QuoteParty = (f.destinatario || {}) as QuoteParty;
+  const mittParty: QuoteParty = (f.mittente || row?.fields?.mittente || {}) as QuoteParty;
+  const destParty: QuoteParty = (row?.destinatario || f.destinatario || {}) as QuoteParty;
 
   const mitt = {
     nome:
@@ -222,14 +304,57 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     });
   }, [row]);
 
+  // ---- opzioni disponibili ------------------------------------------
+  const availableOptions: QuoteOption[] = Array.isArray(row?.available_options)
+    ? row.available_options
+    : [];
+  const acceptedOption: QuoteOption | null = row?.accepted_option || null;
+  const isDisponibile = stato === 'DISPONIBILE';
+  const isAccettata = stato === 'ACCETTATA';
+
+  async function handleAccept(optionId: string) {
+    if (isAccettata || !isDisponibile) return;
+
+    setAccepting(optionId);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/quotazioni/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ option_id: optionId }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok) {
+        setError(
+          json?.error === 'INVALID_OPTION'
+            ? 'Questa opzione non è più selezionabile.'
+            : 'Si è verificato un errore nella conferma della quotazione.'
+        );
+        return;
+      }
+
+      // Ricarica la pagina per vedere lo stato aggiornato
+      router.refresh();
+      window.location.reload();
+    } catch (e) {
+      console.error('[quotazioni/:id] accept error:', e);
+      setError('Si è verificato un errore nella conferma della quotazione.');
+    } finally {
+      setAccepting(null);
+    }
+  }
+
   if (loading) {
     return <div className="p-6 text-sm text-slate-600">Caricamento…</div>;
   }
-  if (!row) {
+  if (!row || error) {
     return (
       <div className="p-6">
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">
-          Preventivo non trovato.
+          {error || 'Preventivo non trovato.'}
         </div>
         <div className="mt-4">
           <Link
@@ -247,7 +372,10 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold">Dettaglio preventivo</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Dettaglio preventivo</h2>
+        <StatusBadge value={stato} />
+      </div>
 
       {/* HEADER */}
       <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -255,10 +383,6 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
           <div>
             <div className="text-xs uppercase text-slate-500">ID preventivo</div>
             <div className="font-medium break-all">{displayId}</div>
-          </div>
-          <div>
-            <div className="text-xs uppercase text-slate-500">Stato</div>
-            <div className="font-medium">{stato || '—'}</div>
           </div>
           <div>
             <div className="text-xs uppercase text-slate-500">Tipo spedizione</div>
@@ -275,6 +399,14 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
           <div>
             <div className="text-xs uppercase text-slate-500">Valuta</div>
             <div className="font-medium">{valuta}</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase text-slate-500">Formato</div>
+            <div className="font-medium">{row.formato_sped || '—'}</div>
+          </div>
+          <div>
+            <div className="text-xs uppercase text-slate-500">Colli</div>
+            <div className="font-medium">{row.colli_n || colli.length || '—'}</div>
           </div>
         </div>
       </div>
@@ -402,6 +534,121 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
           </div>
         )}
       </div>
+
+      {/* OPZIONI DISPONIBILI / ACCETTATA */}
+      {isDisponibile && availableOptions.length > 0 && (
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <div className="mb-4 text-sm font-semibold">Opzioni disponibili</div>
+          <div className="space-y-3">
+            {availableOptions.map((opt) => {
+              const isAccepted = acceptedOption?.id === opt.id;
+              const isAccepting = accepting === opt.id;
+
+              return (
+                <div
+                  key={opt.id}
+                  className={`rounded-lg border p-4 ${
+                    isAccepted
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-slate-200 bg-white'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-900">
+                        {opt.label || opt.carrier || 'Opzione'}
+                      </div>
+                      {opt.carrier && (
+                        <div className="mt-1 text-xs text-slate-600">
+                          Corriere: {opt.carrier}
+                          {opt.service_name && ` • ${opt.service_name}`}
+                        </div>
+                      )}
+                      {opt.transit_time && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          Tempo di transito: {opt.transit_time}
+                        </div>
+                      )}
+                      {opt.public_notes && (
+                        <div className="mt-2 text-xs text-slate-600">
+                          {opt.public_notes}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-slate-900">
+                        {formatCurrency(opt.total_price, opt.currency)}
+                      </div>
+                      {opt.freight_price && opt.customs_price && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {formatCurrency(opt.freight_price, opt.currency)} +{' '}
+                          {formatCurrency(opt.customs_price, opt.currency)}
+                        </div>
+                      )}
+                      {!isAccettata && (
+                        <button
+                          onClick={() => handleAccept(opt.id)}
+                          disabled={isAccepting || isAccepted}
+                          className={`mt-2 rounded-lg px-4 py-2 text-xs font-medium transition ${
+                            isAccepted
+                              ? 'bg-emerald-100 text-emerald-700 cursor-default'
+                              : 'bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50'
+                          }`}
+                        >
+                          {isAccepting ? (
+                            <span className="flex items-center gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Accettazione...
+                            </span>
+                          ) : isAccepted ? (
+                            <span className="flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Accettata
+                            </span>
+                          ) : (
+                            'Accetta questa opzione'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {isAccettata && acceptedOption && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-800">
+            <CheckCircle2 className="h-4 w-4" />
+            Quotazione accettata
+          </div>
+          <div className="space-y-2 text-sm text-emerald-700">
+            <div>
+              <span className="font-medium">Opzione scelta:</span>{' '}
+              {acceptedOption.label || acceptedOption.carrier || 'Opzione accettata'}
+            </div>
+            <div>
+              <span className="font-medium">Prezzo totale:</span>{' '}
+              {formatCurrency(acceptedOption.total_price, acceptedOption.currency)}
+            </div>
+            {acceptedOption.carrier && (
+              <div>
+                <span className="font-medium">Corriere:</span> {acceptedOption.carrier}
+                {acceptedOption.service_name && ` • ${acceptedOption.service_name}`}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div>
         <Link
