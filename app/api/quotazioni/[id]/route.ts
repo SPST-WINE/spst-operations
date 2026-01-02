@@ -83,9 +83,9 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   try {
     const { data, error } = await supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, formato_sped, colli_n, accepted_option_id")
+      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, creato_da_email, colli, accepted_option_id")
       .eq("id", id)
-      .eq("email_cliente", emailNorm) // ✅ Solo le quotazioni del cliente autenticato
+      .eq("creato_da_email", emailNorm) // ✅ Solo le quotazioni del cliente autenticato (filtra per creato_da_email)
       .single();
 
     if (error) {
@@ -156,8 +156,8 @@ const assicurazioneAttiva =
       fields,
       colli,
       destinatario: data.destinatario || dest,
-      formato_sped: data.formato_sped || f.formato || null,
-      colli_n: data.colli_n || (Array.isArray(f.colli) ? f.colli.length : null),
+      formato_sped: f.formato || null, // formato è salvato in fields.formato
+      colli_n: Array.isArray(data.colli) ? data.colli.length : (Array.isArray(f.colli) ? f.colli.length : null),
       accepted_option: acceptedOption,
       available_options: Array.isArray(optionsData) 
         ? optionsData.filter((o: any) => o.visible_to_client !== false)
@@ -209,11 +209,12 @@ export async function POST(
     }
 
     // ✅ Verifica che la quotazione appartenga al cliente
+    // Nota: filtriamo per creato_da_email perché email_cliente è sempre info@spst.it
     const { data: quote, error: quoteErr } = await supabase
       .from("quotes")
-      .select("id, status, email_cliente")
+      .select("id, status, email_cliente, creato_da_email")
       .eq("id", id)
-      .eq("email_cliente", emailNorm)
+      .eq("creato_da_email", emailNorm)
       .single();
 
     if (quoteErr || !quote) {

@@ -283,6 +283,7 @@ function NuovaQuotazionePageInner() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [ok, setOk] = useState<{ id: string; displayId?: string } | null>(null);
+  const [quoteDetails, setQuoteDetails] = useState<any>(null);
 
   // ------------------------------------------------------------
   // Prefill MITTENTE da /api/impostazioni (come /nuova/vino)
@@ -724,6 +725,20 @@ if (formato === "Pallet" && assicurazioneAttiva) {
 
     // ✅ MOSTRA CONFERMA (la tua view if(ok?.id) ...)
     setOk({ id: res?.id, displayId: res?.displayId });
+    
+    // ✅ Carica i dettagli della quotazione per la schermata di success
+    try {
+      const detailRes = await fetch(`/api/quotazioni/${res.id}`, {
+        cache: 'no-store',
+      });
+      const detailData = await detailRes.json().catch(() => ({}));
+      if (detailData?.ok && detailData?.row) {
+        setQuoteDetails(detailData.row);
+      }
+    } catch (e) {
+      console.error('[nuova-quotazione] errore caricamento dettagli', e);
+    }
+    
     topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   } catch (err: any) {
@@ -746,14 +761,55 @@ if (formato === "Pallet" && assicurazioneAttiva) {
   // Success UI
   // ------------------------------------------------------------
   if (ok?.id) {
+    const f = quoteDetails?.fields || {};
+    const dest = quoteDetails?.destinatario || f.destinatario || {};
+    const colliCount = quoteDetails?.colli_n || (Array.isArray(quoteDetails?.colli) ? quoteDetails.colli.length : colli.length);
+    const formatoDisplay = quoteDetails?.formato_sped || f.formato || formato;
+    
     return (
       <div ref={topRef} className="space-y-4">
         <h2 className="text-lg font-semibold">Quotazione inviata</h2>
         <div className="rounded-2xl border bg-white p-4">
-          <p className="text-sm">
-            ID preventivo: <span className="font-mono">{ok.displayId || ok.id}</span>
-          </p>
+          <div className="mb-3 text-sm">
+            <div className="font-medium">ID preventivo</div>
+            <div className="font-mono">{ok.displayId || ok.id}</div>
+          </div>
+
+          <div className="grid gap-3 text-sm md:grid-cols-2">
+            <div>
+              <span className="text-slate-500">Tipo spedizione:</span> {tipoSped}
+            </div>
+            <div>
+              <span className="text-slate-500">Incoterm:</span> {incoterm}
+            </div>
+            {ritiroData && (
+              <div>
+                <span className="text-slate-500">Data ritiro:</span>{" "}
+                {ritiroData.toLocaleDateString('it-IT')}
+              </div>
+            )}
+            <div>
+              <span className="text-slate-500">Colli:</span> {colliCount} ({formatoDisplay})
+            </div>
+            <div className="md:col-span-2">
+              <span className="text-slate-500">Destinatario:</span>{" "}
+              {dest.ragioneSociale || destinatario.ragioneSociale || "—"}
+              {dest.citta || destinatario.citta ? ` — ${dest.citta || destinatario.citta}` : ""}
+            </div>
+            {(dest.paese || destinatario.paese) && (
+              <div className="md:col-span-2">
+                <span className="text-slate-500">Paese destinazione:</span> {dest.paese || destinatario.paese}
+              </div>
+            )}
+          </div>
+
           <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={`/dashboard/quotazioni/${ok.id}`}
+              className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"
+            >
+              Vedi dettaglio
+            </Link>
             <Link
               href="/dashboard/quotazioni"
               className="rounded-lg border bg-white px-4 py-2 text-sm hover:bg-slate-50"

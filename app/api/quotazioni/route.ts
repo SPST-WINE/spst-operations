@@ -276,11 +276,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // ✅ Filtra per email_cliente (solo le quotazioni del cliente autenticato)
+    // ✅ Filtra per creato_da_email o fields.createdByEmail (solo le quotazioni del cliente autenticato)
+    // Nota: tutte le quotazioni hanno email_cliente = info@spst.it, quindi filtriamo per creato_da_email
     let query = supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, formato_sped, colli_n")
-      .eq("email_cliente", emailNorm)
+      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, creato_da_email, colli")
+      .eq("creato_da_email", emailNorm)
       .order("created_at", { ascending: false })
       .limit(100);
 
@@ -329,14 +330,18 @@ export async function GET(req: NextRequest) {
           Valore_Assicurato: valoreAssicurato,
         };
 
+        // Calcola colli_n da colli array
+        const colliArray = Array.isArray(row.colli) ? row.colli : (Array.isArray(f.colli) ? f.colli : []);
+        const colli_n = colliArray.length > 0 ? colliArray.length : null;
+
         return { 
           id: row.id, 
           status: normalizedStatus,
           fields: aliasedFields,
           // ✅ campi aggiuntivi per UI
           destinatario: row.destinatario || dest,
-          formato_sped: row.formato_sped || f.formato || null,
-          colli_n: row.colli_n || (Array.isArray(f.colli) ? f.colli.length : null),
+          formato_sped: f.formato || null, // formato è salvato in fields.formato
+          colli_n: colli_n,
         };
       }) ?? [];
 
