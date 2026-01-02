@@ -97,7 +97,7 @@ export default function QuotazioniPage() {
         }
 
         const normalized: Quote[] = (data.rows || []).map((r: any) => ({
-          id: r.id,
+            id: r.id,
           status: r.status || 'IN LAVORAZIONE',
           destinatario: r.destinatario || null,
           formato_sped: r.formato_sped || null,
@@ -205,7 +205,7 @@ export default function QuotazioniPage() {
                     )}
                   </span>
                   <div>
-                    <div className="font-semibold text-slate-800">
+                <div className="font-semibold text-slate-800">
                       {destinatarioNome}
                     </div>
                     <div className="text-xs text-slate-500">
@@ -221,7 +221,7 @@ export default function QuotazioniPage() {
                     Colli: <span className="font-medium text-slate-700">{colli}</span>
                   </span>
                   <span>
-                    Creata il:{' '}
+                  Creata il:{' '}
                     <span className="font-medium text-slate-700">{created}</span>
                   </span>
                 </div>

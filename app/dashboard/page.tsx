@@ -101,11 +101,19 @@ function getTrackingUrl(carrier?: string | null, tracking?: string | null): stri
 
 type EventType = {
   id: string;
-  type: "quote_sent" | "quote_accepted" | "shipment_created" | "document_received";
+  type:
+    | "shipment_created"
+    | "shipment_documents_received"
+    | "shipment_picked_up"
+    | "shipment_delivered"
+    | "quote_sent"
+    | "quote_received"
+    | "quote_accepted";
   title: string;
   description: string;
   date: Date;
   link?: string;
+  refId?: string; // ID da mostrare a destra (SP... per spedizioni, UUID per quotazioni)
 };
 
 export default function DashboardOverview() {
@@ -117,8 +125,8 @@ export default function DashboardOverview() {
     let active = true;
 
     async function load() {
-      setLoading(true);
-      try {
+    setLoading(true);
+    try {
         // Carica spedizioni
         const shipRes = await fetch("/api/spedizioni?limit=100", {
           cache: "no-store",
@@ -129,7 +137,7 @@ export default function DashboardOverview() {
         // Carica quotazioni
         const quoteRes = await fetch("/api/quotazioni", {
           cache: "no-store",
-        });
+      });
         const quoteData = await quoteRes.json().catch(() => ({}));
         const quoteRows: QuoteRow[] = quoteData?.ok && Array.isArray(quoteData.rows) ? quoteData.rows : [];
 
@@ -160,7 +168,7 @@ export default function DashboardOverview() {
       (s) =>
         s.status &&
         !["CONSEGNATA", "ANNULLATA"].includes(s.status.toUpperCase())
-    ).length;
+  ).length;
 
     const consegnate = shipments.filter(
       (s) => s.status && s.status.toUpperCase() === "CONSEGNATA"
@@ -177,19 +185,19 @@ export default function DashboardOverview() {
           s.status &&
           !["CONSEGNATA", "ANNULLATA"].includes(s.status.toUpperCase()) &&
           s.tracking_code
-      )
+    )
       .slice(0, 5)
       .map((s) => {
         const url = getTrackingUrl(s.carrier, s.tracking_code);
         const dest = [s.dest_citta, s.dest_paese].filter(Boolean).join(", ");
-        return {
+      return {
           id: s.id,
           ref: s.human_id || s.id,
           dest: dest || "—",
           status: s.status || "—",
-          url,
-        };
-      });
+        url,
+      };
+    });
   }, [shipments]);
 
   // Ritiri programmati
@@ -219,101 +227,162 @@ export default function DashboardOverview() {
   const eventi = useMemo(() => {
     const events: EventType[] = [];
 
-    // Quotazioni inviate
+    // 1. Hai creato una spedizione
+    shipments.forEach((s) => {
+      try {
+        const date = s.created_at ? parseISO(s.created_at) : new Date();
+        events.push({
+          id: `shipment-created-${s.id}`,
+          type: "shipment_created",
+          title: "Hai creato una spedizione",
+          description: s.dest_citta ? `Spedizione per ${s.dest_citta}` : "Spedizione creata",
+          date,
+          link: `/dashboard/spedizioni/${s.id}`,
+          refId: s.human_id || s.id,
+        });
+      } catch {}
+    });
+
+    // 2. Hai ricevuto i documenti per una spedizione (status IN RITIRO con documenti)
+    shipments
+      .filter((s) => {
+        const status = (s.status || "").toUpperCase();
+        if (status !== "IN RITIRO") return false;
+        const att = s.attachments || {};
+        return !!(
+          att.ldv?.url ||
+          att.fattura_proforma?.url ||
+          att.fattura_commerciale?.url ||
+          att.dle?.url ||
+          att.allegato1?.url ||
+          att.allegato2?.url ||
+          att.allegato3?.url ||
+          att.allegato4?.url
+        );
+      })
+      .forEach((s) => {
+        try {
+          // Usa created_at come approssimazione (in realtà i documenti arrivano dopo)
+          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          events.push({
+            id: `shipment-docs-${s.id}`,
+            type: "shipment_documents_received",
+            title: "Hai ricevuto i documenti per una spedizione",
+            description: s.dest_citta ? `Documenti disponibili per ${s.dest_citta}` : "Documenti disponibili",
+            date,
+            link: `/dashboard/spedizioni/${s.id}`,
+            refId: s.human_id || s.id,
+          });
+        } catch {}
+      });
+
+    // 3. La tua spedizione è stata ritirata (status IN TRANSITO)
+    shipments
+      .filter((s) => (s.status || "").toUpperCase() === "IN TRANSITO")
+      .forEach((s) => {
+        try {
+          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          events.push({
+            id: `shipment-picked-${s.id}`,
+            type: "shipment_picked_up",
+            title: "La tua spedizione è stata ritirata",
+            description: s.dest_citta ? `Spedizione in transito per ${s.dest_citta}` : "Spedizione in transito",
+            date,
+            link: `/dashboard/spedizioni/${s.id}`,
+            refId: s.human_id || s.id,
+          });
+        } catch {}
+      });
+
+    // 4. La tua spedizione è stata consegnata (status CONSEGNATA)
+    shipments
+      .filter((s) => (s.status || "").toUpperCase() === "CONSEGNATA")
+      .forEach((s) => {
+        try {
+          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          events.push({
+            id: `shipment-delivered-${s.id}`,
+            type: "shipment_delivered",
+            title: "La tua spedizione è stata consegnata",
+            description: s.dest_citta ? `Spedizione consegnata a ${s.dest_citta}` : "Spedizione consegnata",
+            date,
+            link: `/dashboard/spedizioni/${s.id}`,
+            refId: s.human_id || s.id,
+          });
+        } catch {}
+      });
+
+    // 5. Hai inviato una quotazione (status IN LAVORAZIONE)
     quotes
-      .filter((q) => q.status === "IN LAVORAZIONE" || q.status === "DISPONIBILE")
+      .filter((q) => (q.status || "").toUpperCase() === "IN LAVORAZIONE")
       .forEach((q) => {
         try {
           const date = q.createdAt ? parseISO(q.createdAt) : new Date();
           events.push({
             id: `quote-sent-${q.id}`,
             type: "quote_sent",
-            title: "Quotazione inviata",
-            description: `Hai inviato una richiesta di quotazione${q.destinatario?.citta ? ` per ${q.destinatario.citta}` : ""}`,
+            title: "Hai inviato una quotazione",
+            description: q.destinatario?.citta ? `Richiesta di quotazione per ${q.destinatario.citta}` : "Richiesta di quotazione",
             date,
             link: `/dashboard/quotazioni/${q.id}`,
+            refId: q.id,
           });
         } catch {}
       });
 
-    // Quotazioni accettate
+    // 6. Hai ricevuto la tua quotazione (status DISPONIBILE)
     quotes
-      .filter((q) => q.status === "ACCETTATA")
+      .filter((q) => (q.status || "").toUpperCase() === "DISPONIBILE")
+      .forEach((q) => {
+        try {
+          const date = q.createdAt ? parseISO(q.createdAt) : new Date();
+          events.push({
+            id: `quote-received-${q.id}`,
+            type: "quote_received",
+            title: "Hai ricevuto la tua quotazione",
+            description: q.destinatario?.citta ? `Quotazione disponibile per ${q.destinatario.citta}` : "Quotazione disponibile",
+            date,
+            link: `/dashboard/quotazioni/${q.id}`,
+            refId: q.id,
+          });
+        } catch {}
+      });
+
+    // 7. Hai accettato la quotazione (status ACCETTATA)
+    quotes
+      .filter((q) => (q.status || "").toUpperCase() === "ACCETTATA")
       .forEach((q) => {
         try {
           const date = q.createdAt ? parseISO(q.createdAt) : new Date();
           events.push({
             id: `quote-accepted-${q.id}`,
             type: "quote_accepted",
-            title: "Quotazione accettata",
-            description: `Hai accettato una quotazione${q.destinatario?.citta ? ` per ${q.destinatario.citta}` : ""}`,
+            title: "Hai accettato la quotazione",
+            description: q.destinatario?.citta ? `Quotazione accettata per ${q.destinatario.citta}` : "Quotazione accettata",
             date,
             link: `/dashboard/quotazioni/${q.id}`,
+            refId: q.id,
           });
         } catch {}
       });
 
-    // Spedizioni create
-    shipments.forEach((s) => {
-      try {
-        const date = s.created_at ? parseISO(s.created_at) : new Date();
-        events.push({
-          id: `shipment-${s.id}`,
-          type: "shipment_created",
-          title: "Spedizione creata",
-          description: `Spedizione ${s.human_id || s.id}${s.dest_citta ? ` per ${s.dest_citta}` : ""}`,
-          date,
-          link: `/dashboard/spedizioni/${s.id}`,
-        });
-      } catch {}
-    });
-
-    // Documenti ricevuti
-    shipments.forEach((s) => {
-      const att = s.attachments || {};
-      const docs = [
-        { key: "ldv", name: "LDV" },
-        { key: "fattura_proforma", name: "Fattura proforma" },
-        { key: "fattura_commerciale", name: "Fattura commerciale" },
-        { key: "dle", name: "DLE" },
-        { key: "allegato1", name: "Allegato 1" },
-        { key: "allegato2", name: "Allegato 2" },
-        { key: "allegato3", name: "Allegato 3" },
-        { key: "allegato4", name: "Allegato 4" },
-      ];
-
-      docs.forEach((doc) => {
-        const url = att[doc.key as keyof typeof att]?.url;
-        if (url) {
-          try {
-            const date = s.created_at ? parseISO(s.created_at) : new Date();
-            events.push({
-              id: `doc-${s.id}-${doc.key}`,
-              type: "document_received",
-              title: "Documento ricevuto",
-              description: `${doc.name} disponibile per spedizione ${s.human_id || s.id}`,
-              date,
-              link: url,
-            });
-          } catch {}
-        }
-      });
-    });
-
-    // Ordina per data (più recenti prima) e limita a 10
+    // Ordina per data (più recenti prima) e limita a 20 per mostrare più eventi
     return events
       .sort((a, b) => b.date.getTime() - a.date.getTime())
-      .slice(0, 10);
+      .slice(0, 20);
   }, [shipments, quotes]);
 
   const getEventIcon = (type: EventType["type"]) => {
     switch (type) {
       case "quote_sent":
+      case "quote_received":
       case "quote_accepted":
         return FileText;
       case "shipment_created":
+      case "shipment_picked_up":
+      case "shipment_delivered":
         return Package;
-      case "document_received":
+      case "shipment_documents_received":
         return FileCheck;
       default:
         return Clock;
@@ -324,12 +393,18 @@ export default function DashboardOverview() {
     switch (type) {
       case "quote_sent":
         return "bg-blue-50 text-blue-700";
+      case "quote_received":
+        return "bg-purple-50 text-purple-700";
       case "quote_accepted":
         return "bg-emerald-50 text-emerald-700";
       case "shipment_created":
         return "bg-slate-50 text-slate-700";
-      case "document_received":
+      case "shipment_documents_received":
         return "bg-amber-50 text-amber-700";
+      case "shipment_picked_up":
+        return "bg-sky-50 text-sky-700";
+      case "shipment_delivered":
+        return "bg-emerald-50 text-emerald-700";
       default:
         return "bg-slate-50 text-slate-700";
     }
@@ -348,15 +423,15 @@ export default function DashboardOverview() {
       <section>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border bg-white p-4">
-            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3">
               <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
                 <Truck className="h-5 w-5" />
-              </span>
-              <div>
+                </span>
+                <div>
                 <div className="text-xs uppercase tracking-wide text-slate-500">
                   Spedizioni in corso
                 </div>
-                <div className="text-xl font-semibold text-slate-900">
+                  <div className="text-xl font-semibold text-slate-900">
                   {loading ? "…" : inCorso}
                 </div>
               </div>
@@ -371,7 +446,7 @@ export default function DashboardOverview() {
               <div>
                 <div className="text-xs uppercase tracking-wide text-slate-500">
                   Spedizioni consegnate
-                </div>
+                  </div>
                 <div className="text-xl font-semibold text-slate-900">
                   {loading ? "…" : consegnate}
                 </div>
@@ -530,19 +605,26 @@ export default function DashboardOverview() {
                 const Icon = getEventIcon(event.type);
                 const colorClass = getEventColor(event.type);
                 const content = (
-                  <div className="flex items-start gap-3">
-                    <span
-                      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${colorClass}`}
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-slate-900">{event.title}</div>
-                      <div className="text-sm text-slate-500">{event.description}</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        {format(event.date, "d MMMM yyyy 'alle' HH:mm", { locale: it })}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <span
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${colorClass} flex-shrink-0`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-slate-900">{event.title}</div>
+                        <div className="text-sm text-slate-500">{event.description}</div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          {format(event.date, "d MMMM yyyy 'alle' HH:mm", { locale: it })}
+                        </div>
                       </div>
                     </div>
+                    {event.refId && (
+                      <div className="flex-shrink-0 text-xs font-mono text-slate-400">
+                        {event.refId}
+                      </div>
+                    )}
                   </div>
                 );
 

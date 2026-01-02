@@ -373,7 +373,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Dettaglio preventivo</h2>
+      <h2 className="text-lg font-semibold">Dettaglio preventivo</h2>
         <StatusBadge value={stato} />
       </div>
 
