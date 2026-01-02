@@ -1,0 +1,42 @@
+import { NextResponse } from "next/server";
+import { requireStaff } from "@/lib/auth/requireStaff";
+import { supabaseServerSpst } from "@/lib/supabase/server";
+
+export async function POST(req: Request) {
+  const staff = await requireStaff();
+  if (!staff) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+
+  const body = await req.json();
+  const {
+    shipment_ids,
+    planned_pickup_date,
+    pickup_window,
+    notes,
+    carrier_id,
+  } = body;
+
+  const supabase = supabaseServerSpst();
+
+  const { data, error } = await supabase.rpc("create_pallet_wave", {
+    p_shipment_ids: shipment_ids,
+    p_planned_pickup_date: planned_pickup_date,
+    p_pickup_window: pickup_window,
+    p_notes: notes,
+    p_carrier_id: carrier_id,
+    p_created_by: staff.id,
+  });
+
+  if (error) {
+    if (error.message === "MIN_PALLETS_REQUIRED") {
+      return NextResponse.json(
+        { error: "MIN_6_PALLETS_REQUIRED" },
+        { status: 400 }
+      );
+    }
+
+    console.error("[POST /api/pallets/waves]", error);
+    return NextResponse.json({ error: "DB_ERROR" }, { status: 500 });
+  }
+
+  return NextResponse.json({ wave_id: data });
+}
