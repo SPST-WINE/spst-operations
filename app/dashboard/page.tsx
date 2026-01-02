@@ -22,6 +22,7 @@ type ShipmentRow = {
   id: string;
   human_id?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
   status?: string | null;
   carrier?: string | null;
   tracking_code?: string | null;
@@ -44,6 +45,7 @@ type QuoteRow = {
   id: string;
   status?: string | null;
   createdAt?: string | null;
+  updatedAt?: string | null;
   destinatario?: {
     ragioneSociale?: string | null;
     citta?: string | null;
@@ -227,7 +229,7 @@ export default function DashboardOverview() {
   const eventi = useMemo(() => {
     const events: EventType[] = [];
 
-    // 1. Hai creato una spedizione
+    // 1. Hai creato una spedizione (usa created_at)
     shipments.forEach((s) => {
       try {
         const date = s.created_at ? parseISO(s.created_at) : new Date();
@@ -244,6 +246,7 @@ export default function DashboardOverview() {
     });
 
     // 2. Hai ricevuto i documenti per una spedizione (status IN RITIRO con documenti)
+    // Usa updated_at se disponibile, altrimenti created_at
     shipments
       .filter((s) => {
         const status = (s.status || "").toUpperCase();
@@ -262,8 +265,9 @@ export default function DashboardOverview() {
       })
       .forEach((s) => {
         try {
-          // Usa created_at come approssimazione (in realtà i documenti arrivano dopo)
-          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          // Usa updated_at se disponibile (quando lo status è cambiato), altrimenti created_at
+          const dateStr = s.updated_at || s.created_at;
+          const date = dateStr ? parseISO(dateStr) : new Date();
           events.push({
             id: `shipment-docs-${s.id}`,
             type: "shipment_documents_received",
@@ -277,11 +281,14 @@ export default function DashboardOverview() {
       });
 
     // 3. La tua spedizione è stata ritirata (status IN TRANSITO)
+    // Usa updated_at se disponibile (quando lo status è cambiato)
     shipments
       .filter((s) => (s.status || "").toUpperCase() === "IN TRANSITO")
       .forEach((s) => {
         try {
-          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          // Usa updated_at se disponibile (quando lo status è cambiato), altrimenti created_at
+          const dateStr = s.updated_at || s.created_at;
+          const date = dateStr ? parseISO(dateStr) : new Date();
           events.push({
             id: `shipment-picked-${s.id}`,
             type: "shipment_picked_up",
@@ -295,11 +302,14 @@ export default function DashboardOverview() {
       });
 
     // 4. La tua spedizione è stata consegnata (status CONSEGNATA)
+    // Usa updated_at se disponibile (quando lo status è cambiato)
     shipments
       .filter((s) => (s.status || "").toUpperCase() === "CONSEGNATA")
       .forEach((s) => {
         try {
-          const date = s.created_at ? parseISO(s.created_at) : new Date();
+          // Usa updated_at se disponibile (quando lo status è cambiato), altrimenti created_at
+          const dateStr = s.updated_at || s.created_at;
+          const date = dateStr ? parseISO(dateStr) : new Date();
           events.push({
             id: `shipment-delivered-${s.id}`,
             type: "shipment_delivered",
@@ -313,6 +323,7 @@ export default function DashboardOverview() {
       });
 
     // 5. Hai inviato una quotazione (status IN LAVORAZIONE)
+    // Usa created_at (momento di creazione)
     quotes
       .filter((q) => (q.status || "").toUpperCase() === "IN LAVORAZIONE")
       .forEach((q) => {
@@ -331,11 +342,14 @@ export default function DashboardOverview() {
       });
 
     // 6. Hai ricevuto la tua quotazione (status DISPONIBILE)
+    // Usa updated_at se disponibile (quando lo status è cambiato), altrimenti created_at
     quotes
       .filter((q) => (q.status || "").toUpperCase() === "DISPONIBILE")
       .forEach((q) => {
         try {
-          const date = q.createdAt ? parseISO(q.createdAt) : new Date();
+          // Usa updated_at se disponibile (quando lo status è cambiato a DISPONIBILE), altrimenti created_at
+          const dateStr = q.updatedAt || q.createdAt;
+          const date = dateStr ? parseISO(dateStr) : new Date();
           events.push({
             id: `quote-received-${q.id}`,
             type: "quote_received",
@@ -349,11 +363,14 @@ export default function DashboardOverview() {
       });
 
     // 7. Hai accettato la quotazione (status ACCETTATA)
+    // Usa updated_at se disponibile (quando lo status è cambiato), altrimenti created_at
     quotes
       .filter((q) => (q.status || "").toUpperCase() === "ACCETTATA")
       .forEach((q) => {
         try {
-          const date = q.createdAt ? parseISO(q.createdAt) : new Date();
+          // Usa updated_at se disponibile (quando lo status è cambiato a ACCETTATA), altrimenti created_at
+          const dateStr = q.updatedAt || q.createdAt;
+          const date = dateStr ? parseISO(dateStr) : new Date();
           events.push({
             id: `quote-accepted-${q.id}`,
             type: "quote_accepted",

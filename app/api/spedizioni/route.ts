@@ -146,7 +146,7 @@ export async function GET(req: Request) {
       .from("shipments")
       .select(
         `
-        id,created_at,human_id,email_cliente,email_norm,
+        id,created_at,updated_at,human_id,email_cliente,email_norm,
         tipo_spedizione,incoterm,giorno_ritiro,
         carrier,tracking_code, 
         mittente_paese,mittente_citta,mittente_cap,mittente_indirizzo,
@@ -214,6 +214,7 @@ export async function GET(req: Request) {
     const rows = (data || []).map((r: any) => ({
       id: r.id,
       created_at: r.created_at,
+      updated_at: r.updated_at,
       human_id: r.human_id,
       email_cliente: r.email_cliente,
       email_norm: r.email_norm,

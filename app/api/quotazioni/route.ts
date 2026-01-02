@@ -323,7 +323,7 @@ export async function GET(req: NextRequest) {
     // Nota: tutte le quotazioni hanno email_cliente = info@spst.it, quindi filtriamo per creato_da_email
     let query = supabase
       .from("quotes")
-      .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, creato_da_email, colli")
+      .select("id, status, fields, created_at, updated_at, incoterm, declared_value, email_cliente, destinatario, creato_da_email, colli")
       .eq("creato_da_email", emailNorm)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -385,6 +385,8 @@ export async function GET(req: NextRequest) {
           destinatario: row.destinatario || dest,
           formato_sped: f.formato || null, // formato è salvato in fields.formato
           colli_n: colli_n,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
         };
       }) ?? [];
 
