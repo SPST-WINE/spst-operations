@@ -59,14 +59,6 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   const id = decodeURIComponent((ctx.params?.id || "").trim());
   if (!id) return jsonError(400, "MISSING_ID");
 
-  const supabase = makeSupabase();
-  if (!supabase) {
-    return jsonError(500, "MISSING_SUPABASE_ENV", {
-      message:
-        "Variabili Supabase mancanti (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE).",
-    });
-  }
-
   // ✅ Verifica autenticazione e ownership
   const supa = supabaseServerSpst();
   const { data: userData, error: userErr } = await supa.auth.getUser();
@@ -89,12 +81,6 @@ export async function GET(req: NextRequest, ctx: { params: { id: string } }) {
   }
 
   try {
-    // ✅ Leggi anche quote_options disponibili
-    const { data: optionsData } = await supabase
-      .from("quote_options")
-      .select("*")
-      .eq("quote_id", id)
-      .order("created_at", { ascending: true });
     const { data, error } = await supabase
       .from("quotes")
       .select("id, status, fields, created_at, incoterm, declared_value, email_cliente, destinatario, formato_sped, colli_n, accepted_option_id")
