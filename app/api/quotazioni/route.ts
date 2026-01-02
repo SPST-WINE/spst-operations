@@ -7,6 +7,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeEmail(x?: string | null) {
+  const v = (x ?? "").trim();
+  return v ? v.toLowerCase() : null;
+}
+
 // ---------- Helpers -------------------------------------------------
 
 function makeSupabase() {
@@ -125,6 +130,54 @@ type QuoteCreatePayload = {
 // ---------- POST: crea preventivo -----------------------------------
 
 export async function POST(req: NextRequest) {
+  // ✅ 1) AUTH: recupera email dalla sessione (come /api/spedizioni)
+  let userEmail: string | null = null;
+
+  // A) SSR cookie session
+  try {
+    const supa = supabaseServerSpst();
+    const { data, error } = await supa.auth.getUser();
+    if (error) console.log("[API/quotazioni:POST] cookie getUser error:", error.message);
+    userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
+    console.log("[API/quotazioni:POST] cookie session email:", userEmail);
+  } catch (e: any) {
+    console.log("[API/quotazioni:POST] cookie getUser exception:", e?.message || e);
+  }
+
+  // B) Bearer token (se non c'è cookie session)
+  if (!userEmail) {
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      const auth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false },
+      }) as any;
+
+      const authHeader = req.headers.get("authorization");
+      const token = authHeader?.replace(/^Bearer\s+/i, "") || null;
+
+      if (token) {
+        const { data, error } = await auth.auth.getUser(token);
+        if (error) console.log("[API/quotazioni:POST] bearer getUser error:", error.message);
+        userEmail = (data?.user?.email ?? null) ? String(data.user.email) : null;
+      }
+    }
+  }
+
+  if (!userEmail) {
+    return jsonError(401, "UNAUTHENTICATED", {
+      message: "Autenticazione richiesta. Effettua il login.",
+    });
+  }
+
+  const emailNorm = normalizeEmail(userEmail);
+  if (!emailNorm) {
+    return jsonError(401, "UNAUTHENTICATED", {
+      message: "Email non valida nella sessione.",
+    });
+  }
+
   const supabase = makeSupabase();
   if (!supabase) {
     return jsonError(500, "MISSING_SUPABASE_ENV", {
@@ -154,14 +207,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const createdByEmail =
-      body.createdByEmail ||
-      body.customerEmail ||
-      bodyFields.createdByEmail ||
-      "info@spst.it";
-
-    const customerEmail =
-      body.customerEmail || bodyFields.customerEmail || createdByEmail;
+    // ✅ email SEMPRE dalla sessione, mai da body (per sicurezza)
+    const createdByEmail = emailNorm;
+    const customerEmail = emailNorm; // Per ora usiamo la stessa email, ma può essere customizzato in futuro
 
     // ---------------------------
     // ✅ SOLO VALORE: declared_value
