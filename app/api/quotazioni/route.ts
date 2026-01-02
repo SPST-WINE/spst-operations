@@ -52,11 +52,6 @@ function firstNonEmpty<T = any>(...vals: T[]) {
   return undefined;
 }
 
-function normalizeEmail(x?: string | null) {
-  const v = (x ?? "").trim();
-  return v ? v.toLowerCase() : null;
-}
-
 // Normalizza gli stati delle quotazioni ai valori standard
 function normalizeQuoteStatus(status?: string | null): string {
   const s = (status || "").trim().toUpperCase();
