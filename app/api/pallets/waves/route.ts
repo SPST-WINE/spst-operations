@@ -5,10 +5,18 @@ import { supabaseServerSpst } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const staff = await requireStaff();
-  if (!staff) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  const staffRes = await requireStaff();
 
-  const body = await req.json();
+  // ✅ Narrowing corretto per StaffAuthResult (ok true/false)
+  if (!staffRes.ok) {
+    return staffRes.response;
+  }
+
+  const body = await req.json().catch(() => null);
+  if (!body) {
+    return NextResponse.json({ error: "BAD_JSON" }, { status: 400 });
+  }
+
   const {
     shipment_ids,
     planned_pickup_date,
@@ -17,15 +25,28 @@ export async function POST(req: Request) {
     carrier_id,
   } = body;
 
+  if (!Array.isArray(shipment_ids) || shipment_ids.length === 0) {
+    return NextResponse.json(
+      { error: "shipment_ids_required" },
+      { status: 400 }
+    );
+  }
+  if (!planned_pickup_date || !carrier_id) {
+    return NextResponse.json(
+      { error: "planned_pickup_date_and_carrier_id_required" },
+      { status: 400 }
+    );
+  }
+
   const supabase = supabaseServerSpst();
 
   const { data, error } = await supabase.rpc("create_pallet_wave", {
     p_shipment_ids: shipment_ids,
     p_planned_pickup_date: planned_pickup_date,
-    p_pickup_window: pickup_window,
+    p_pickup_window: pickup_window ?? null,
     p_notes: notes ?? null,
     p_carrier_id: carrier_id,
-    p_created_by: staff.userId, // ✅ FIX
+    p_created_by: staffRes.userId, // ✅ ora TS è contento
   });
 
   if (error) {
@@ -36,7 +57,7 @@ export async function POST(req: Request) {
       );
     }
 
-    console.error("[POST /api/pallets/waves]", error);
+    console.error("[POST /api/pallets/waves] DB error:", error);
     return NextResponse.json({ error: "DB_ERROR" }, { status: 500 });
   }
 
