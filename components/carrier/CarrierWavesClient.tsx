@@ -205,10 +205,6 @@ export default function CarrierWavesClient() {
           ))}
         </div>
       </div>
-
-      <div className="text-xs text-slate-500">
-        Nota: la visibilità è garantita da RLS (carrier vede solo le sue waves).
-      </div>
     </div>
   );
 }

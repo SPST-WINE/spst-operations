@@ -10,7 +10,7 @@ export default function CarrierWavesPage() {
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Le tue Waves</h1>
           <p className="text-sm text-slate-600">
-            Vedi le waves assegnate al tuo trasportatore (RLS).
+            Di seguito trovi elencati ritiri e trasporti da effettuare. Ogni giro di ritiri e trasporti viene chiamato WAVE.
           </p>
         </div>
       </div>
