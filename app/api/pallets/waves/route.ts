@@ -1,8 +1,11 @@
+// app/api/pallets/waves/route.ts
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 function isResponse(x: any): x is Response {
   return x instanceof Response;
@@ -20,15 +23,42 @@ function getStaffUserId(x: any): string | null {
   return null;
 }
 
+function getAdminSupabase() {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+
+  // ✅ la tua env
+  const service =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "";
+
+  if (!url || !service) {
+    throw new Error(
+      "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY) and SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL"
+    );
+  }
+
+  return createClient(url, service, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 /**
  * GET /api/pallets/waves
- * Shared (staff/carrier).
- * - Staff: vede tutto se policy lo consente
+ * Shared (staff/carrier) via session + RLS.
+ * - Staff: vede tutto SOLO se RLS lo consente (di solito no, ma staff usa backoffice con service role su route dedicate)
  * - Carrier: vede solo le proprie wave via RLS (carrier_users)
  *
  * NB: manteniamo anche /api/pallets/waves/list per retro-compatibilità.
  */
 export async function GET() {
+  // ⚠️ IMPORTANTISSIMO: qui NON usare service role,
+  // altrimenti il carrier vedrebbe tutte le wave.
   const supabase = supabaseServerSpst();
 
   const { data, error } = await supabase
@@ -59,17 +89,11 @@ export async function POST(req: Request) {
   const staffRes: any = await requireStaff();
 
   // Caso A: requireStaff() ritorna direttamente una Response/NextResponse
-  if (isResponse(staffRes)) {
-    return staffRes;
-  }
+  if (isResponse(staffRes)) return staffRes;
 
   // Caso B: ritorna un oggetto con ok=false (ma senza "response" tipizzata)
   if (!staffRes || staffRes.ok !== true) {
-    // Se esiste una response interna, la usiamo (runtime safe)
-    if (staffRes?.response && isResponse(staffRes.response)) {
-      return staffRes.response;
-    }
-    // fallback duro e pulito
+    if (staffRes?.response && isResponse(staffRes.response)) return staffRes.response;
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
@@ -109,9 +133,19 @@ export async function POST(req: Request) {
     );
   }
 
-  const supabase = supabaseServerSpst();
+  // ✅ staff-only: usa service role (bypass RLS) per RPC
+  let admin;
+  try {
+    admin = getAdminSupabase();
+  } catch (e: any) {
+    console.error("[POST /api/pallets/waves] Admin client init error:", e);
+    return NextResponse.json(
+      { error: "SERVER_MISCONFIG", details: String(e?.message ?? e) },
+      { status: 500 }
+    );
+  }
 
-  const { data, error } = await supabase.rpc("create_pallet_wave", {
+  const { data, error } = await admin.rpc("create_pallet_wave", {
     p_shipment_ids: shipment_ids,
     p_planned_pickup_date: planned_pickup_date,
     p_pickup_window: pickup_window ?? null,
@@ -129,7 +163,10 @@ export async function POST(req: Request) {
     }
 
     console.error("[POST /api/pallets/waves] DB error:", error);
-    return NextResponse.json({ error: "DB_ERROR" }, { status: 500 });
+    return NextResponse.json(
+      { error: "DB_ERROR", details: error.message },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ wave_id: data });
