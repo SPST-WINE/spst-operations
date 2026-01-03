@@ -39,10 +39,8 @@ export async function GET() {
   // 🔐 AUTH (staff-only)
   const staffRes: any = await requireStaff();
 
-  // requireStaff può restituire Response direttamente
   if (isResponse(staffRes)) return staffRes;
 
-  // oppure union ok:false / falsy
   if (!staffRes || staffRes.ok !== true) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
@@ -59,7 +57,8 @@ export async function GET() {
     );
   }
 
-  const { data, error } = await supabase.rpc("get_pallets_pool");
+  // ✅ IMPORTANT: la funzione è in schema spst, non public
+  const { data, error } = await supabase.schema("spst").rpc("get_pallets_pool");
 
   if (error) {
     console.error("[GET /api/pallets/pool] DB error:", error);
