@@ -1,0 +1,229 @@
+Di seguito trovi il README COMBINATO — DB + API di SPST Pallets, scritto in stile “Padre Nostro”, quindi:
+	•	vincolante
+	•	non descrittivo
+	•	senza fallback
+	•	coerente con SPST Operations
+	•	pronto per essere incollato nel repo
+Dopo questo documento, passiamo direttamente al deploy delle API senza ridiscutere nulla.
+
+🟦 SPST PALLETS — DATABASE + API CONTRACT (FREEZE)
+⚠️ DOCUMENTO VINCOLANTE
+Questo documento definisce in modo definitivo:
+	•	il modello dati di SPST Pallets
+	•	il comportamento delle API
+	•	i confini invalicabili tra:
+	◦	core SPST (api/spedizioni)
+	◦	orchestrazione SPST Pallets
+Qualsiasi modifica che contraddice quanto scritto qui è da considerarsi BREAKING CHANGE e NON VA INTRODOTTA senza versioning esplicito.
+
+🎯 OBIETTIVO DI SPST PALLETS
+SPST Pallets è un prodotto tecnologico di orchestrazione che:
+	•	aggrega spedizioni pallet già create in SPST
+	•	organizza ritiri tramite WAVE
+	•	consegna ai trasportatori un flusso ordinato, leggibile e completo
+	•	non modifica spedizioni, colli o stati core
+SPST Pallets NON È:
+	•	una linea di groupage
+	•	un gestionale trasportatori
+	•	un duplicato di api/spedizioni
+SPST Pallets È:
+	•	uno strato di coordinamento
+	•	una control tower
+	•	un moltiplicatore di affidabilità e volume
+
+🧠 PRINCIPIO FONDAMENTALE
+DATABASE = UNICA SOURCE OF TRUTH API = ADAPTER WAVE = UNITÀ OPERATIVA SPEDIZIONE = OGGETTO IMMUTABILE
+Se una logica tenta di:
+	•	ricostruire dati
+	•	dedurre informazioni
+	•	scrivere dove dovrebbe solo leggere
+❌ È VIETATA
+
+1️⃣ SOURCE OF TRUTH (DB CORE — NON MODIFICABILE)
+📦 SPEDIZIONI
+Fonte: spst.shipments
+SPST Pallets:
+	•	legge le spedizioni
+	•	non le modifica mai
+Campi utilizzati:
+	•	id
+	•	human_id (SP-...)
+	•	formato_sped
+	•	mittente_cap
+	•	mittente_citta
+	•	giorno_ritiro
+	•	allegati (es. ldv)
+❌ Vietato:
+	•	alterare lo stato spedizione
+	•	sovrascrivere la data di ritiro
+	•	duplicare spedizioni
+	•	scrivere in extras
+
+📦 COLLI
+Fonte: spst.packages (UNICA)
+Regola assoluta:
+	•	1 riga = 1 collo
+	•	per pallet: 1 collo = 1 pallet
+👉 Numero pallet = COUNT(packages) 👉 Mai salvato, mai cachato, mai duplicato
+
+2️⃣ TERRITORIALITÀ (CAMPANIA)
+📍 Regola di ammissibilità
+Una spedizione è eleggibile a SPST Pallets se:
+	1	formato_sped indica PALLET
+	2	MITTENTE IN CAMPANIA, determinato in questo ordine:
+1️⃣ Regola primaria (deterministica)
+
+shipments.mittente_cap
+→ spst.italy_caps.cap
+→ regione = 'Campania'
+2️⃣ Fallback controllato (temporaneo)
+Se il CAP non è presente:
+
+lower(shipments.mittente_citta)
+→ spst.campania_cities_fallback
+❌ Vietato:
+	•	inferire regione da range CAP
+	•	usare regex o logiche “euristiche”
+	•	chiamare servizi esterni
+
+3️⃣ WAVE (UNITÀ OPERATIVA)
+📦 Definizione
+Una WAVE è:
+	•	un batch operativo di ritiri pallet
+	•	assegnato a un solo trasportatore
+	•	pianificato su una data unica
+Una wave:
+	•	contiene spedizioni
+	•	NON contiene colli
+	•	NON altera le spedizioni
+
+🗂️ Tabelle SPST Pallets
+spst.pallet_waves
+Fonte operativa delle wave.
+Campi chiave:
+	•	id
+	•	code (es. WAVE-2026-01-08-SDF-01)
+	•	carrier_id
+	•	status
+	•	planned_pickup_date
+	•	pickup_window
+	•	notes
+	•	created_at
+	•	updated_at
+Stati ammessi (ENUM italiano):
+	•	bozza
+	•	inviata
+	•	in_corso
+	•	completata
+	•	annullata
+❌ Vietato:
+	•	associare più carrier a una wave
+	•	modificare retroattivamente una wave senza tracciabilità
+
+spst.pallet_wave_items
+Relazione WAVE ↔ SPEDIZIONI
+Regole:
+	•	1 spedizione → 1 sola wave
+	•	enforced DB con UNIQUE(shipment_id)
+Campi:
+	•	wave_id
+	•	shipment_id
+	•	shipment_human_id (denormalizzato, read-only)
+	•	requested_pickup_date (snapshot)
+	•	planned_pickup_date
+❌ Vietato:
+	•	inserire spedizioni non pallet
+	•	inserire spedizioni fuori Campania
+	•	duplicare shipment in più wave
+
+4️⃣ TRASPORTATORI
+🚚 Fonte
+	•	spst.carriers
+	•	spst.carrier_users
+Regole:
+	•	il trasportatore vede solo le sue wave
+	•	read-only (MVP)
+❌ Vietato:
+	•	consentire update diretti
+	•	consentire accesso a shipment core
+
+5️⃣ API — RESPONSABILITÀ E LIMITI
+🔒 CONFINE SACRO
+👉 api/spedizioni NON SI TOCCA 👉 SPST Pallets vive in namespace dedicato
+Namespace ammesso
+
+/api/pallets/*
+
+6️⃣ API DISPONIBILI (CANONICHE)
+🔹 GET /api/pallets/pool
+Backoffice only
+Ritorna:
+	•	spedizioni pallet Campania
+	•	non ancora assegnate a wave
+Usa:
+	•	spst.shipments
+	•	spst.packages
+	•	spst.italy_caps
+	•	spst.campania_cities_fallback
+❌ Non:
+	•	crea
+	•	modifica
+	•	arricchisce dati
+
+🔹 POST /api/pallets/waves
+Staff only
+Crea una wave.
+Regole:
+	•	minimo 6 pallet totali
+	•	tutte le spedizioni devono essere valide
+	•	inserisce:
+	◦	pallet_waves
+	◦	pallet_wave_items
+❌ Vietato:
+	•	creare wave senza validazioni DB
+	•	accettare shipment arbitrary
+
+🔹 GET /api/pallets/waves
+Staff / Carrier
+	•	Staff: vede tutte
+	•	Carrier: solo le proprie (RLS)
+
+🔹 GET /api/pallets/waves/:id
+Staff / Carrier
+Ritorna:
+	•	wave
+	•	spedizioni incluse
+	•	dati operativi
+	•	link DDT (da shipments.ldv)
+
+7️⃣ AUTENTICAZIONE & SICUREZZA
+	•	Supabase Auth
+	•	session-based
+	•	Nessun header custom
+	•	Nessuna chiave pubblica per backoffice
+Ruoli:
+	•	client → nessun accesso
+	•	carrier → read-only via RLS
+	•	staff → service role + requireStaff()
+
+8️⃣ REGOLE D’ORO (API)
+	•	le API non calcolano
+	•	le API non deducono
+	•	le API non riparano dati
+	•	le API espongono il DB
+	•	ogni validazione vera avviene prima della scrittura
+Se una API:
+	•	“sembra comoda”
+	•	fa lavoro sporco
+	•	nasconde errori
+👉 È SBAGLIATA
+
+🧊 CONCLUSIONE
+Questo documento è:
+	•	la costituzione di SPST Pallets
+	•	il confine tra ordine e caos
+	•	il riferimento per DB, API, UI, carrier portal
+Va:
+	•	rispettato
+	•	difeso
+	•	usato come filtro decisionale
