@@ -1,26 +1,64 @@
+// app/api/pallets/pool/route.ts
 import { NextResponse } from "next/server";
-import { supabaseServerSpst } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export async function GET() {
-  // 🔐 AUTH
-  const staff = await requireStaff();
-  if (!staff) {
-    return NextResponse.json(
-      { error: "FORBIDDEN" },
-      { status: 403 }
+function isResponse(x: any): x is Response {
+  return x instanceof Response;
+}
+
+function getAdminSupabase() {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+
+  // ✅ priorità: SUPABASE_SERVICE_ROLE (la tua)
+  const service =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "";
+
+  if (!url || !service) {
+    throw new Error(
+      "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY) and SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL"
     );
   }
 
-  const supabase = supabaseServerSpst();
+  return createClient(url, service, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
 
-  // 🧠 QUERY CANONICA
-  // NOTE: Se non tutte le spedizioni eleggibili vengono mostrate, verificare:
-  // 1. La funzione get_pallets_pool nel DB non deve avere LIMIT
-  // 2. I JOIN con italy_caps e campania_cities_fallback devono essere corretti
-  // 3. Verificare che tutti i CAP della Campania siano presenti in italy_caps
+export async function GET() {
+  // 🔐 AUTH (staff-only)
+  const staffRes: any = await requireStaff();
+
+  // requireStaff può restituire Response direttamente
+  if (isResponse(staffRes)) return staffRes;
+
+  // oppure union ok:false / falsy
+  if (!staffRes || staffRes.ok !== true) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  // ✅ service role (bypass RLS)
+  let supabase;
+  try {
+    supabase = getAdminSupabase();
+  } catch (e: any) {
+    console.error("[GET /api/pallets/pool] Admin client init error:", e);
+    return NextResponse.json(
+      { error: "SERVER_MISCONFIG", details: String(e?.message ?? e) },
+      { status: 500 }
+    );
+  }
+
   const { data, error } = await supabase.rpc("get_pallets_pool");
 
   if (error) {
@@ -31,10 +69,9 @@ export async function GET() {
     );
   }
 
-  // Log per debug: verificare che tutte le spedizioni eleggibili siano incluse
-  console.log(`[GET /api/pallets/pool] Returned ${data?.length ?? 0} eligible shipments`);
+  console.log(
+    `[GET /api/pallets/pool] Returned ${data?.length ?? 0} eligible shipments`
+  );
 
-  return NextResponse.json({
-    items: data ?? [],
-  });
+  return NextResponse.json({ items: data ?? [] });
 }
