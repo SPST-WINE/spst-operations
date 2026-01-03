@@ -4,12 +4,47 @@ import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const staffRes = await requireStaff();
+function isResponse(x: any): x is Response {
+  return x instanceof Response;
+}
 
-  // ✅ Narrowing corretto per StaffAuthResult (ok true/false)
-  if (!staffRes.ok) {
-    return staffRes.response;
+function getStaffUserId(x: any): string | null {
+  // supporta le varianti possibili:
+  // - { ok:true, userId: ... }
+  // - { ok:true, id: ... }
+  // - { ok:true, user: { id: ... } }
+  if (!x || x.ok !== true) return null;
+  if (typeof x.userId === "string") return x.userId;
+  if (typeof x.id === "string") return x.id;
+  if (x.user && typeof x.user.id === "string") return x.user.id;
+  return null;
+}
+
+export async function POST(req: Request) {
+  const staffRes: any = await requireStaff();
+
+  // Caso A: requireStaff() ritorna direttamente una Response/NextResponse
+  if (isResponse(staffRes)) {
+    return staffRes;
+  }
+
+  // Caso B: ritorna un oggetto con ok=false (ma senza "response" tipizzata)
+  if (!staffRes || staffRes.ok !== true) {
+    // Se esiste una response interna, la usiamo (runtime safe)
+    if (staffRes?.response && isResponse(staffRes.response)) {
+      return staffRes.response;
+    }
+    // fallback duro e pulito
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  // Caso C: ok=true
+  const createdBy = getStaffUserId(staffRes);
+  if (!createdBy) {
+    return NextResponse.json(
+      { error: "STAFF_AUTH_MISSING_USER_ID" },
+      { status: 500 }
+    );
   }
 
   const body = await req.json().catch(() => null);
@@ -31,6 +66,7 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
   if (!planned_pickup_date || !carrier_id) {
     return NextResponse.json(
       { error: "planned_pickup_date_and_carrier_id_required" },
@@ -46,7 +82,7 @@ export async function POST(req: Request) {
     p_pickup_window: pickup_window ?? null,
     p_notes: notes ?? null,
     p_carrier_id: carrier_id,
-    p_created_by: staffRes.userId, // ✅ ora TS è contento
+    p_created_by: createdBy,
   });
 
   if (error) {
