@@ -27,7 +27,6 @@ function getAdminSupabase() {
   const url =
     process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
 
-  // ✅ la tua env
   const service =
     process.env.SUPABASE_SERVICE_ROLE ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -51,14 +50,11 @@ function getAdminSupabase() {
 /**
  * GET /api/pallets/waves
  * Shared (staff/carrier) via session + RLS.
- * - Staff: vede tutto SOLO se RLS lo consente (di solito no, ma staff usa backoffice con service role su route dedicate)
  * - Carrier: vede solo le proprie wave via RLS (carrier_users)
  *
- * NB: manteniamo anche /api/pallets/waves/list per retro-compatibilità.
+ * ⚠️ Non usare service role qui, altrimenti il carrier vedrebbe tutte le wave.
  */
 export async function GET() {
-  // ⚠️ IMPORTANTISSIMO: qui NON usare service role,
-  // altrimenti il carrier vedrebbe tutte le wave.
   const supabase = supabaseServerSpst();
 
   const { data, error } = await supabase
@@ -88,16 +84,13 @@ export async function GET() {
 export async function POST(req: Request) {
   const staffRes: any = await requireStaff();
 
-  // Caso A: requireStaff() ritorna direttamente una Response/NextResponse
   if (isResponse(staffRes)) return staffRes;
 
-  // Caso B: ritorna un oggetto con ok=false (ma senza "response" tipizzata)
   if (!staffRes || staffRes.ok !== true) {
     if (staffRes?.response && isResponse(staffRes.response)) return staffRes.response;
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
-  // Caso C: ok=true
   const createdBy = getStaffUserId(staffRes);
   if (!createdBy) {
     return NextResponse.json(
@@ -133,7 +126,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ staff-only: usa service role (bypass RLS) per RPC
   let admin;
   try {
     admin = getAdminSupabase();
@@ -145,7 +137,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data, error } = await admin.rpc("create_pallet_wave", {
+  // ✅ IMPORTANT: RPC nello schema spst (non public)
+  const { data, error } = await admin.schema("spst").rpc("create_pallet_wave", {
     p_shipment_ids: shipment_ids,
     p_planned_pickup_date: planned_pickup_date,
     p_pickup_window: pickup_window ?? null,
