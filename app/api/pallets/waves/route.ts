@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth/requireStaff";
 import { supabaseServerSpst } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   const staff = await requireStaff();
   if (!staff) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
@@ -21,9 +23,9 @@ export async function POST(req: Request) {
     p_shipment_ids: shipment_ids,
     p_planned_pickup_date: planned_pickup_date,
     p_pickup_window: pickup_window,
-    p_notes: notes,
+    p_notes: notes ?? null,
     p_carrier_id: carrier_id,
-    p_created_by: staff.id,
+    p_created_by: staff.userId, // ✅ FIX
   });
 
   if (error) {
