@@ -133,21 +133,18 @@ export default function BackofficePalletClient() {
         setCarriers([]);
       }
 
-      // waves list: prefer /api/pallets/waves/list then fallback /api/pallets/waves
-      let wavesRes: { items: WaveListItem[] } | null = null;
+      // waves list (backoffice staff-only)
+      // ⚠️ NON usare /api/pallets/waves qui: è shared + RLS (carrier), quindi da staff può risultare vuoto.
+      let wavesRes: { items: WaveListItem[] } = { items: [] };
       try {
         wavesRes = await fetchJson<{ items: WaveListItem[] }>(
-          "/api/pallets/waves/list"
+          "/api/backoffice/pallets/waves"
         );
       } catch {
-        try {
-          wavesRes = await fetchJson<{ items: WaveListItem[] }>(
-            "/api/pallets/waves"
-          );
-        } catch {
-          wavesRes = { items: [] };
-        }
+        // fallback: non blocchiamo tutto il pannello se la lista waves fallisce
+        wavesRes = { items: [] };
       }
+
       setWaves(wavesRes.items ?? []);
     } catch (e: any) {
       setErr(String(e?.message ?? e));
