@@ -20,6 +20,41 @@ function getStaffUserId(x: any): string | null {
   return null;
 }
 
+/**
+ * GET /api/pallets/waves
+ * Shared (staff/carrier).
+ * - Staff: vede tutto se policy lo consente
+ * - Carrier: vede solo le proprie wave via RLS (carrier_users)
+ *
+ * NB: manteniamo anche /api/pallets/waves/list per retro-compatibilità.
+ */
+export async function GET() {
+  const supabase = supabaseServerSpst();
+
+  const { data, error } = await supabase
+    .from("pallet_waves")
+    .select(
+      `
+      id,
+      code,
+      status,
+      planned_pickup_date,
+      pickup_window,
+      notes,
+      created_at,
+      carriers(name)
+    `
+    )
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[GET /api/pallets/waves]", error);
+    return NextResponse.json({ error: "DB_ERROR" }, { status: 500 });
+  }
+
+  return NextResponse.json({ items: data ?? [] });
+}
+
 export async function POST(req: Request) {
   const staffRes: any = await requireStaff();
 
