@@ -20,6 +20,10 @@ function isBackofficePath(pathname: string) {
   );
 }
 
+function isCarrierPath(pathname: string) {
+  return pathname.startsWith("/carrier");
+}
+
 export async function middleware(req: NextRequest) {
   const { url, anon } = getEnv();
 
@@ -58,15 +62,47 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Back-office: serve staff/admin
-  if (isBackofficePath(pathname)) {
-    const email = (user.email || "").toLowerCase().trim();
+  const email = (user.email || "").toLowerCase().trim();
 
-    // ✅ hard allowlist "break-glass" per il tuo admin principale
-    if (email === "info@spst.it") {
-      return res;
+  // ✅ hard allowlist "break-glass" per admin principale
+  if (email === "info@spst.it") {
+    return res;
+  }
+
+  // ---------------------------
+  // Carrier portal: serve carrier enabled
+  // ---------------------------
+  if (isCarrierPath(pathname)) {
+    const { data: cu, error } = await supabase
+      .schema("spst")
+      .from("carrier_users")
+      .select("user_id, carrier_id, role, enabled")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error || !cu) {
+      // pagine carrier -> redirect dashboard
+      // (se in futuro aggiungi API carrier-only sotto /carrier/api, qui puoi distinguere)
+      return NextResponse.redirect(new URL("/dashboard", req.url));
     }
 
+    const enabled =
+      typeof (cu as any).enabled === "boolean" ? (cu as any).enabled : true;
+    const role = String((cu as any).role || "").toLowerCase().trim();
+
+    const isCarrier = role === "carrier" || role === "driver" || role === "admin";
+
+    if (!enabled || !isCarrier) {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
+
+    return res;
+  }
+
+  // ---------------------------
+  // Back-office: serve staff/admin
+  // ---------------------------
+  if (isBackofficePath(pathname)) {
     // Verifica su tabella spst.staff_users (schema spst)
     const { data: staff, error } = await supabase
       .schema("spst")
@@ -107,5 +143,10 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/back-office/:path*", "/api/backoffice/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/back-office/:path*",
+    "/api/backoffice/:path*",
+    "/carrier/:path*",
+  ],
 };
