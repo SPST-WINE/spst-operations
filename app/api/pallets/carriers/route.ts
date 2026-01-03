@@ -4,17 +4,32 @@ import { supabaseServerSpst } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+function isResponse(x: any): x is Response {
+  return x instanceof Response;
+}
+
 /**
  * Staff-only.
  * Returns the available private carriers configured in spst.carriers.
  * (MVP: used to pick SDF when creating a WAVE.)
  */
 export async function GET() {
-  const staff = await requireStaff();
-  if (!staff) {
+  const staffRes: any = await requireStaff();
+
+  // Caso A: requireStaff() ritorna direttamente una Response/NextResponse
+  if (isResponse(staffRes)) {
+    return staffRes;
+  }
+
+  // Caso B: ritorna un oggetto ok=false (con o senza response)
+  if (!staffRes || staffRes.ok !== true) {
+    if (staffRes?.response && isResponse(staffRes.response)) {
+      return staffRes.response;
+    }
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
+  // Caso C: ok=true → puoi procedere
   const supabase = supabaseServerSpst();
 
   const { data, error } = await supabase
