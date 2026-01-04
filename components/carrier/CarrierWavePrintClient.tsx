@@ -126,7 +126,7 @@ export default function CarrierWavePrintClient({ waveId }: { waveId: string }) {
         ) : (
           <>
             <div className="mb-6">
-              <div className="text-xs text-slate-500">SPST • Print view</div>
+              <div className="text-xs text-slate-500">SPST • Riepilogo wave</div>
               <div className="text-xl font-semibold text-slate-900">
                 {wave.code}
               </div>
@@ -275,31 +275,6 @@ export default function CarrierWavePrintClient({ waveId }: { waveId: string }) {
                             )}
                           </div>
                         )}
-                      </div>
-
-                      <div className="shrink-0 text-right">
-                        {(() => {
-                          const ldvRaw = s?.ldv;
-                          let ldvUrl: string | null = null;
-                          if (typeof ldvRaw === "string") {
-                            ldvUrl = ldvRaw;
-                          } else if (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw) {
-                            const ldvObj = ldvRaw as { url?: string | null };
-                            if (typeof ldvObj.url === "string") {
-                              ldvUrl = ldvObj.url;
-                            }
-                          }
-                          
-                          return ldvUrl ? (
-                            <div className="text-xs text-slate-500">
-                              DDT: {ldvUrl}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-rose-700">
-                              DDT assente
-                            </div>
-                          );
-                        })()}
                       </div>
                     </div>
                   </div>

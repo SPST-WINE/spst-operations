@@ -1,9 +1,33 @@
 import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth/requireStaff";
 import { supabaseServerSpst } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function getAdminSupabase() {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const service =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    "";
+
+  if (!url || !service) {
+    throw new Error(
+      "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY) and SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL"
+    );
+  }
+
+  return createClient(url, service, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
 
 export async function PATCH(
   req: Request,
@@ -11,15 +35,18 @@ export async function PATCH(
 ) {
   const { status } = await req.json();
 
-  const supabase = supabaseServerSpst();
+  const sessionSupabase = supabaseServerSpst();
 
   // Verifica se è staff
   const staffRes = await requireStaff();
   const isStaff = !("response" in staffRes) && staffRes?.ok === true;
 
+  // Usa service role per tutti gli update (bypass RLS)
+  const admin = getAdminSupabase();
+
   if (isStaff) {
     // Staff può aggiornare qualsiasi status
-    const { error } = await supabase
+    const { error } = await admin
       .schema("spst")
       .from("pallet_waves")
       .update({ status })
@@ -35,7 +62,7 @@ export async function PATCH(
 
   // Carrier: può solo aggiornare INVIATA -> IN CORSO
   // Verifica che la wave sia INVIATA e che il nuovo status sia IN CORSO
-  const { data: currentWave, error: fetchError } = await supabase
+  const { data: currentWave, error: fetchError } = await admin
     .schema("spst")
     .from("pallet_waves")
     .select("status, carrier_id")
@@ -58,13 +85,13 @@ export async function PATCH(
     );
   }
 
-  // Verifica che il carrier abbia accesso a questa wave (via RLS, ma facciamo doppio controllo)
-  const { data: { user } } = await supabase.auth.getUser();
+  // Verifica che il carrier abbia accesso a questa wave
+  const { data: { user } } = await sessionSupabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  const { data: carrierUser } = await supabase
+  const { data: carrierUser } = await sessionSupabase
     .schema("spst")
     .from("carrier_users")
     .select("carrier_id")
@@ -75,8 +102,8 @@ export async function PATCH(
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
-  // Aggiorna lo status
-  const { error } = await supabase
+  // Aggiorna lo status usando service role
+  const { error } = await admin
     .schema("spst")
     .from("pallet_waves")
     .update({ status })
