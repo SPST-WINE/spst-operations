@@ -31,7 +31,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 function statusPill(status?: string | null) {
   const s = (status ?? "").toLowerCase();
   const base =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium uppercase";
   if (s === "bozza") return cn(base, "bg-slate-100 text-slate-700");
   if (s === "inviata") return cn(base, "bg-blue-100 text-blue-700");
   if (s === "in_corso") return cn(base, "bg-amber-100 text-amber-700");
@@ -87,8 +87,12 @@ export default function CarrierWavesClient() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return (waves ?? []).filter((w) => {
+      // Carrier vede solo wave INVIATA e oltre (esclude BOZZA)
+      const waveStatus = (w.status ?? "").toLowerCase();
+      const isNotBozza = waveStatus !== "bozza";
+      
       const okStatus =
-        status === "all" ? true : (w.status ?? "").toLowerCase() === status;
+        status === "all" ? isNotBozza : (w.status ?? "").toLowerCase() === status;
       const okQuery =
         !qq ||
         (w.code ?? "").toLowerCase().includes(qq) ||

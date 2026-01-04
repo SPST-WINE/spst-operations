@@ -59,7 +59,7 @@ function formatDate(x?: string | null) {
 function statusPill(status?: string | null) {
   const s = (status ?? "").toLowerCase();
   const base =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium uppercase";
   if (s === "bozza") return cn(base, "bg-slate-100 text-slate-700");
   if (s === "inviata") return cn(base, "bg-blue-100 text-blue-700");
   if (s === "in_corso") return cn(base, "bg-amber-100 text-amber-700");

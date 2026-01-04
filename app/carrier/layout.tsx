@@ -20,6 +20,10 @@ function WhatsAppIcon(props: React.SVGProps<SVGSVGElement>) {
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "SPST Trasportatori",
+};
+
 export default function CarrierLayout({
   children,
 }: {

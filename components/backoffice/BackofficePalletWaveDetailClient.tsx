@@ -66,7 +66,7 @@ function formatDate(x?: string | null) {
 function statusPill(status?: string | null) {
   const s = (status ?? "").toLowerCase();
   const base =
-    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium";
+    "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium uppercase";
   if (s === "bozza") return cn(base, "bg-slate-100 text-slate-700");
   if (s === "inviata") return cn(base, "bg-blue-100 text-blue-700");
   if (s === "in_corso") return cn(base, "bg-amber-100 text-amber-700");
@@ -83,6 +83,8 @@ export default function BackofficePalletWaveDetailClient({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [wave, setWave] = useState<WaveDetail | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [cancelText, setCancelText] = useState("");
 
   async function load() {
     setLoading(true);
@@ -216,6 +218,107 @@ export default function BackofficePalletWaveDetailClient({
           >
             Aggiorna
           </button>
+        </div>
+      </div>
+
+      {/* Action buttons card */}
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="space-y-4">
+          {/* Invia wave (BOZZA -> INVIATA) */}
+          {(wave.status || "").toLowerCase() === "bozza" && (
+            <div>
+              <button
+                onClick={async () => {
+                  setUpdatingStatus(true);
+                  try {
+                    const res = await fetch(`/api/backoffice/pallets/waves/${encodeURIComponent(waveId)}/status`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ status: "inviata" }),
+                    });
+                    if (!res.ok) throw new Error("Failed to update status");
+                    await load();
+                  } catch (e: any) {
+                    setErr(String(e?.message ?? e));
+                  } finally {
+                    setUpdatingStatus(false);
+                  }
+                }}
+                disabled={updatingStatus}
+                className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updatingStatus ? "Invio in corso..." : "Invia wave"}
+              </button>
+            </div>
+          )}
+
+          {/* Segna come consegnata (IN CORSO -> COMPLETATA) */}
+          {(wave.status || "").toLowerCase() === "in_corso" && (
+            <div>
+              <button
+                onClick={async () => {
+                  setUpdatingStatus(true);
+                  try {
+                    const res = await fetch(`/api/backoffice/pallets/waves/${encodeURIComponent(waveId)}/status`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ status: "completata" }),
+                    });
+                    if (!res.ok) throw new Error("Failed to update status");
+                    await load();
+                  } catch (e: any) {
+                    setErr(String(e?.message ?? e));
+                  } finally {
+                    setUpdatingStatus(false);
+                  }
+                }}
+                disabled={updatingStatus}
+                className="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {updatingStatus ? "Aggiornamento..." : "Segna come consegnata"}
+              </button>
+            </div>
+          )}
+
+          {/* Annulla wave */}
+          {["bozza", "inviata", "in_corso"].includes((wave.status || "").toLowerCase()) && (
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-slate-900">Annulla wave</div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={cancelText}
+                  onChange={(e) => setCancelText(e.target.value)}
+                  placeholder="voglio annullare la wave"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                />
+                <button
+                  onClick={async () => {
+                    if (cancelText.trim() !== "voglio annullare la wave") return;
+                    setUpdatingStatus(true);
+                    try {
+                      const res = await fetch(`/api/backoffice/pallets/waves/${encodeURIComponent(waveId)}/status`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "annullata" }),
+                      });
+                      if (!res.ok) throw new Error("Failed to update status");
+                      setCancelText("");
+                      await load();
+                    } catch (e: any) {
+                      setErr(String(e?.message ?? e));
+                    } finally {
+                      setUpdatingStatus(false);
+                    }
+                  }}
+                  disabled={updatingStatus || cancelText.trim() !== "voglio annullare la wave"}
+                  className="inline-flex items-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                >
+                  {updatingStatus ? "Annullamento..." : "Annulla wave"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
