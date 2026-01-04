@@ -46,12 +46,25 @@ export async function GET(
           mittente_indirizzo,
           mittente_citta,
           mittente_cap,
-          mittente_telefono:mittente_tel,
+          mittente_telefono,
           destinatario_ragione_sociale:destinatario_rs,
+          destinatario_indirizzo,
           destinatario_citta,
+          destinatario_cap,
           destinatario_paese,
+          destinatario_telefono,
+          declared_value,
+          fatt_valuta,
           ldv,
-          note_ritiro
+          note_ritiro,
+          packages:packages!packages_shipment_id_fkey(
+            id,
+            length_cm,
+            width_cm,
+            height_cm,
+            weight_kg,
+            contenuto
+          )
         )
       )
     `

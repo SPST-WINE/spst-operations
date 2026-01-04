@@ -2,6 +2,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import React from "react";
+import { LogOut } from "lucide-react";
 
 /* Icona WhatsApp (SVG inline, no dipendenze esterne) */
 function WhatsAppIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -53,12 +54,6 @@ export default function CarrierLayout({
           </div>
 
           <nav className="flex items-center gap-3 text-sm">
-            <Link
-              href="/carrier/waves"
-              className="rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-100"
-            >
-              Waves
-            </Link>
             <a
               href={whatsappUrl}
               target="_blank"
@@ -68,6 +63,13 @@ export default function CarrierLayout({
               <WhatsAppIcon className="h-4 w-4" />
               Supporto WhatsApp
             </a>
+            <Link
+              href="/logout"
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/40"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Link>
           </nav>
         </div>
       </header>

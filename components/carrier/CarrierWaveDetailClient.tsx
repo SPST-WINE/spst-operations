@@ -35,12 +35,25 @@ type WaveDetail = {
 
       destinatario?: string | null;
       destinatario_ragione_sociale?: string | null;
-
+      destinatario_indirizzo?: string | null;
       destinatario_citta?: string | null;
+      destinatario_cap?: string | null;
       destinatario_paese?: string | null;
+      destinatario_telefono?: string | null;
+
+      declared_value?: number | null;
+      fatt_valuta?: string | null;
 
       ldv?: string | null;
       note_ritiro?: string | null;
+      packages?: Array<{
+        id: string;
+        length_cm?: number | null;
+        width_cm?: number | null;
+        height_cm?: number | null;
+        weight_kg?: number | null;
+        contenuto?: string | null;
+      }> | null;
     } | null;
   }>;
 };
@@ -228,7 +241,11 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
 
             const destLine = [
               destName,
-              [s?.destinatario_citta, s?.destinatario_paese]
+              [
+                s?.destinatario_indirizzo,
+                [s?.destinatario_cap, s?.destinatario_citta].filter(Boolean).join(" "),
+                s?.destinatario_paese,
+              ]
                 .filter(Boolean)
                 .join(" • "),
             ]
@@ -236,11 +253,14 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
               .join(" — ");
 
             const human = it.shipment_human_id || null;
+            const packages = s?.packages ?? [];
+            const declaredValue = s?.declared_value ?? null;
+            const valuta = s?.fatt_valuta ?? "EUR";
 
             return (
               <div key={it.shipment_id} className="px-4 py-4">
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-1">
+                  <div className="flex-1 space-y-1">
                     <div className="text-sm font-semibold text-slate-900">
                       {human ?? it.shipment_id}
                     </div>
@@ -258,6 +278,9 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                     {destLine ? (
                       <div className="text-xs text-slate-500">
                         Dest: {destLine}
+                        {s?.destinatario_telefono ? (
+                          <span className="ml-2">Tel: {s.destinatario_telefono}</span>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -271,6 +294,56 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                         Note ritiro: {s.note_ritiro}
                       </div>
                     ) : null}
+
+                    {/* Dettagli Pallet */}
+                    {(packages.length > 0 || declaredValue != null) && (
+                      <div className="mt-3 rounded-xl bg-slate-50 p-3">
+                        {packages.length > 0 && (
+                          <div className="mb-2">
+                            <div className="mb-2 text-xs font-semibold text-slate-700">
+                              Dettagli Pallet ({packages.length})
+                            </div>
+                            <div className="space-y-1">
+                              {packages.map((pkg, idx) => {
+                                const dims = [
+                                  pkg.length_cm,
+                                  pkg.width_cm,
+                                  pkg.height_cm,
+                                ]
+                                  .filter((d) => d != null)
+                                  .map((d) => `${d}`)
+                                  .join(" × ");
+                                return (
+                                  <div key={pkg.id} className="text-xs text-slate-600">
+                                    <span className="font-medium">#{idx + 1}</span>{" "}
+                                    {dims ? `Dim: ${dims} cm` : ""}
+                                    {pkg.weight_kg != null
+                                      ? ` • Peso: ${pkg.weight_kg.toLocaleString("it-IT", {
+                                          minimumFractionDigits: 2,
+                                          maximumFractionDigits: 2,
+                                        })} kg`
+                                      : ""}
+                                    {pkg.contenuto ? ` • ${pkg.contenuto}` : ""}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {declaredValue != null && (
+                          <div className="text-xs text-slate-700">
+                            <span className="font-semibold">Valore assicurato:</span>{" "}
+                            <span className="text-slate-600">
+                              {declaredValue.toLocaleString("it-IT", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{" "}
+                              {valuta}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
