@@ -1,3 +1,4 @@
+// components/backoffice/BackofficePalletWaveDetailClient.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,15 +19,15 @@ type WaveDetail = {
     requested_pickup_date: string | null;
     planned_pickup_date: string | null;
     shipments?: {
-      mittente_ragione_sociale?: string | null;
+      mittente_rs?: string | null;
       mittente_indirizzo?: string | null;
       mittente_citta?: string | null;
       mittente_cap?: string | null;
       mittente_telefono?: string | null;
 
-      destinatario_ragione_sociale?: string | null;
-      destinatario_citta?: string | null;
-      destinatario_paese?: string | null;
+      dest_rs?: string | null;
+      dest_citta?: string | null;
+      dest_paese?: string | null;
 
       ldv?: string | null;
     };
@@ -75,8 +76,9 @@ export default function BackofficePalletWaveDetailClient({
     setLoading(true);
     setErr(null);
     try {
+      // ✅ backoffice staff-only route (service role, bypass RLS)
       const res = await fetchJson<{ wave: WaveDetail }>(
-        `/api/pallets/waves/${encodeURIComponent(waveId)}`
+        `/api/backoffice/pallets/waves/${encodeURIComponent(waveId)}`
       );
       setWave(res.wave ?? null);
     } catch (e: any) {
@@ -236,9 +238,10 @@ export default function BackofficePalletWaveDetailClient({
                 const sh = it.shipments;
                 const ddt = sh?.ldv ?? null;
                 const human = it.shipment_human_id ?? "—";
-                const toShipmentHref = human !== "—"
-                  ? `/back-office/spedizioni/${encodeURIComponent(human)}`
-                  : null;
+                const toShipmentHref =
+                  human !== "—"
+                    ? `/back-office/spedizioni/${encodeURIComponent(human)}`
+                    : null;
 
                 return (
                   <tr key={it.shipment_id} className="hover:bg-slate-50">
@@ -264,7 +267,7 @@ export default function BackofficePalletWaveDetailClient({
 
                     <td className="px-4 py-3">
                       <div className="text-sm text-slate-800">
-                        {sh?.mittente_ragione_sociale ?? "—"}
+                        {sh?.mittente_rs ?? "—"}
                       </div>
                       <div className="mt-1 text-[11px] text-slate-500">
                         {[
@@ -284,13 +287,12 @@ export default function BackofficePalletWaveDetailClient({
 
                     <td className="px-4 py-3">
                       <div className="text-sm text-slate-800">
-                        {sh?.destinatario_ragione_sociale ?? "—"}
+                        {sh?.dest_rs ?? "—"}
                       </div>
                       <div className="mt-1 text-[11px] text-slate-500">
-                        {[
-                          sh?.destinatario_citta,
-                          sh?.destinatario_paese,
-                        ].filter(Boolean).join(", ") || "—"}
+                        {[sh?.dest_citta, sh?.dest_paese]
+                          .filter(Boolean)
+                          .join(", ") || "—"}
                       </div>
                     </td>
 
