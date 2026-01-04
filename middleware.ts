@@ -46,7 +46,7 @@ export async function middleware(req: NextRequest) {
     },
   });
 
-  // keep session fresh
+  // keep session fresh - getSession() automatically refreshes the session if needed
   await supabase.auth.getSession();
 
   const {

@@ -278,15 +278,24 @@ export default function CarrierWavePrintClient({ waveId }: { waveId: string }) {
                       </div>
 
                       <div className="shrink-0 text-right">
-                        {s?.ldv ? (
-                          <div className="text-xs text-slate-500">
-                            DDT: {s.ldv}
-                          </div>
-                        ) : (
-                          <div className="text-xs text-rose-700">
-                            DDT assente
-                          </div>
-                        )}
+                        {(() => {
+                          const ldvRaw = s?.ldv;
+                          const ldvUrl = typeof ldvRaw === "string" 
+                            ? ldvRaw 
+                            : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
+                            ? ldvRaw.url
+                            : null;
+                          
+                          return ldvUrl ? (
+                            <div className="text-xs text-slate-500">
+                              DDT: {ldvUrl}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-rose-700">
+                              DDT assente
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </div>

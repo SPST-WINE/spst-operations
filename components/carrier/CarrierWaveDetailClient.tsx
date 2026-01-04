@@ -118,8 +118,13 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
   const missingDdt = useMemo(() => {
     let n = 0;
     for (const it of items) {
-      const ldv = it.shipments?.ldv;
-      if (!ldv) n += 1;
+      const ldvRaw = it.shipments?.ldv;
+      const hasLdv = typeof ldvRaw === "string" 
+        ? !!ldvRaw 
+        : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
+        ? !!ldvRaw.url
+        : false;
+      if (!hasLdv) n += 1;
     }
     return n;
   }, [items]);
@@ -223,7 +228,14 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
         <div className="divide-y">
           {items.map((it) => {
             const s = it.shipments ?? null;
-            const ldv = s?.ldv ?? null;
+            // ldv può essere una stringa (URL legacy) o un oggetto {url, file_name, ...}
+            const ldvRaw = s?.ldv ?? null;
+            const ldvUrl = typeof ldvRaw === "string" 
+              ? ldvRaw 
+              : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
+              ? ldvRaw.url
+              : null;
+            const hasLdv = !!ldvUrl;
 
             const mittenteName =
               s?.mittente_ragione_sociale ?? s?.mittente ?? null;
@@ -347,9 +359,9 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {ldv ? (
+                    {hasLdv && ldvUrl ? (
                       <a
-                        href={ldv}
+                        href={ldvUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex h-9 items-center justify-center rounded-xl bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-800"
