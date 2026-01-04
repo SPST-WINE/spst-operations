@@ -52,19 +52,24 @@ export default function CarrierWavesClient() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
 
-  async function load() {
+   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      // prefer canonical /api/pallets/waves, fallback to /list for safety
+      // ✅ Canonico per CARRIER:
+      // /api/pallets/waves/list filtra automaticamente per carrier_id (via carrier_users)
+      // e in caso staff usa admin (service role) lato route.
       let res: { items: WaveListItem[] } | null = null;
+
       try {
-        res = await fetchJson<{ items: WaveListItem[] }>("/api/pallets/waves");
-      } catch {
         res = await fetchJson<{ items: WaveListItem[] }>(
           "/api/pallets/waves/list"
         );
+      } catch (e) {
+        // fallback legacy (se esiste ancora /api/pallets/waves con RLS)
+        res = await fetchJson<{ items: WaveListItem[] }>("/api/pallets/waves");
       }
+
       setWaves(res.items ?? []);
     } catch (e: any) {
       setErr(String(e?.message ?? e));
@@ -73,6 +78,7 @@ export default function CarrierWavesClient() {
       setLoading(false);
     }
   }
+
 
   useEffect(() => {
     void load();
