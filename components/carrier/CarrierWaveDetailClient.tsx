@@ -24,17 +24,23 @@ type WaveDetail = {
     requested_pickup_date: string | null;
     planned_pickup_date: string | null;
     shipments?: {
-      mittente_ragione_sociale: string | null;
-      mittente_indirizzo: string | null;
-      mittente_citta: string | null;
-      mittente_cap: string | null;
-      mittente_telefono: string | null;
+      // ✅ campi REALI (più tolleranza)
+      mittente?: string | null;
+      mittente_ragione_sociale?: string | null;
 
-      destinatario_ragione_sociale: string | null;
-      destinatario_citta: string | null;
-      destinatario_paese: string | null;
+      mittente_indirizzo?: string | null;
+      mittente_citta?: string | null;
+      mittente_cap?: string | null;
+      mittente_telefono?: string | null;
 
-      ldv: string | null;
+      destinatario?: string | null;
+      destinatario_ragione_sociale?: string | null;
+
+      destinatario_citta?: string | null;
+      destinatario_paese?: string | null;
+
+      ldv?: string | null;
+      note_ritiro?: string | null;
     } | null;
   }>;
 };
@@ -172,8 +178,7 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                 <span className="font-medium">{wave.pickup_window || "—"}</span>
               </div>
               <div>
-                Spedizioni:{" "}
-                <span className="font-medium">{items.length}</span>
+                Ritiri: <span className="font-medium">{items.length}</span>
               </div>
               <div>
                 DDT mancanti:{" "}
@@ -204,11 +209,17 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
 
         <div className="divide-y">
           {items.map((it) => {
-            const s = it.shipments;
+            const s = it.shipments ?? null;
             const ldv = s?.ldv ?? null;
 
+            const mittenteName =
+              s?.mittente_ragione_sociale ?? s?.mittente ?? null;
+
+            const destName =
+              s?.destinatario_ragione_sociale ?? s?.destinatario ?? null;
+
             const mittenteLine = [
-              s?.mittente_ragione_sociale,
+              mittenteName,
               s?.mittente_indirizzo,
               [s?.mittente_cap, s?.mittente_citta].filter(Boolean).join(" "),
             ]
@@ -216,7 +227,7 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
               .join(" • ");
 
             const destLine = [
-              s?.destinatario_ragione_sociale,
+              destName,
               [s?.destinatario_citta, s?.destinatario_paese]
                 .filter(Boolean)
                 .join(" • "),
@@ -224,12 +235,14 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
               .filter(Boolean)
               .join(" — ");
 
+            const human = it.shipment_human_id || null;
+
             return (
               <div key={it.shipment_id} className="px-4 py-4">
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-slate-900">
-                      {it.shipment_human_id || it.shipment_id}
+                      {human ?? it.shipment_id}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
@@ -249,9 +262,15 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                     ) : null}
 
                     <div className="text-xs text-slate-500">
-                      Richiesto: {fmtDate(it.requested_pickup_date)} • Pianificato
-                      item: {fmtDate(it.planned_pickup_date)}
+                      Richiesto: {fmtDate(it.requested_pickup_date)} • Pianificato:{" "}
+                      {fmtDate(it.planned_pickup_date)}
                     </div>
+
+                    {s?.note_ritiro ? (
+                      <div className="text-xs text-slate-500">
+                        Note ritiro: {s.note_ritiro}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -270,17 +289,6 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                         DDT assente
                       </span>
                     )}
-
-                    <a
-                      href={`/back-office/spedizioni/${it.shipment_id}`}
-                      className="inline-flex h-9 items-center justify-center rounded-xl border bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Apri spedizione nel backoffice (solo staff)"
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Sped.
-                    </a>
                   </div>
                 </div>
               </div>
