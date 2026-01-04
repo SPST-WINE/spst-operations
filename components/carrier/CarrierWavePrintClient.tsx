@@ -280,11 +280,15 @@ export default function CarrierWavePrintClient({ waveId }: { waveId: string }) {
                       <div className="shrink-0 text-right">
                         {(() => {
                           const ldvRaw = s?.ldv;
-                          const ldvUrl = typeof ldvRaw === "string" 
-                            ? ldvRaw 
-                            : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
-                            ? ldvRaw.url
-                            : null;
+                          let ldvUrl: string | null = null;
+                          if (typeof ldvRaw === "string") {
+                            ldvUrl = ldvRaw;
+                          } else if (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw) {
+                            const ldvObj = ldvRaw as { url?: string | null };
+                            if (typeof ldvObj.url === "string") {
+                              ldvUrl = ldvObj.url;
+                            }
+                          }
                           
                           return ldvUrl ? (
                             <div className="text-xs text-slate-500">

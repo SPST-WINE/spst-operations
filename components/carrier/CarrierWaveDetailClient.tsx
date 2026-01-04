@@ -119,11 +119,13 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
     let n = 0;
     for (const it of items) {
       const ldvRaw = it.shipments?.ldv;
-      const hasLdv = typeof ldvRaw === "string" 
-        ? !!ldvRaw 
-        : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
-        ? !!ldvRaw.url
-        : false;
+      let hasLdv = false;
+      if (typeof ldvRaw === "string") {
+        hasLdv = !!ldvRaw;
+      } else if (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw) {
+        const ldvObj = ldvRaw as { url?: string | null };
+        hasLdv = typeof ldvObj.url === "string" && !!ldvObj.url;
+      }
       if (!hasLdv) n += 1;
     }
     return n;
@@ -230,11 +232,15 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
             const s = it.shipments ?? null;
             // ldv può essere una stringa (URL legacy) o un oggetto {url, file_name, ...}
             const ldvRaw = s?.ldv ?? null;
-            const ldvUrl = typeof ldvRaw === "string" 
-              ? ldvRaw 
-              : (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw && typeof ldvRaw.url === "string")
-              ? ldvRaw.url
-              : null;
+            let ldvUrl: string | null = null;
+            if (typeof ldvRaw === "string") {
+              ldvUrl = ldvRaw;
+            } else if (ldvRaw && typeof ldvRaw === "object" && "url" in ldvRaw) {
+              const ldvObj = ldvRaw as { url?: string | null };
+              if (typeof ldvObj.url === "string") {
+                ldvUrl = ldvObj.url;
+              }
+            }
             const hasLdv = !!ldvUrl;
 
             const mittenteName =
