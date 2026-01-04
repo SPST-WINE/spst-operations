@@ -16,7 +16,7 @@ export const runtime = "nodejs";
  * - shipments.note_ritiro
  *
  * DB fields (current):
- * - shipments.mittente_rs / destinatario_rs (hint 42703)
+ * - shipments.mittente_rs / dest_rs
  */
 export async function GET(
   _req: Request,
@@ -47,12 +47,12 @@ export async function GET(
           mittente_citta,
           mittente_cap,
           mittente_telefono,
-          destinatario_ragione_sociale:destinatario_rs,
-          destinatario_indirizzo,
-          destinatario_citta,
-          destinatario_cap,
-          destinatario_paese,
-          destinatario_telefono,
+          destinatario_ragione_sociale:dest_rs,
+          destinatario_indirizzo:dest_indirizzo,
+          destinatario_citta:dest_citta,
+          destinatario_cap:dest_cap,
+          destinatario_paese:dest_paese,
+          destinatario_telefono:dest_telefono,
           declared_value,
           fatt_valuta,
           ldv,
