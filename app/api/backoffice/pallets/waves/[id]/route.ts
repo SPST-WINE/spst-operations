@@ -91,7 +91,17 @@ export async function GET(
           dest_cap,
           dest_paese,
           dest_telefono,
-          ldv
+          declared_value,
+          fatt_valuta,
+          ldv,
+          packages:packages!packages_shipment_id_fkey(
+            id,
+            length_cm,
+            width_cm,
+            height_cm,
+            weight_kg,
+            contenuto
+          )
         )
       )
     `

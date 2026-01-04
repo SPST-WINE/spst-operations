@@ -28,8 +28,20 @@ type WaveDetail = {
       dest_rs?: string | null;
       dest_citta?: string | null;
       dest_paese?: string | null;
+      dest_telefono?: string | null;
+
+      declared_value?: number | null;
+      fatt_valuta?: string | null;
 
       ldv?: string | null;
+      packages?: Array<{
+        id: string;
+        length_cm?: number | null;
+        width_cm?: number | null;
+        height_cm?: number | null;
+        weight_kg?: number | null;
+        contenuto?: string | null;
+      }> | null;
     };
   }>;
 };
@@ -234,7 +246,7 @@ export default function BackofficePalletWaveDetailClient({
             </thead>
 
             <tbody className="divide-y">
-              {items.map((it) => {
+              {items.flatMap((it) => {
                 const sh = it.shipments;
                 const ddt = sh?.ldv ?? null;
                 const human = it.shipment_human_id ?? "—";
@@ -242,8 +254,11 @@ export default function BackofficePalletWaveDetailClient({
                   human !== "—"
                     ? `/back-office/spedizioni/${encodeURIComponent(human)}`
                     : null;
+                const packages = sh?.packages ?? [];
+                const declaredValue = sh?.declared_value ?? null;
+                const valuta = sh?.fatt_valuta ?? "EUR";
 
-                return (
+                const rows = [
                   <tr key={it.shipment_id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -294,6 +309,11 @@ export default function BackofficePalletWaveDetailClient({
                           .filter(Boolean)
                           .join(", ") || "—"}
                       </div>
+                      {sh?.dest_telefono ? (
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          Tel: {sh.dest_telefono}
+                        </div>
+                      ) : null}
                     </td>
 
                     <td className="px-4 py-3 text-slate-800">
@@ -320,8 +340,85 @@ export default function BackofficePalletWaveDetailClient({
                         </span>
                       )}
                     </td>
-                  </tr>
-                );
+                  </tr>,
+                ];
+
+                if (packages.length > 0 || declaredValue != null) {
+                  rows.push(
+                    <tr key={`${it.shipment_id}-details`} className="bg-slate-50">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="space-y-3">
+                          {packages.length > 0 && (
+                            <div>
+                              <div className="mb-2 text-xs font-semibold text-slate-700">
+                                Dettagli Pallet ({packages.length})
+                              </div>
+                              <div className="overflow-x-auto rounded-xl bg-white">
+                                <table className="min-w-full text-xs">
+                                  <thead className="bg-slate-100 text-[11px] text-slate-600">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left">#</th>
+                                      <th className="px-3 py-2 text-left">Dimensioni (cm)</th>
+                                      <th className="px-3 py-2 text-left">Peso (kg)</th>
+                                      <th className="px-3 py-2 text-left">Contenuto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {packages.map((pkg, idx) => {
+                                      const dims = [
+                                        pkg.length_cm,
+                                        pkg.width_cm,
+                                        pkg.height_cm,
+                                      ]
+                                        .filter((d) => d != null)
+                                        .map((d) => `${d}`)
+                                        .join(" × ");
+                                      return (
+                                        <tr key={pkg.id}>
+                                          <td className="px-3 py-2 font-medium text-slate-700">
+                                            {idx + 1}
+                                          </td>
+                                          <td className="px-3 py-2 text-slate-600">
+                                            {dims || "—"}
+                                          </td>
+                                          <td className="px-3 py-2 text-slate-600">
+                                            {pkg.weight_kg != null
+                                              ? `${pkg.weight_kg.toLocaleString("it-IT", {
+                                                  minimumFractionDigits: 2,
+                                                  maximumFractionDigits: 2,
+                                                })}`
+                                              : "—"}
+                                          </td>
+                                          <td className="px-3 py-2 text-slate-600">
+                                            {pkg.contenuto || "—"}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                          {declaredValue != null && (
+                            <div className="text-xs text-slate-700">
+                              <span className="font-semibold">Valore assicurato:</span>{" "}
+                              <span className="text-slate-600">
+                                {declaredValue.toLocaleString("it-IT", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{" "}
+                                {valuta}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return rows;
               })}
 
               {items.length === 0 ? (
