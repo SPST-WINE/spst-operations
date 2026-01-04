@@ -1,54 +1,30 @@
-// app/api/pallets/waves/[id]/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServerSpst } from "@/lib/supabase/server";
-import { requireStaff } from "@/lib/auth/requireStaff";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function isResponse(x: any): x is Response {
-  return x instanceof Response;
-}
-
-function getAdminSupabase() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-
-  const service =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "";
-
-  if (!url || !service) {
-    throw new Error(
-      "Missing SUPABASE_SERVICE_ROLE (or SUPABASE_SERVICE_ROLE_KEY) and SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL"
-    );
-  }
-
-  return createClient(url, service, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-}
-
+/**
+ * GET /api/pallets/waves/:id
+ * Shared (staff/carrier) via session + RLS.
+ *
+ * Canonical response fields (UI):
+ * - shipments.mittente_ragione_sociale
+ * - shipments.destinatario_ragione_sociale
+ * - shipments.mittente_telefono
+ * - shipments.ldv
+ * - shipments.note_ritiro
+ *
+ * DB fields (current):
+ * - shipments.mittente_rs / destinatario_rs (hint 42703)
+ */
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
 ) {
-  // Staff => service role (bypass RLS)
-  // Carrier => session + RLS
-  const staffRes: any = await requireStaff();
-  const isStaff = !isResponse(staffRes) && staffRes?.ok === true;
+  const supabase = supabaseServerSpst();
 
-  const supabase = isStaff ? getAdminSupabase() : supabaseServerSpst();
-
-  // ⚠️ IMPORTANTISSIMO: schema spst
   const { data, error } = await supabase
-    .schema("spst")
     .from("pallet_waves")
     .select(
       `
@@ -66,12 +42,12 @@ export async function GET(
         requested_pickup_date,
         planned_pickup_date,
         shipments(
-          mittente,
+          mittente_ragione_sociale:mittente_rs,
           mittente_indirizzo,
           mittente_citta,
           mittente_cap,
-          mittente_telefono,
-          destinatario,
+          mittente_telefono:mittente_tel,
+          destinatario_ragione_sociale:destinatario_rs,
           destinatario_citta,
           destinatario_paese,
           ldv,
@@ -84,15 +60,18 @@ export async function GET(
     .single();
 
   if (error) {
-    console.error(
-      `[GET /api/pallets/waves/:id] (${isStaff ? "staff" : "carrier"}) DB error:`,
-      error
-    );
+    console.error("[GET /api/pallets/waves/:id] DB error:", error);
 
-    // Se carrier non ha accesso (RLS) o non esiste: 404 pulito
+    // Not found / RLS denies → 404
+    // (PostgREST usa spesso PGRST116 per .single() con 0 righe)
+    const msg = String(error.message ?? "");
+    if (error.code === "PGRST116" || msg.toLowerCase().includes("0 rows")) {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+
     return NextResponse.json(
-      { error: "NOT_FOUND" },
-      { status: 404 }
+      { error: "DB_ERROR", details: error.message },
+      { status: 500 }
     );
   }
 
