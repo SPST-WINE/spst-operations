@@ -11,8 +11,16 @@ export function renderDdtHtml(doc: DocData): string {
   const courierStr = meta.courier ? esc(meta.courier) : "";
   const trackingStr = meta.trackingCode ? esc(meta.trackingCode) : "";
 
+  // Determina se è vino o altro
+  const isVino = shipment.sorgente === "vino";
+  const isAltro = shipment.sorgente === "altro";
+  
+  // Nome azienda in base a sorgente
+  const companyName = isAltro ? "Specialized Pallet Logistics" : "Specialized Wine Logistics";
+
   const totalPackages =
-    shipment.totalPackages != null ? String(shipment.totalPackages) : "-";
+    shipment.totalPackages != null && shipment.totalPackages > 0 ? shipment.totalPackages : 1;
+  const totalPackagesStr = String(totalPackages);
   const totalWeight =
     shipment.totalGrossWeightKg != null
       ? `${formatNumber(shipment.totalGrossWeightKg, 2)} kg`
@@ -49,10 +57,10 @@ export function renderDdtHtml(doc: DocData): string {
     (meta as any).note ??
     null;
 
-  // 🔹 Righe dettaglio merce – con colonna Alc. % vol
+  // 🔹 Righe dettaglio merce – colonne condizionali in base a sorgente
   const rowsHtml =
     items.length === 0
-      ? `<tr><td colspan="4" style="padding:8px;font-size:11px;color:#555;">Nessun articolo</td></tr>`
+      ? `<tr><td colspan="${isVino ? "4" : "2"}" style="padding:8px;font-size:11px;color:#555;">Nessun articolo</td></tr>`
       : items
           .map((it, idx) => {
             const alcStr =
@@ -60,7 +68,8 @@ export function renderDdtHtml(doc: DocData): string {
                 ? `Alc. ${formatNumber(it.alcoholPercent, 1)}% vol`
                 : "";
 
-            return `
+            if (isVino) {
+              return `
           <tr>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;">${idx + 1}</td>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;">${esc(
@@ -71,18 +80,70 @@ export function renderDdtHtml(doc: DocData): string {
             }</td>
             <td style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">${alcStr}</td>
           </tr>`;
+            } else {
+              return `
+          <tr>
+            <td style="padding:6px;border-bottom:1px solid #e5e7eb;">${idx + 1}</td>
+            <td style="padding:6px;border-bottom:1px solid #e5e7eb;">${esc(
+              it.description
+            )}</td>
+          </tr>`;
+            }
           })
           .join("");
 
-  const body = `
-  <div class="page">
+  // Header tabelle condizionale
+  const tableHeader = isVino
+    ? `
+      <thead>
+        <tr>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">#</th>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">Descrizione</th>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Quantità (bt)</th>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Alc. % vol</th>
+        </tr>
+      </thead>`
+    : `
+      <thead>
+        <tr>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">#</th>
+          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">Descrizione</th>
+        </tr>
+      </thead>`;
+
+  // Dati spedizione condizionale (rimuovi Totale bottiglie e Volume totale per altro)
+  const datiSpedizioneRows = isVino
+    ? `
+            Luogo di partenza: <strong>${esc(originPlace)}</strong><br/>
+            Luogo di consegna: <strong>${esc(destinationPlace)}</strong><br/>
+            Data partenza: <strong>${pickupDate}</strong><br/>
+            Numero colli: <strong>${totalPackagesStr}</strong><br/>
+            Peso lordo: <strong>${totalWeight}</strong><br/>
+            Totale bottiglie: <strong>${totalBottles}</strong><br/>
+            Volume totale: <strong>${totalVolumeStr}</strong><br/>`
+    : `
+            Luogo di partenza: <strong>${esc(originPlace)}</strong><br/>
+            Luogo di consegna: <strong>${esc(destinationPlace)}</strong><br/>
+            Data partenza: <strong>${pickupDate}</strong><br/>
+            Numero colli: <strong>${totalPackagesStr}</strong><br/>
+            Peso lordo: <strong>${totalWeight}</strong><br/>`;
+
+  // Funzione per generare una singola pagina
+  const renderPage = (pageNum: number, totalPages: number) => {
+    const pageIndicator = totalPages > 1 
+      ? `<div style="position:absolute;top:10mm;right:18mm;font-size:10px;color:#6b7280;">${pageNum} di ${totalPages}</div>`
+      : "";
+    
+    return `
+  <div class="page" style="position:relative;">
+    ${pageIndicator}
 
     <!-- Intestazione -->
     <table style="width:100%; margin-bottom:16px;">
       <tr>
         <td>
           ${renderSpstLogo()}
-          <div style="font-size:11px;color:#6b7280;margin-top:4px;">Specialized Wine Logistics</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;">${esc(companyName)}</div>
         </td>
         <td style="text-align:right;">
           <div style="font-size:16px;font-weight:700;">DOCUMENTO DI TRASPORTO (DDT)</div>
@@ -123,13 +184,7 @@ export function renderDdtHtml(doc: DocData): string {
         <td style="width:50%; vertical-align:top; padding-right:8px;">
           <div class="section-title">Dati spedizione</div>
           <div style="line-height:1.5;">
-            Luogo di partenza: <strong>${esc(originPlace)}</strong><br/>
-            Luogo di consegna: <strong>${esc(destinationPlace)}</strong><br/>
-            Data partenza: <strong>${pickupDate}</strong><br/>
-            Numero colli: <strong>${totalPackages}</strong><br/>
-            Peso lordo: <strong>${totalWeight}</strong><br/>
-            Totale bottiglie: <strong>${totalBottles}</strong><br/>
-            Volume totale: <strong>${totalVolumeStr}</strong><br/>
+            ${datiSpedizioneRows}
           </div>
         </td>
         <td style="width:50%; vertical-align:top;">
@@ -140,7 +195,7 @@ export function renderDdtHtml(doc: DocData): string {
             Descrizione merce: <strong>${
               shipment.contentSummary
                 ? esc(shipment.contentSummary)
-                : "Bottiglie di vino"
+                : isVino ? "Bottiglie di vino" : "Merce"
             }</strong><br/>
           </div>
         </td>
@@ -150,14 +205,7 @@ export function renderDdtHtml(doc: DocData): string {
     <!-- Articoli -->
     <div class="section-title" style="margin-bottom:4px;">Dettaglio merce</div>
     <table>
-      <thead>
-        <tr>
-          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">#</th>
-          <th style="padding:6px;border-bottom:1px solid #e5e7eb;">Descrizione</th>
-          <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Quantità (bt)</th>
-          <th style="padding:6px;border-bottom:1px solid #e5e7eb;text-align:right;">Alc. % vol</th>
-        </tr>
-      </thead>
+      ${tableHeader}
       <tbody>
         ${rowsHtml}
       </tbody>
@@ -195,8 +243,16 @@ export function renderDdtHtml(doc: DocData): string {
       </tr>
     </table>
 
-  </div>
-  `;
+  </div>`;
+  };
+
+  // Genera una pagina per ogni collo
+  const pages = [];
+  for (let i = 1; i <= totalPackages; i++) {
+    pages.push(renderPage(i, totalPackages));
+  }
+
+  const body = pages.join("\n");
 
   return renderBaseHtml({
     title: `DDT - ${docNumber}`,

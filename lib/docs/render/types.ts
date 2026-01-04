@@ -52,6 +52,7 @@ export type DocData = {
     totalGrossWeightKg: number | null;
     contentSummary: string | null;
     pickupDate: string | null;
+    sorgente?: "vino" | "altro" | null; // Tipo merce: vino o altro
   };
   items: DocItem[];
   totals: {

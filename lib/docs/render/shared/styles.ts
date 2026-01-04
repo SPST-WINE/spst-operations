@@ -17,6 +17,18 @@ export const baseDocStyles = `
     padding: 18mm 18mm 20mm 18mm;
     margin: 0 auto;
     background: #ffffff;
+    page-break-after: always;
+  }
+  .page:last-child {
+    page-break-after: auto;
+  }
+  @media print {
+    .page {
+      page-break-after: always;
+    }
+    .page:last-child {
+      page-break-after: auto;
+    }
   }
   h1, h2, h3, h4 {
     margin: 0;

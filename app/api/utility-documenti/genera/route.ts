@@ -200,6 +200,13 @@ function buildDocDataFromShipment(
   // Numero documento (usa human_id come base)
   const docNumber = shipment.human_id || `DOC-${Date.now()}`;
 
+  // Estrai sorgente da fields.extras.sorgente
+  const fieldsAny: any = shipment.fields || {};
+  const extrasAny: any = fieldsAny.extras || {};
+  const sorgente = (extrasAny.sorgente === "vino" || extrasAny.sorgente === "altro") 
+    ? extrasAny.sorgente 
+    : null;
+
   return {
     meta: {
       docType,
@@ -223,6 +230,7 @@ function buildDocDataFromShipment(
       pickupDate: shipment.giorno_ritiro 
         ? new Date(shipment.giorno_ritiro).toISOString().split("T")[0]
         : null,
+      sorgente,
     },
     items,
     totals: {
