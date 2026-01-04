@@ -37,89 +37,15 @@ function getAdminSupabase() {
 }
 
 export async function GET() {
-  // 1) Se è STAFF → lista completa (admin bypass RLS)
+  // Se è staff => service role (bypass RLS) e vede tutto
+  // Se non è staff => session+RLS (carrier vede solo le sue wave)
   const staffRes: any = await requireStaff();
   const isStaff = !isResponse(staffRes) && staffRes?.ok === true;
 
-  if (isStaff) {
-    try {
-      const admin = getAdminSupabase();
-      const { data, error } = await admin
-        .from("pallet_waves")
-        .select(
-          `
-          id,
-          code,
-          status,
-          planned_pickup_date,
-          pickup_window,
-          notes,
-          created_at,
-          carrier_id,
-          carriers(name)
-        `
-        )
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("[GET /api/pallets/waves/list] (staff) DB error:", error);
-        return NextResponse.json(
-          { error: "DB_ERROR", details: error.message },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({ items: data ?? [] });
-    } catch (e: any) {
-      console.error(
-        "[GET /api/pallets/waves/list] (staff) Admin init error:",
-        e
-      );
-      return NextResponse.json(
-        { error: "SERVER_MISCONFIG", details: String(e?.message ?? e) },
-        { status: 500 }
-      );
-    }
-  }
-
-  // 2) Altrimenti: è CARRIER (o comunque utente non-staff)
-  //    → ricava carrier_id da carrier_users e filtra le wave
-  const supabase = supabaseServerSpst();
-
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
-
-  if (userErr) {
-    console.error("[GET /api/pallets/waves/list] auth.getUser error:", userErr);
-  }
-  if (!user) {
-    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-  }
-
-  // prendo carrier_id associato all’utente autenticato
-  const { data: cu, error: cuErr } = await supabase
-    .from("carrier_users")
-    .select("carrier_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (cuErr) {
-    console.error("[GET /api/pallets/waves/list] carrier_users error:", cuErr);
-    return NextResponse.json(
-      { error: "DB_ERROR", details: cuErr.message },
-      { status: 500 }
-    );
-  }
-
-  const carrierId = cu?.carrier_id ?? null;
-  if (!carrierId) {
-    // nessuna associazione → nessuna wave visibile
-    return NextResponse.json({ items: [] });
-  }
+  const supabase = isStaff ? getAdminSupabase() : supabaseServerSpst();
 
   const { data, error } = await supabase
+    .schema("spst")
     .from("pallet_waves")
     .select(
       `
@@ -130,15 +56,16 @@ export async function GET() {
       pickup_window,
       notes,
       created_at,
-      carrier_id,
       carriers(name)
     `
     )
-    .eq("carrier_id", carrierId)
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[GET /api/pallets/waves/list] (carrier) DB error:", error);
+    console.error(
+      `[GET /api/pallets/waves/list] (${isStaff ? "staff" : "carrier"}) DB error:`,
+      error
+    );
     return NextResponse.json(
       { error: "DB_ERROR", details: error.message },
       { status: 500 }
