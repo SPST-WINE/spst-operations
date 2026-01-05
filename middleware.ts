@@ -57,8 +57,19 @@ export async function middleware(req: NextRequest) {
 
   // Qualsiasi area protetta: se non loggato -> login
   if (!user) {
+    // Per le API evita redirect HTML: il client si aspetta JSON.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { ok: false, error: "UNAUTHENTICATED" },
+        { status: 401 }
+      );
+    }
+
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search);
+    loginUrl.searchParams.set(
+      "next",
+      req.nextUrl.pathname + req.nextUrl.search
+    );
     return NextResponse.redirect(loginUrl);
   }
 
@@ -147,6 +158,7 @@ export const config = {
     "/dashboard/:path*",
     "/back-office/:path*",
     "/api/backoffice/:path*",
+    "/api/pallets/:path*",
     "/carrier/:path*",
   ],
 };
