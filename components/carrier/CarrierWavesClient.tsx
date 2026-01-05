@@ -20,7 +20,12 @@ function cn(...a: Array<string | false | null | undefined>) {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
+  const res = await fetch(url, {
+    cache: "no-store",
+    // ✅ forza invio cookie/session anche in contesti strani (custom domain / redirect)
+    credentials: "include",
+    ...init,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => null);
     throw new Error(`[${res.status}] ${url} ${err ? JSON.stringify(err) : ""}`);
@@ -52,7 +57,7 @@ export default function CarrierWavesClient() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
 
-   async function load() {
+  async function load() {
     setLoading(true);
     setErr(null);
     try {
@@ -79,7 +84,6 @@ export default function CarrierWavesClient() {
     }
   }
 
-
   useEffect(() => {
     void load();
   }, []);
@@ -90,9 +94,11 @@ export default function CarrierWavesClient() {
       // Carrier vede solo wave INVIATA e oltre (esclude BOZZA)
       const waveStatus = (w.status ?? "").toLowerCase();
       const isNotBozza = waveStatus !== "bozza";
-      
+
       const okStatus =
-        status === "all" ? isNotBozza : (w.status ?? "").toLowerCase() === status;
+        status === "all"
+          ? isNotBozza
+          : (w.status ?? "").toLowerCase() === status;
       const okQuery =
         !qq ||
         (w.code ?? "").toLowerCase().includes(qq) ||
@@ -153,9 +159,7 @@ export default function CarrierWavesClient() {
         </div>
 
         {err ? (
-          <div className="px-4 py-4 text-sm text-rose-700">
-            Errore: {err}
-          </div>
+          <div className="px-4 py-4 text-sm text-rose-700">Errore: {err}</div>
         ) : null}
 
         {!loading && filtered.length === 0 ? (
