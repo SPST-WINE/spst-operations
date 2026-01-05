@@ -85,7 +85,7 @@ export function buildWaveAcceptedCarrierHtml(opts: {
 
                 <p style="margin:0 0 14px 0;color:#374151;font-size:14px;line-height:1.55;">
                   ${name ? `Ciao <strong>${escapeHtml(name)}</strong>,` : `Ciao,`}
-                  hai accettato correttamente la wave. Lo stato è stato aggiornato a <strong>IN_CORSO</strong>.
+                  hai accettato correttamente la wave. Lo stato è stato aggiornato a <strong>IN CORSO</strong>.
                 </p>
 
                 <table role="presentation" style="width:100%;margin:6px 0 18px;">
