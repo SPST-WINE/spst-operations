@@ -19,6 +19,14 @@ export async function GET(
   const supabase = supabaseServerSpst();
   const waveId = params.id;
 
+  // ✅ Evita 404/oggetti vuoti quando manca la sessione.
+  const {
+    data: { user },
+  } = await (supabase as any).auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
+
   const { data, error } = await supabase
     .schema("spst")
     .from("pallet_waves")
