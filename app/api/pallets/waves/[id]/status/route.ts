@@ -70,7 +70,10 @@ export async function PATCH(
     .single();
 
   if (fetchError || !currentWave) {
-    console.error("[PATCH /api/pallets/waves/:id/status] Wave not found:", fetchError);
+    console.error(
+      "[PATCH /api/pallets/waves/:id/status] Wave not found:",
+      fetchError
+    );
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }
 
@@ -86,7 +89,9 @@ export async function PATCH(
   }
 
   // Verifica che il carrier abbia accesso a questa wave
-  const { data: { user } } = await sessionSupabase.auth.getUser();
+  const {
+    data: { user },
+  } = await sessionSupabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
