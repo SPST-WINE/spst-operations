@@ -44,6 +44,34 @@ export async function GET() {
 
   const supabase = isStaff ? getAdminSupabase() : supabaseServerSpst();
 
+  // ✅ Evita "liste vuote silenziose" quando manca la sessione.
+  // Se non è staff, deve essere autenticato (carrier session-based).
+  if (!isStaff) {
+    const {
+      data: { user },
+    } = await (supabase as any).auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+    }
+
+    // ✅ deve essere un carrier abilitato (altrimenti non ha senso interrogare le wave)
+    const { data: cu, error: cuErr } = await (supabase as any)
+      .schema("spst")
+      .from("carrier_users")
+      .select("carrier_id, role, enabled")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (cuErr || !cu) {
+      return NextResponse.json({ error: "CARRIER_REQUIRED" }, { status: 403 });
+    }
+
+    if (cu.enabled === false) {
+      return NextResponse.json({ error: "CARRIER_DISABLED" }, { status: 403 });
+    }
+  }
+
   const { data, error } = await supabase
     .schema("spst")
     .from("pallet_waves")
