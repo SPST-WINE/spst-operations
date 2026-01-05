@@ -63,7 +63,12 @@ function cn(...a: Array<string | false | null | undefined>) {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
+  const res = await fetch(url, {
+    cache: "no-store",
+    // ✅ forza invio cookie/session anche in contesti strani (custom domain / redirect)
+    credentials: "include",
+    ...init,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => null);
     throw new Error(`[${res.status}] ${url} ${err ? JSON.stringify(err) : ""}`);
@@ -243,11 +248,15 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                   if (acceptText.trim() !== "accetto ritiro e trasporto") return;
                   setUpdatingStatus(true);
                   try {
-                    const res = await fetch(`/api/pallets/waves/${encodeURIComponent(waveId)}/status`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ status: "in_corso" }),
-                    });
+                    const res = await fetch(
+                      `/api/pallets/waves/${encodeURIComponent(waveId)}/status`,
+                      {
+                        method: "PATCH",
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "in_corso" }),
+                      }
+                    );
                     if (!res.ok) {
                       const err = await res.json().catch(() => null);
                       throw new Error(err?.message || "Failed to update status");
@@ -260,7 +269,10 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
                     setUpdatingStatus(false);
                   }
                 }}
-                disabled={updatingStatus || acceptText.trim() !== "accetto ritiro e trasporto"}
+                disabled={
+                  updatingStatus ||
+                  acceptText.trim() !== "accetto ritiro e trasporto"
+                }
                 className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {updatingStatus ? "Accettazione..." : "Accetta wave"}
@@ -311,7 +323,9 @@ export default function CarrierWaveDetailClient({ waveId }: { waveId: string }) 
               destName,
               [
                 s?.destinatario_indirizzo,
-                [s?.destinatario_cap, s?.destinatario_citta].filter(Boolean).join(" "),
+                [s?.destinatario_cap, s?.destinatario_citta]
+                  .filter(Boolean)
+                  .join(" "),
                 s?.destinatario_paese,
               ]
                 .filter(Boolean)
