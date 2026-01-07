@@ -159,7 +159,7 @@ export default function LoginPage() {
             href="/reset-password"
             className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
           >
-            Hai dimenticato la password?
+            Password dimenticata?
           </a>
 
           <a
