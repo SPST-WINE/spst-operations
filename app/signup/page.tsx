@@ -1,9 +1,9 @@
-// app/signup/page.tsx
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { Eye, EyeOff } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 type Status = "idle" | "loading" | "success" | "error";
@@ -13,6 +13,8 @@ export default function SignupPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -43,8 +45,7 @@ export default function SignupPage() {
 
       setStatus("success");
 
-      // Se email confirmation è ON, spesso non hai session immediata.
-      // Messaggio chiaro e redirect al login.
+      // Email confirmation ON
       if (!data.session) {
         setInfo(
           "Registrazione completata. Controlla la tua email per confermare l’account, poi effettua il login."
@@ -52,7 +53,7 @@ export default function SignupPage() {
         return;
       }
 
-      // Se confirmation OFF → sei già loggato
+      // Email confirmation OFF
       router.push("/dashboard/spedizioni");
     } catch (err: any) {
       setStatus("error");
@@ -110,44 +111,83 @@ export default function SignupPage() {
             >
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#1c3e5e] focus:ring-1 focus:ring-[#1c3e5e]"
-              placeholder="Min. 8 caratteri"
-            />
+
+            <div className="relative">
+              <input
+                id="password"
+                type={showPw ? "text" : "password"}
+                autoComplete="new-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-11 text-sm outline-none focus:border-[#1c3e5e] focus:ring-1 focus:ring-[#1c3e5e]"
+                placeholder="Min. 8 caratteri"
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? "Nascondi password" : "Mostra password"}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
+              >
+                {showPw ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
           </div>
 
-          {error ? (
-            <p className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
+          {/* Messaggi */}
+          {error && (
+            <p className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-3 py-2">
               {error}
             </p>
-          ) : null}
+          )}
 
-          {info ? (
+          {info && (
             <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-3 py-2">
               {info}
             </p>
-          ) : null}
+          )}
+
+          {/* Legal */}
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Registrandoti accetti i{" "}
+            <a
+              href="https://www.spst.it/legal"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[#1c3e5e] hover:underline"
+            >
+              Termini & Privacy
+            </a>
+            .
+          </p>
 
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-lg bg-[#1c3e5e] text-white text-sm font-medium py-2.5 mt-2 hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full rounded-lg bg-[#1c3e5e] text-white text-sm font-medium py-2.5 mt-1 hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isLoading ? "Creazione account…" : "Registrati"}
           </button>
         </form>
 
-        <div className="mt-4 flex items-center justify-between text-xs">
-          <a href="/login" className="text-[#1c3e5e] hover:underline">
-            Hai già un account? Accedi
+        {/* Bottoni link */}
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <a
+            href="/login"
+            className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
+          >
+            Hai già un account?
           </a>
-          <a href="/reset-password" className="text-[#1c3e5e] hover:underline">
+
+          <a
+            href="/reset-password"
+            className="inline-flex items-center justify-center rounded-lg border border-[#1c3e5e]/20 bg-[#1c3e5e]/5 px-3 py-2 text-xs font-semibold text-[#1c3e5e] shadow-sm hover:bg-[#1c3e5e]/10 focus:outline-none focus:ring-2 focus:ring-[#1c3e5e]/30"
+          >
             Password dimenticata
           </a>
         </div>
